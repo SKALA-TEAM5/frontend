@@ -1,0 +1,62 @@
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: 'Noto Sans KR', sans-serif; background: #f4f6f5; color: #111; }
+  #root { height: 100%; }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cde4d4; border-radius: 99px; }
+  .screen-enter { animation: fadeUp 0.28s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
+  @keyframes loadingSlide { from { transform:translateX(-140%); } to { transform:translateX(340%); } }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 11px 16px; text-align: left; font-size: 13px; }
+  th { font-weight: 700; background: #F0FAF3; color: #2A3B32; }
+  td { color: #5A726A; border-top: 1px solid #E2EBE5; }
+  tr:hover td { background: #F8FAFB; }
+  .speech-bubble {
+    position: relative;
+    background: white;
+    border-radius: 18px;
+    border-bottom-left-radius: 4px;
+    padding: 18px 24px;
+    box-shadow: 0 2px 16px rgba(27,94,59,.09);
+  }
+  .speech-bubble::before {
+    content: '';
+    position: absolute;
+    left: -10px;
+    bottom: 16px;
+    border-top: 0 solid transparent;
+    border-bottom: 10px solid transparent;
+    border-right: 10px solid white;
+  }
+  .folder-popup {
+    position: fixed;
+    z-index: 500;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(27,94,59,.18);
+    width: 300px;
+    animation: fadeUp .2s cubic-bezier(.22,1,.36,1) both;
+    border: 1.5px solid #E2EBE5;
+  }
+  .floating-history-sidebar {
+    display: none;
+  }
+  @media (min-width: 1920px) {
+    .floating-history-sidebar {
+      display: block;
+      position: fixed;
+      top: 365px;
+      right: calc((100vw - 1400px) / 2 - 260px);
+      z-index: 10;
+      margin-right: 25px;
+    }
+  }
+  .history-date-tabs {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .history-date-tabs::-webkit-scrollbar {
+    display: none;
+  }

@@ -1,0 +1,18 @@
+export const C = {
+  primary: '#1B5E3B',
+  mid: '#2E7D52',
+  light: '#4CAF78',
+  bg: '#E8F5E9',
+  soft: '#F0FAF3',
+  white: '#FFFFFF',
+  g100: '#F1F5F2',
+  g200: '#E2EBE5',
+  g400: '#9BB3A2',
+  g600: '#5A726A',
+  g800: '#2A3B32',
+  danger: '#E53935',
+  dangerBg: '#FFF5F5',
+  warn: '#F57C00',
+  warnBg: '#FFF8F0',
+  ok: '#2E7D52',
+};
