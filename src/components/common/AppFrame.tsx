@@ -1,49 +1,81 @@
+'use client';
+
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { C } from '../../lib/theme';
-import { CURRENT_USER } from '../../lib/project-data';
 import { ROLE_LABELS } from '../../lib/permissions';
+import { type DevUserRole, useCurrentUser } from '../../lib/dev-user';
 interface AppFrameProps {
     title: string;
     description?: string;
     actions?: React.ReactNode;
+    mainClassName?: string;
     children: React.ReactNode;
 }
-export default function AppFrame({ title, description, actions, children }: AppFrameProps) {
+export default function AppFrame({ title, description, mainClassName, children }: AppFrameProps) {
+    const { user, role, setCurrentRole } = useCurrentUser();
+    const router = useRouter();
+    const pathname = usePathname();
+    const handleRoleChange = (nextRole: DevUserRole) => {
+        setCurrentRole(nextRole);
+        window.location.href = nextRole === 'project_manager' ? '/projects' : '/dashboard';
+    };
+    const navItems = user.role === 'she_manager'
+        ? [{ href: '/dashboard', label: '대시보드' }, { href: '/projects', label: '전체 프로젝트' }]
+        : [{ href: '/projects', label: '담당 프로젝트' }];
+    const goBack = () => {
+        if (window.history.length > 1) {
+            router.back();
+            return;
+        }
+        router.push(user.role === 'project_manager' ? '/projects' : '/dashboard');
+    };
+    const isRoleHome =
+        (user.role === 'she_manager' && pathname === '/dashboard') ||
+        (user.role === 'project_manager' && pathname === '/projects');
     return (<div data-ui="components-common-app-frame.div-1" style={{ minHeight: '100vh', background: C.soft }}>
-      <header data-ui="components-common-app-frame.header-1" style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(255,255,255,.94)', backdropFilter: 'blur(10px)', borderBottom: `1px solid ${C.g200}` }}>
-        <div data-ui="components-common-app-frame.div-2" style={{ maxWidth: 1400, margin: '0 auto', padding: '16px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 18 }}>
-          <div data-ui="components-common-app-frame.div-3" style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-            <div data-ui="components-common-app-frame.div-4" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <img data-ui="components-common-app-frame.img-1" src="/uploads/character.png" alt="산안비 검증" style={{ width: 34, height: 34, borderRadius: 10, objectFit: 'cover' }}/>
-              <div data-ui="components-common-app-frame.div-5">
-                <div data-ui="components-common-app-frame.div-6" style={{ fontSize: 13, fontWeight: 900, color: C.primary }}>산안비 검증</div>
-                <div data-ui="components-common-app-frame.div-7" style={{ fontSize: 10, color: C.g400 }}>프로젝트 운영 대시보드</div>
-              </div>
-            </div>
-            <nav data-ui="components-common-app-frame.nav-1" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {[
-            { href: '/dashboard', label: '대시보드' },
-            { href: '/projects', label: '프로젝트' },
-        ].map((item) => (<Link key={item.href} href={item.href} style={{ padding: '9px 14px', borderRadius: 10, textDecoration: 'none', color: C.g600, fontSize: 13, fontWeight: 700 }}>
-                  {item.label}
-                </Link>))}
-            </nav>
-          </div>
-          <div data-ui="components-common-app-frame.div-8" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            {actions}
-            <div data-ui="components-common-app-frame.div-9" style={{ textAlign: 'right' }}>
-              <div data-ui="components-common-app-frame.div-10" style={{ fontSize: 12, fontWeight: 700, color: C.g800 }}>{CURRENT_USER.name}</div>
-              <div data-ui="components-common-app-frame.div-11" style={{ fontSize: 11, color: C.g400 }}>{ROLE_LABELS[CURRENT_USER.role]}</div>
-            </div>
+      <aside data-ui="components-common-app-frame.sidebar" className="app-sidebar">
+        <div data-ui="components-common-app-frame.sidebar-brand" style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+          <img data-ui="components-common-app-frame.sidebar-brand-icon" src="/uploads/character.png" alt="산안비 검증" style={{ width: 38, height: 38, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }}/>
+          <div data-ui="components-common-app-frame.sidebar-brand-text" style={{ minWidth: 0 }}>
+            <div data-ui="components-common-app-frame.sidebar-brand-title" style={{ fontSize: 15, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>산안비 검증</div>
+            <div data-ui="components-common-app-frame.sidebar-brand-subtitle" style={{ fontSize: 11, color: C.g400, fontWeight: 700, whiteSpace: 'nowrap' }}>프로젝트 운영</div>
           </div>
         </div>
-      </header>
-      <main data-ui="components-common-app-frame.main-1" style={{ maxWidth: 1400, margin: '0 auto', padding: '28px 28px 40px' }}>
-        <div data-ui="components-common-app-frame.div-12" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, marginBottom: 24 }}>
-          <div data-ui="components-common-app-frame.div-13">
-            <h1 data-ui="components-common-app-frame.h1-1" style={{ fontSize: 30, fontWeight: 900, color: C.g800, letterSpacing: '-0.04em', lineHeight: 1.1 }}>{title}</h1>
-            {description && <p data-ui="components-common-app-frame.p-1" style={{ marginTop: 8, fontSize: 14, color: C.g400 }}>{description}</p>}
+
+        <nav data-ui="components-common-app-frame.sidebar-nav" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 30 }}>
+          {navItems.map((item) => {
+            const active = pathname === item.href;
+            return (<Link key={item.href} href={item.href} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 12px', borderRadius: 12, textDecoration: 'none', color: active ? C.primary : C.g600, background: active ? C.bg : 'transparent', fontSize: 13, fontWeight: 900 }}>
+              <span data-ui="components-common-app-frame.sidebar-nav-dot" style={{ width: 7, height: 7, borderRadius: 99, background: active ? C.primary : C.g200, flexShrink: 0 }}/>
+              {item.label}
+            </Link>);
+        })}
+        </nav>
+
+        <div data-ui="components-common-app-frame.sidebar-current" style={{ marginTop: 20, padding: '14px 12px', borderRadius: 14, background: '#FCFEFD', border: `1px solid ${C.g200}` }}>
+          <div data-ui="components-common-app-frame.sidebar-current-label" style={{ fontSize: 10, fontWeight: 900, color: C.g400, marginBottom: 5 }}>현재 화면</div>
+          <div data-ui="components-common-app-frame.sidebar-current-title" style={{ fontSize: 13, fontWeight: 900, color: C.g800, lineHeight: 1.35 }}>{title}</div>
+        </div>
+
+        <div data-ui="components-common-app-frame.sidebar-user" style={{ marginTop: 'auto', borderTop: `1px solid ${C.g200}`, paddingTop: 16 }}>
+          <select data-ui="components-common-app-frame.role-switcher" value={role} onChange={(event) => handleRoleChange(event.target.value as DevUserRole)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 10, padding: '9px 10px', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: C.g600, background: C.white, cursor: 'pointer', marginBottom: 12 }}>
+            <option value="project_manager">프로젝트 담당자</option>
+            <option value="she_manager">SHE 관리자</option>
+          </select>
+          <div data-ui="components-common-app-frame.sidebar-user-card" style={{ padding: 12, borderRadius: 14, background: C.bg, border: `1px solid ${C.g200}` }}>
+            <div data-ui="components-common-app-frame.sidebar-user-name" style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>{user.name}</div>
+            <div data-ui="components-common-app-frame.sidebar-user-role" style={{ fontSize: 11, color: C.g400, fontWeight: 800, marginTop: 3 }}>{ROLE_LABELS[user.role]}</div>
           </div>
+        </div>
+      </aside>
+
+      <main data-ui="components-common-app-frame.main-1" className={mainClassName ? `app-main ${mainClassName}` : 'app-main'}>
+        <div data-ui="components-common-app-frame.main-back-row" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          {!isRoleHome && <button data-ui="components-common-app-frame.back-button" type="button" onClick={goBack} style={{ border: `1px solid ${C.g200}`, borderRadius: 10, background: C.white, color: C.g800, padding: '9px 13px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 900 }}>
+            ← 뒤로 가기
+          </button>}
+          {description && <div data-ui="components-common-app-frame.main-description" style={{ fontSize: 12, color: C.g400, fontWeight: 700 }}>{description}</div>}
         </div>
         {children}
       </main>

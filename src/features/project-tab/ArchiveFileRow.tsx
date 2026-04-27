@@ -6,6 +6,7 @@ const KIND_LABELS: Record<EvidenceCategory, string> = {
     site_photo: '현장사진',
     usage_statement: '사용내역서',
     tax_invoice: '세금내역서 + 제3자사실관계확인서',
+    other_document: '기타 서류',
 };
 const TYPE_BADGE_STYLES: Record<EvidenceCategory, {
     color: string;
@@ -16,6 +17,7 @@ const TYPE_BADGE_STYLES: Record<EvidenceCategory, {
     site_photo: { color: C.ok, bg: '#F4FBF6', border: '#D6EEDB' },
     usage_statement: { color: '#8A6D3B', bg: '#FFF9E8', border: '#F2D59B' },
     tax_invoice: { color: '#7B4CE2', bg: '#F5F0FF', border: '#D9C7FF' },
+    other_document: { color: C.g600, bg: C.g100, border: C.g200 },
 };
 interface ArchiveFileRowProps {
     file: EvidenceFile;

@@ -64,6 +64,11 @@ const MOCK_FILES: Record<EvidenceCategory, MockFileBuckets> = {
     7: ['세금내역서_위험성평가_6월.pdf', '제3자사실관계확인서_위험성평가_6월.pdf'],
     9: ['세금내역서_건강관리_7월.pdf', '제3자사실관계확인서_건강관리_7월.pdf'],
   },
+  other_document: {
+    1: ['안전관리자_선임계.pdf'],
+    3: ['보호구_지급대장.xlsx'],
+    5: ['안전시설_설치확인서.pdf'],
+  },
 };
 
 const CATEGORY_KEYWORDS: CategoryKeywordMap = {
@@ -80,9 +85,9 @@ const CATEGORY_KEYWORDS: CategoryKeywordMap = {
 
 export const MOCK_USAGE: string[] = ['사용내역서_2024_1분기.pdf', '사용내역서_2024_2분기.pdf', '사용내역서_2024_3분기.xlsx'];
 export const CONTRACT_DB: ContractInfo[] = [
-  { name: '동탄 물류센터 증축공사 산안비 정산', num: '2024-0042', project: '동탄 물류센터 증축공사', period: '2022년 1월 ~ 2023년 1월', round: '4차', planned: '12,000,000,000', accumulated: '48,614,045' },
-  { name: '평택 제조시설 안전보건관리비 집행', num: '2024-0108', project: '평택 제조시설 증설', period: '2023년 6월 ~ 2024년 12월', round: '2차', planned: '8,500,000,000', accumulated: '31,120,000' },
-  { name: '광명 데이터센터 산업안전보건관리비', num: '2025-0016', project: '광명 데이터센터 신축', period: '2025년 2월 ~ 2026년 8월', round: '1차', planned: '15,700,000,000', accumulated: '9,820,000' },
+  { name: '동탄 물류센터 증축공사 산안비 정산', num: '2024-0042', project: '동탄 물류센터 증축공사', period: '2024/10/23~2025/06/21', round: '4차', planned: '12,000,000,000', accumulated: '48,614,045' },
+  { name: '평택 제조시설 안전보건관리비 집행', num: '2024-0108', project: '평택 제조시설 증설', period: '2023/06/01~2024/12/31', round: '2차', planned: '8,500,000,000', accumulated: '31,120,000' },
+  { name: '광명 데이터센터 산업안전보건관리비', num: '2025-0016', project: '광명 데이터센터 신축', period: '2025/02/01~2026/08/31', round: '1차', planned: '15,700,000,000', accumulated: '9,820,000' },
 ];
 export const MATCH_STATUS: MatchStatusMap = { 1: 'ok', 2: 'review', 3: 'ok', 4: 'ok', 5: 'ok', 6: 'edit', 7: 'ok', 8: 'review', 9: 'ok' };
 export const SITE_DESCRIPTION_SEED: Record<string, string> = {
@@ -169,6 +174,7 @@ export const normalizeArchiveData = (seed: ArchiveSeed | null): ArchiveSeed => {
     site_photo: seed.site_photo || base.site_photo,
     usage_statement: usageStatement.map((file) => ({ ...file, kind: 'usage_statement', categoryIds: [] })),
     tax_invoice: seed.tax_invoice || base.tax_invoice,
+    other_document: seed.other_document || base.other_document,
   };
 };
 export const createDefaultArchiveData = (): ArchiveSeed => ({
@@ -176,11 +182,12 @@ export const createDefaultArchiveData = (): ArchiveSeed => ({
   site_photo: seedArchiveEntries(MOCK_FILES.site_photo, 'site_photo'),
   usage_statement: seedProjectUsageStatements(MOCK_FILES.usage_statement),
   tax_invoice: seedArchiveEntries(MOCK_FILES.tax_invoice, 'tax_invoice'),
+  other_document: seedArchiveEntries(MOCK_FILES.other_document, 'other_document'),
 });
 export const buildArchiveDataFromUploads = (files?: UploadedEvidenceMap | null): ArchiveSeed => {
   const base = createDefaultArchiveData();
   if (!files) return base;
-  (['receipt', 'site_photo', 'tax_invoice'] as const).forEach((kind) => {
+  (['receipt', 'site_photo', 'tax_invoice', 'other_document'] as const).forEach((kind) => {
     const list = files[kind] || [];
     list.forEach((entry, index) => {
       const categoryIds = entry.categoryIds?.length ? entry.categoryIds : [((index % CATS.length) + 1)];

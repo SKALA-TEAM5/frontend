@@ -4,10 +4,11 @@ import { C } from '../../lib/theme';
 import { CATS, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData } from '../../lib/mock-data';
 import { PhotoDescriptionModal } from './EvidenceModals';
 import ArchiveFolderGrid from './ArchiveFolderGrid';
+import ArchiveHierarchyView, { type HierarchyEvidenceKind } from './ArchiveHierarchyView';
 import ArchivePreview from './ArchivePreview';
-import ArchiveToolbar, { type ArchiveTabId, type ArchiveViewMode } from './ArchiveToolbar';
+import ArchiveToolbar, { type ArchiveViewMode } from './ArchiveToolbar';
 import ArchiveUsageStatementView from './ArchiveUsageStatementView';
-import type { ArchiveSeed, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
+import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 interface ArchiveScreenProps {
     matchReady: boolean;
     onDismissMatchReady: () => void;
@@ -28,12 +29,15 @@ const uniqueFiles = (files: EvidenceFile[]) => {
         return true;
     });
 };
-const FOLDER_EVIDENCE_KINDS: FolderEvidenceCategory[] = ['receipt', 'site_photo', 'tax_invoice'];
+const FOLDER_EVIDENCE_KINDS: FolderEvidenceCategory[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
+const HIERARCHY_EVIDENCE_KINDS: HierarchyEvidenceKind[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
 export default function ArchiveScreen({ matchReady, onDismissMatchReady, archiveSeed }: ArchiveScreenProps) {
-    const [tab, setTab] = useState<ArchiveTabId>('receipt');
-    const [viewMode, setViewMode] = useState<ArchiveViewMode>('folder');
+    const [viewMode, setViewMode] = useState<ArchiveViewMode>('hierarchy');
     const [dragFile, setDragFile] = useState<DragContext>(null);
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(archiveSeed || createDefaultArchiveData()));
+    const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(1);
+    const [selectedHierarchyKind, setSelectedHierarchyKind] = useState<HierarchyEvidenceKind>('receipt');
+    const [selectedHierarchyFile, setSelectedHierarchyFile] = useState<EvidenceFile | null>(null);
     const [siteModalContext, setSiteModalContext] = useState<{
         catId: number;
         files: EvidenceFile[];
@@ -48,10 +52,20 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
             setFileData(normalizeArchiveData(archiveSeed));
     }, [archiveSeed]);
     const getFilesForCategory = (kind: FolderEvidenceCategory, catId: number) => fileData[kind]?.[catId] || [];
+    const getHierarchyFilesForCategory = (kind: HierarchyEvidenceKind, catId: number) => kind === 'misc' ? [] : getFilesForCategory(kind, catId);
+    const getAllHierarchyFilesForCategory = (catId: number) => HIERARCHY_EVIDENCE_KINDS.flatMap((kind) => getHierarchyFilesForCategory(kind, catId));
     const getAllFilesForCategory = (catId: number) => {
         const merged = FOLDER_EVIDENCE_KINDS.flatMap((kind) => getFilesForCategory(kind, catId).map((file) => ({ ...file, kind })));
         return uniqueFiles(merged);
     };
+    useEffect(() => {
+        if (viewMode !== 'hierarchy')
+            return;
+        const files = getHierarchyFilesForCategory(selectedHierarchyKind, selectedHierarchyCatId);
+        if (selectedHierarchyFile && files.some((file) => file.id === selectedHierarchyFile.id))
+            return;
+        setSelectedHierarchyFile(files[0] || null);
+    }, [fileData, selectedHierarchyCatId, selectedHierarchyFile, selectedHierarchyKind, viewMode]);
     const moveFile = (kind: FolderEvidenceCategory, fromCat: number, toCat: number, fileEntry: EvidenceFile) => {
         setFileData((prev) => {
             const next = { ...prev, [kind]: { ...prev[kind] } };
@@ -113,18 +127,42 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
         };
         input.click();
     };
+    const openHierarchyAdd = (kind: HierarchyEvidenceKind, catId: number) => {
+        if (kind !== 'misc')
+            openArchiveAdd(kind, catId);
+    };
+    const removeHierarchyFile = (kind: HierarchyEvidenceKind, catId: number, fileId: string) => {
+        if (kind !== 'misc') {
+            removeArchiveFile(kind, catId, fileId);
+            return;
+        }
+    };
+    const moveHierarchyFile = (fromKind: HierarchyEvidenceKind, fromCatId: number, toKind: HierarchyEvidenceKind, toCatId: number, fileEntry: EvidenceFile) => {
+        if (fromKind === toKind && fromCatId === toCatId)
+            return;
+        if (fromKind === 'misc' || toKind === 'misc')
+            return;
+        const nextKind: EvidenceCategory = toKind;
+        const movedFile: EvidenceFile = { ...fileEntry, kind: nextKind, categoryIds: [toCatId] };
+        setFileData((prev) => {
+            const next = { ...prev, [fromKind]: { ...prev[fromKind] }, [toKind]: { ...prev[toKind] } };
+            next[fromKind][fromCatId] = (next[fromKind][fromCatId] || []).filter((file) => file.id !== fileEntry.id);
+            next[toKind][toCatId] = [...(next[toKind][toCatId] || []), movedFile];
+            return next;
+        });
+        setSelectedHierarchyCatId(toCatId);
+        setSelectedHierarchyKind(toKind);
+        setSelectedHierarchyFile(movedFile);
+    };
     const totalVisibleFiles = viewMode === 'folder'
         ? uniqueFiles(CATS.flatMap((cat) => getAllFilesForCategory(cat.id))).length
+        : viewMode === 'hierarchy'
+            ? getAllHierarchyFilesForCategory(selectedHierarchyCatId).length
         : viewMode === 'usage'
             ? fileData.usage_statement.length
-            : uniqueFiles(CATS.flatMap((cat) => getFilesForCategory(tab, cat.id).map((file) => ({ ...file, kind: tab })))).length;
+            : 0;
     return (<div data-ui="features-project-tab-archive-screen.div-1" style={{ background: C.soft, position: 'relative' }}>
       <div data-ui="features-project-tab-archive-screen.div-2" className="screen-enter">
-        <div data-ui="features-project-tab-archive-screen.div-3" style={{ marginBottom: 20 }}>
-          <h1 data-ui="features-project-tab-archive-screen.h1-1" style={{ fontSize: 30, fontWeight: 900, color: C.g800, letterSpacing: '-0.04em' }}>증빙 자료 아카이브</h1>
-          <p data-ui="features-project-tab-archive-screen.p-1" style={{ fontSize: 14, color: C.g400, marginTop: 5 }}>폴더별 통합 보기, 자료유형별 보기, 프로젝트 기준 사용내역서 보기를 전환하면서 제출 자료를 확인할 수 있어요.</p>
-        </div>
-
         {matchReady && (<Card style={{ marginBottom: 16, padding: '14px 18px', background: C.bg, border: `1px solid ${C.light}` }}>
             <div data-ui="features-project-tab-archive-screen.div-4" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
               <div data-ui="features-project-tab-archive-screen.div-5" style={{ fontSize: 13, fontWeight: 700, color: C.primary }}>매칭 검토가 완료되었습니다. 파일을 드래그해 다른 폴더로 이동할 수 있습니다.</div>
@@ -132,18 +170,21 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
             </div>
           </Card>)}
 
-        <ArchiveToolbar viewMode={viewMode} tab={tab} totalVisibleFiles={totalVisibleFiles} onViewModeChange={setViewMode} onTabChange={(nextTab) => {
-            setTab(nextTab);
-            setHoverPreview(null);
-        }}/>
+        <ArchiveToolbar viewMode={viewMode} totalVisibleFiles={totalVisibleFiles} onViewModeChange={setViewMode}/>
 
-        <div data-ui="features-project-tab-archive-screen.div-6" key={`${viewMode}-${tab}`} className="screen-enter">
-          {viewMode === 'usage' ? (<ArchiveUsageStatementView files={fileData.usage_statement} onAdd={openUsageStatementAdd} onRemove={removeUsageStatement}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} tab={tab} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} getFilesForCategory={getFilesForCategory} onDropFile={(toCat) => {
+        <div data-ui="features-project-tab-archive-screen.div-6" key={viewMode} className="screen-enter" style={{ paddingTop: 0 }}>
+          {viewMode === 'usage' ? (<ArchiveUsageStatementView files={fileData.usage_statement} onAdd={openUsageStatementAdd} onRemove={removeUsageStatement}/>) : viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} selectedCatId={selectedHierarchyCatId} selectedKind={selectedHierarchyKind} selectedFile={selectedHierarchyFile} getFiles={getHierarchyFilesForCategory} onSelectCat={(catId) => {
+                setSelectedHierarchyCatId(catId);
+                setSelectedHierarchyFile(null);
+            }} onSelectKind={(kind) => {
+                setSelectedHierarchyKind(kind);
+                setSelectedHierarchyFile(null);
+            }} onSelectFile={setSelectedHierarchyFile} onAdd={openHierarchyAdd} onRemove={removeHierarchyFile} onMove={moveHierarchyFile}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} onDropFile={(toCat) => {
             if (!dragFile)
                 return;
             moveFile(dragFile.kind, dragFile.fromCat, toCat, dragFile.file);
             setDragFile(null);
-        }} onSetDragFile={setDragFile} onAdd={openArchiveAdd} onRemove={removeArchiveFile} onPreview={(entry, x, y) => setHoverPreview({ entry, x, y })} onPreviewEnd={() => setHoverPreview(null)}/>)}
+        }} onSetDragFile={setDragFile} onRemove={removeArchiveFile} onPreview={(entry, x, y) => setHoverPreview({ entry, x, y })} onPreviewEnd={() => setHoverPreview(null)}/>)}
         </div>
       </div>
 

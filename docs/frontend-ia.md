@@ -109,8 +109,9 @@ general < project_manager < she_manager
   - 프로젝트 담당자는 `manager` 기준 프로젝트 접근
   - SHE 담당자는 전체 프로젝트 접근
 - 프로젝트 단계 모델 반영
-  - 9단계 `ProjectStageStepper`
-  - 마지막 9번 단계 뒤 연결선 제거
+  - 8단계 `ProjectStageStepper`
+  - 마지막 단계 뒤 연결선 제거
+  - 등록 → 업로드 → 현장사진 검증 → 유효성 검증 → SHE 검토 → 조치 요청 → 보완/재검증 → 보고서 생성
 - 백엔드 협의 문서 작성
   - 권한, 프로젝트 단계, 핵심 엔티티, API 후보, 증빙 흐름 초안
 - 프로젝트 상세 탭 구조 정리

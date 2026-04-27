@@ -1,9 +1,8 @@
 import type { CSSProperties } from 'react';
-import Button from '../../components/ui/Button';
 import { C } from '../../lib/theme';
 import ArchiveFileRow from './ArchiveFileRow';
 import type { EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
-import type { ArchiveTabId, ArchiveViewMode } from './ArchiveToolbar';
+import type { ArchiveViewMode } from './ArchiveToolbar';
 interface CategoryMeta {
     id: number;
     short: string;
@@ -16,13 +15,10 @@ type DragContext = {
 interface ArchiveFolderGridProps {
     cats: CategoryMeta[];
     viewMode: ArchiveViewMode;
-    tab: ArchiveTabId;
     dragFile: DragContext;
     getAllFilesForCategory: (catId: number) => EvidenceFile[];
-    getFilesForCategory: (kind: FolderEvidenceCategory, catId: number) => EvidenceFile[];
     onDropFile: (toCat: number) => void;
     onSetDragFile: (drag: DragContext) => void;
-    onAdd: (kind: FolderEvidenceCategory, catId: number) => void;
     onRemove: (kind: FolderEvidenceCategory, catId: number, fileId: string) => void;
     onPreview: (entry: EvidenceFile, x: number, y: number) => void;
     onPreviewEnd: () => void;
@@ -48,10 +44,10 @@ function FolderThumb({ empty }: {
       <path data-ui="features-project-tab-archive-folder-grid.folder-thumb-line" d="M16 36H45" stroke={empty ? '#B8C7BE' : '#6FAF7E'} strokeWidth="4" strokeLinecap="round"/>
     </svg>);
 }
-export default function ArchiveFolderGrid({ cats, viewMode, tab, dragFile, getAllFilesForCategory, getFilesForCategory, onDropFile, onSetDragFile, onAdd, onRemove, onPreview, onPreviewEnd }: ArchiveFolderGridProps) {
+export default function ArchiveFolderGrid({ cats, viewMode, dragFile, getAllFilesForCategory, onDropFile, onSetDragFile, onRemove, onPreview, onPreviewEnd }: ArchiveFolderGridProps) {
     return (<div data-ui="features-project-tab-archive-folder-grid.div-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 18 }}>
       {cats.map((cat) => {
-            const files = viewMode === 'folder' ? getAllFilesForCategory(cat.id) : getFilesForCategory(tab, cat.id);
+            const files = getAllFilesForCategory(cat.id);
             const count = files.length;
             const empty = count === 0;
             return (<div data-ui="features-project-tab-archive-folder-grid.div-2" key={`${viewMode}-${cat.id}`} onDragOver={(e) => { if (!dragFile)
@@ -69,14 +65,13 @@ export default function ArchiveFolderGrid({ cats, viewMode, tab, dragFile, getAl
                 <div data-ui="features-project-tab-archive-folder-grid.div-6" style={{ fontSize: 13, fontWeight: 800, color: empty ? C.g400 : C.g800, lineHeight: 1.35, wordBreak: 'keep-all' }}>{cat.short}</div>
                 <div data-ui="features-project-tab-archive-folder-grid.div-7" style={{ fontSize: 11, fontWeight: 700, color: C.g400, whiteSpace: 'nowrap' }}>{empty ? '0개' : `${count}개`}</div>
               </div>
-              {viewMode === 'type' && <Button size="sm" variant="outline" style={{ padding: '5px 9px', fontSize: 11 }} onClick={() => onAdd(tab, cat.id)}>추가</Button>}
             </div>
             <div data-ui="features-project-tab-archive-folder-grid.div-8" style={{ border: `1px solid ${C.g100}`, borderRadius: 14, background: '#FCFEFD', padding: '10px 8px 0 10px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               <div data-ui="features-project-tab-archive-folder-grid.div-9" style={{ overflowY: 'auto', paddingRight: 4, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 172 }}>
                 {empty && <div data-ui="features-project-tab-archive-folder-grid.div-10" style={{ minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: C.g400 }}>이 폴더는 비어 있습니다</div>}
                 {files.map((file) => {
                     const fileKind = file.kind as FolderEvidenceCategory;
-                    return (<ArchiveFileRow key={`${file.kind}-${file.id}-${cat.id}`} file={file} catId={cat.id} kind={fileKind} compact={viewMode === 'type'} onDragStart={() => onSetDragFile({ file, fromCat: cat.id, kind: fileKind })} onDragEnd={() => onSetDragFile(null)} onRemove={() => onRemove(fileKind, cat.id, file.id)} onPreview={onPreview} onPreviewEnd={onPreviewEnd}/>);
+                    return (<ArchiveFileRow key={`${file.kind}-${file.id}-${cat.id}`} file={file} catId={cat.id} kind={fileKind} onDragStart={() => onSetDragFile({ file, fromCat: cat.id, kind: fileKind })} onDragEnd={() => onSetDragFile(null)} onRemove={() => onRemove(fileKind, cat.id, file.id)} onPreview={onPreview} onPreviewEnd={onPreviewEnd}/>);
                 })}
               </div>
             </div>

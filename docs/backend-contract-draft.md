@@ -39,17 +39,16 @@ general < project_manager < she_manager
 
 ## Project Stages
 
-| Index | Stage ID              | Label            |
-| ----: | --------------------- | ---------------- |
-|     0 | `registered`        | 프로젝트 등록    |
-|     1 | `evidence_upload`   | 서류/증빙 업로드 |
-|     2 | `validation`        | 유효성 검증      |
-|     3 | `she_review`        | SHE 검토         |
-|     4 | `action_request`    | 현장 조치 요청   |
-|     5 | `supplement_upload` | 보완 업로드      |
-|     6 | `report_draft`      | 보고서 초안 생성 |
-|     7 | `report_review`     | 사용자 수정      |
-|     8 | `finalized`         | 최종 보고서 확정 |
+| Index | Stage ID | Label |
+| ----: | --- | --- |
+| 0 | `registered` | 등록 |
+| 1 | `upload` | 업로드 |
+| 2 | `photo_check` | 분류 후 필요한 현장사진 업로드 검증 |
+| 3 | `validation` | 유효성 검증 |
+| 4 | `she_review` | SHE 검토 |
+| 5 | `action_request` | 조치 요청 |
+| 6 | `supplement_validation` | 보완 업로드 및 유효성 검증 |
+| 7 | `report_generation` | 보고서 생성 |
 
 프론트는 `stageId`를 기준값으로 보고, `stageIndex`는 표시용 호환 필드로만 사용하려고 합니다.
 
@@ -57,13 +56,12 @@ general < project_manager < she_manager
 
 | Stage                                     | Available Action | Minimum Role        |
 | ----------------------------------------- | ---------------- | ------------------- |
-| `registered`, `evidence_upload`       | 증빙자료 업로드  | `general`         |
-| `validation`                            | 유효성 검증      | `project_manager` |
-| `she_review`, `action_request`        | 조치 요청 등록   | `she_manager`     |
-| `action_request`, `supplement_upload` | 보완 증빙 업로드 | `general`         |
-| `report_draft`                          | 보고서 요청      | `project_manager` |
-| `report_draft`, `report_review`       | 보고서 검토      | `project_manager` |
-| `report_review`                         | 최종 보고서 확정 | `she_manager`     |
+| `registered`, `upload` | 증빙자료 업로드 | `project_manager` |
+| `photo_check` | 현장사진 검증 | `project_manager` |
+| `validation`, `supplement_validation` | 유효성 검증 | `project_manager` |
+| `she_review`, `action_request` | 조치 요청 등록 | `she_manager` |
+| `action_request`, `supplement_validation` | 보완 증빙 업로드 | `project_manager` |
+| `report_generation` | 보고서 생성/검토 | `project_manager` |
 
 ## Core Entities
 

@@ -2,7 +2,7 @@ import type { UserRole } from '../lib/permissions';
 import type { ProjectStatus } from '../lib/project-data';
 import type { ProjectStageId } from '../lib/project-stages';
 
-export type EvidenceCategory = 'receipt' | 'site_photo' | 'usage_statement' | 'tax_invoice';
+export type EvidenceCategory = 'receipt' | 'site_photo' | 'usage_statement' | 'tax_invoice' | 'other_document';
 export type FolderEvidenceCategory = Exclude<EvidenceCategory, 'usage_statement'>;
 
 export interface EvidenceFile {
@@ -33,6 +33,7 @@ export interface ArchiveSeed {
   site_photo: ArchiveCategoryMap;
   usage_statement: EvidenceFile[];
   tax_invoice: ArchiveCategoryMap;
+  other_document: ArchiveCategoryMap;
 }
 
 export interface ValidationSummary {

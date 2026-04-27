@@ -5,17 +5,16 @@ import Card from '../../../components/ui/Card';
 import Button from '../../../components/ui/Button';
 import { AppFrame, ProjectStageStepper } from '../../../components/common';
 import { C } from '../../../lib/theme';
-import { CURRENT_USER, getProjectById, STATUS_META } from '../../../lib/project-data';
+import { getProjectById, STATUS_META } from '../../../lib/project-data';
 import { can } from '../../../lib/permissions';
-import { getAvailableProjectActions, getProjectStageId, type ProjectActionTargetTab } from '../../../lib/project-actions';
-import { getStageLabel } from '../../../lib/project-stages';
 import { workflowStorage } from '../../../lib/workflow-storage';
+import { useCurrentUser } from '../../../lib/dev-user';
 import UploadScreen from '../../../features/project-tab/UploadScreen';
 import ArchiveScreen from '../../../features/project-tab/ArchiveScreen';
 import VerifyScreen from '../../../features/project-tab/VerifyScreen';
 import { buildArchiveDataFromUploads } from '../../../lib/mock-data';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile } from '../../../types/domain';
-type DetailTab = 'overview' | 'upload' | 'validation' | 'actions' | 'report' | 'archive';
+type DetailTab = 'overview' | 'upload' | 'validation' | 'report' | 'archive';
 const TABS: Array<{
     id: DetailTab;
     label: string;
@@ -24,20 +23,18 @@ const TABS: Array<{
     { id: 'upload', label: '증빙 업로드' },
     { id: 'archive', label: '아카이브' },
     { id: 'validation', label: '유효성 검증' },
-    { id: 'actions', label: '조치 요청/보완' },
     { id: 'report', label: '보고서' },
 ];
-const DETAIL_TABS = new Set<DetailTab>(['overview', 'upload', 'validation', 'actions', 'report', 'archive']);
+const DETAIL_TABS = new Set<DetailTab>(['overview', 'upload', 'validation', 'report', 'archive']);
 export default function ProjectDetailPage() {
     const router = useRouter();
     const params = useParams<{
         projectId: string;
     }>();
     const searchParams = useSearchParams();
+    const { user } = useCurrentUser();
     const projectId = params?.projectId || '';
-    const project = useMemo(() => getProjectById(projectId), [projectId]);
-    const projectActions = useMemo(() => getAvailableProjectActions(CURRENT_USER, project), [project]);
-    const currentStageLabel = getStageLabel(getProjectStageId(project));
+    const project = useMemo(() => getProjectById(projectId, user), [projectId, user]);
     const headerHistoryItems = [
         {
             date: '2026-04-23',
@@ -58,17 +55,14 @@ export default function ProjectDetailPage() {
             summary: project.hasActionRequest ? '미처리 조치 요청이 있습니다.' : '미처리 조치 요청이 없습니다.',
         },
     ];
-    const canUploadEvidence = can(CURRENT_USER, 'uploadEvidence');
-    const canRunValidation = can(CURRENT_USER, 'runValidation');
-    const canReviewReport = can(CURRENT_USER, 'reviewReport');
-    const canRequestAction = can(CURRENT_USER, 'requestAction');
+    const canUploadEvidence = can(user, 'uploadEvidence');
+    const canRunValidation = can(user, 'runValidation');
+    const canReviewReport = can(user, 'reviewReport');
     const availableTabs = TABS.filter((tab) => {
         if (tab.id === 'upload')
             return canUploadEvidence;
         if (tab.id === 'validation')
             return canRunValidation;
-        if (tab.id === 'actions')
-            return canRequestAction;
         if (tab.id === 'report')
             return canReviewReport;
         return true;
@@ -111,7 +105,7 @@ export default function ProjectDetailPage() {
             document.removeEventListener('keydown', handleKeyDown);
         };
     }, [historyDateMenuOpen]);
-    const updateTab = (tab: DetailTab | ProjectActionTargetTab) => {
+    const updateTab = (tab: DetailTab) => {
         if (!availableTabIds.has(tab))
             return;
         setActiveTab(tab);
@@ -155,42 +149,29 @@ export default function ProjectDetailPage() {
       </div>
     </Card>);
     const tabContent = {
-        overview: (<div data-ui="app-projects-project-id-page.div-1" style={{ display: 'grid', gridTemplateColumns: '1.2fr .8fr', gap: 18 }}>
-        <Card style={{ padding: '22px 24px' }}>
-          <div data-ui="app-projects-project-id-page.div-2" style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 12 }}>현재 단계</div>
-          <ProjectStageStepper currentStage={project.stageIndex}/>
-          <div data-ui="app-projects-project-id-page.div-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 18 }}>
-            <div data-ui="app-projects-project-id-page.div-4">
-              <div data-ui="app-projects-project-id-page.div-5" style={{ fontSize: 11, fontWeight: 700, color: C.g400 }}>최근 현황</div>
-              <div data-ui="app-projects-project-id-page.div-6" style={{ fontSize: 13, color: C.g600, marginTop: 6, lineHeight: 1.7 }}>{project.recentActivity}</div>
-            </div>
-            <div data-ui="app-projects-project-id-page.div-7">
-              <div data-ui="app-projects-project-id-page.div-8" style={{ fontSize: 11, fontWeight: 700, color: C.g400 }}>다음 해야 할 일</div>
-              <div data-ui="app-projects-project-id-page.div-9" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                {projectActions.map((action) => (<button data-ui="app-projects-project-id-page.button-1" key={action.kind} onClick={() => updateTab(action.targetTab)} style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 12, border: `1px solid ${action.priority === 'primary' ? C.light : C.g200}`, background: action.priority === 'primary' ? C.bg : C.white, cursor: 'pointer', fontFamily: 'inherit' }}>
-                    <div data-ui="app-projects-project-id-page.div-10" style={{ fontSize: 13, color: action.priority === 'primary' ? C.primary : C.g800, fontWeight: 900 }}>{action.label}</div>
-                    <div data-ui="app-projects-project-id-page.div-11" style={{ fontSize: 12, color: C.g600, marginTop: 4, lineHeight: 1.55 }}>{action.description}</div>
-                  </button>))}
-              </div>
-            </div>
-          </div>
-        </Card>
-        <Card style={{ padding: '22px 24px' }}>
-          <div data-ui="app-projects-project-id-page.div-12" style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 12 }}>프로젝트 기본정보</div>
-          <div data-ui="app-projects-project-id-page.div-13" style={{ display: 'grid', gridTemplateColumns: '88px 1fr', gap: '10px 12px', fontSize: 13 }}>
-            {[
+        overview: (<Card style={{ padding: '28px 32px' }}>
+        <div data-ui="app-projects-project-id-page.overview-title" style={{ fontSize: 16, fontWeight: 900, color: C.g800, marginBottom: 20 }}>프로젝트 기본정보</div>
+        <div data-ui="app-projects-project-id-page.overview-grid" style={{ display: 'grid', gridTemplateColumns: '130px minmax(0,1fr) 130px minmax(0,1fr)', gap: '16px 18px', fontSize: 13, maxWidth: 860 }}>
+          {[
+                ['건설업체명', project.constructionCompany],
+                ['대표자', project.representative],
+                ['발주자', project.client],
+                ['공사명', project.constructionName],
+                ['공사금액', `${project.constructionAmount}원`],
+                ['공사기간', project.period],
                 ['관리자', project.manager],
-                ['참여자', project.participants.join(', ')],
-                ['계약번호', project.contractNumber],
-                ['기간', project.period],
-                ['현재 단계', currentStageLabel],
+                ['소재지', project.location],
+                ['공정률', project.progressRate],
+                ['정산차수', project.settlementRound],
+                ['계상금액', `${project.plannedAmount}원`],
+                ['누계금액', `${project.accumulatedAmount}원`],
+                ['사용률', project.usageRate],
             ].map(([label, value]) => (<Fragment key={String(label)}>
-                <div data-ui="app-projects-project-id-page.div-14" style={{ color: C.g400, fontWeight: 700 }}>{label}</div>
-                <div data-ui="app-projects-project-id-page.div-15" style={{ color: C.g800, fontWeight: 700 }}>{value}</div>
-              </Fragment>))}
-          </div>
-        </Card>
-      </div>),
+              <div data-ui="app-projects-project-id-page.overview-label" style={{ color: C.g400, fontWeight: 900 }}>{label}</div>
+              <div data-ui="app-projects-project-id-page.overview-value" style={{ color: C.g800, fontWeight: 800 }}>{value}</div>
+            </Fragment>))}
+        </div>
+      </Card>),
         upload: (<UploadScreen contractName={project.name} contractMeta={{
                 name: project.name,
                 num: project.contractNumber,
@@ -207,36 +188,32 @@ export default function ProjectDetailPage() {
                 updateTab('archive');
             }}/>),
         validation: (<VerifyScreen initialTab="dashboard" initialStatus="idle" contractName={project.name}/>),
-        actions: (<Card style={{ padding: '22px 24px' }}>
-        <div data-ui="app-projects-project-id-page.div-16" style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 10 }}>현장 조치 요청/보완 관리</div>
-        <div data-ui="app-projects-project-id-page.div-17" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div data-ui="app-projects-project-id-page.div-18" style={{ border: `1px solid ${C.g200}`, borderRadius: 16, padding: 16 }}>
-            <div data-ui="app-projects-project-id-page.div-19" style={{ fontSize: 12, fontWeight: 800, color: C.g800 }}>조치 요청 목록</div>
-            <div data-ui="app-projects-project-id-page.div-20" style={{ fontSize: 12, color: C.g400, marginTop: 8 }}>프로젝트 관리자와 조치 담당자 기준으로 누가 언제 어떤 보완을 요청했는지 관리</div>
-          </div>
-          <div data-ui="app-projects-project-id-page.div-21" style={{ border: `1px solid ${C.g200}`, borderRadius: 16, padding: 16 }}>
-            <div data-ui="app-projects-project-id-page.div-22" style={{ fontSize: 12, fontWeight: 800, color: C.g800 }}>보완 제출 현황</div>
-            <div data-ui="app-projects-project-id-page.div-23" style={{ fontSize: 12, color: C.g400, marginTop: 8 }}>현장 참여자가 올린 보완 증빙과 미처리 건을 추적</div>
-          </div>
-        </div>
-      </Card>),
         report: (<VerifyScreen initialTab="report" initialStatus="done" contractName={project.name}/>),
         archive: (<ArchiveScreen matchReady={matchReady} onDismissMatchReady={() => {
                 workflowStorage.setMatchReady(false);
                 setMatchReady(false);
             }} archiveSeed={archiveSeed}/>),
     };
-    return (<AppFrame title={project.name} description="프로젝트별 단계, 검토 상태, 조치 요청, 보고서 수정 이력을 한 화면에서 관리하는 상세 화면입니다." actions={<Button size="sm" onClick={() => { window.location.href = '/projects'; }}>목록으로</Button>}>
-      <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
-        <div data-ui="app-projects-project-id-page.div-24">
-          <div data-ui="app-projects-project-id-page.div-25">
-            <div data-ui="app-projects-project-id-page.div-26" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-              <span data-ui="app-projects-project-id-page.span-1" style={{ fontSize: 12, color: C.g400, fontWeight: 700 }}>{project.contractNumber}</span>
-              <span data-ui="app-projects-project-id-page.span-2" style={{ fontSize: 10, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '4px 10px' }}>
-                {STATUS_META[project.status].label}
-              </span>
-            </div>
-            <ProjectStageStepper currentStage={project.stageIndex}/>
+    return (<AppFrame title={project.name} mainClassName="project-detail-main-with-history" actions={<Button size="sm" onClick={() => { window.location.href = '/projects'; }}>목록으로</Button>}>
+      <Card style={{ padding: '20px 24px', marginBottom: 14 }}>
+        <div data-ui="app-projects-project-id-page.project-top-card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div data-ui="app-projects-project-id-page.project-title-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <h2 data-ui="app-projects-project-id-page.project-title" style={{ fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25 }}>{project.constructionName} 산안비 정산</h2>
+            <span data-ui="app-projects-project-id-page.project-status-badge" style={{ fontSize: 10, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '4px 10px' }}>
+              {STATUS_META[project.status].label}
+            </span>
+          </div>
+          <ProjectStageStepper currentStage={project.stageIndex}/>
+          <div data-ui="app-projects-project-id-page.project-summary-box" style={{ minHeight: 62, border: `1px solid ${C.g200}`, borderRadius: 16, display: 'grid', gridTemplateColumns: '72px minmax(150px, 1.35fr) minmax(132px, 1.05fr) minmax(120px, .95fr)', gap: 12, alignItems: 'center', color: C.g800, fontSize: 14, lineHeight: 1.45, fontWeight: 700, background: '#FCFEFD', padding: '12px 16px' }}>
+            {[
+              ['관리자', project.manager],
+              ['공사명', project.constructionName],
+              ['공사기간', project.period],
+              ['금액', `${project.constructionAmount}원`],
+          ].map(([label, value]) => (<div data-ui="app-projects-project-id-page.project-summary-item" key={label} style={{ minWidth: 0 }}>
+                <div data-ui="app-projects-project-id-page.project-summary-label" style={{ fontSize: 10, color: C.g400, fontWeight: 900, marginBottom: 2, whiteSpace: 'nowrap' }}>{label}</div>
+                <div data-ui="app-projects-project-id-page.project-summary-value" title={value} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+              </div>))}
           </div>
         </div>
       </Card>

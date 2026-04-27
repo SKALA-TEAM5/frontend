@@ -4,16 +4,18 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { AppFrame, ProjectStageStepper } from '../../components/common';
 import { C } from '../../lib/theme';
-import { CURRENT_USER, getAccessibleProjects, getDashboardCounts, STATUS_META } from '../../lib/project-data';
+import { getAccessibleProjects, getDashboardCounts, STATUS_META } from '../../lib/project-data';
 import { getPrimaryProjectAction } from '../../lib/project-actions';
+import { useCurrentUser } from '../../lib/dev-user';
 export default function DashboardPage() {
-    const projects = getAccessibleProjects(CURRENT_USER);
-    const dashboardCounts = getDashboardCounts(CURRENT_USER);
-    return (<AppFrame title="프로젝트 대시보드" description="내가 담당한 프로젝트 현황과 지금 처리해야 할 작업을 먼저 확인할 수 있도록 구성했습니다." actions={<Button size="sm" onClick={() => { window.location.href = '/projects'; }}>프로젝트 전체 보기</Button>}>
+    const { user } = useCurrentUser();
+    const projects = getAccessibleProjects(user);
+    const dashboardCounts = getDashboardCounts(user);
+    return (<AppFrame title="프로젝트 대시보드" actions={<Button size="sm" onClick={() => { window.location.href = '/projects'; }}>프로젝트 전체 보기</Button>}>
       <div data-ui="app-dashboard-page.div-1" style={{ display: 'grid', gridTemplateColumns: '1.1fr .9fr', gap: 18, marginBottom: 18 }}>
         <Card style={{ padding: '22px 24px' }}>
           <div data-ui="app-dashboard-page.div-2" style={{ fontSize: 13, fontWeight: 800, color: C.g400, marginBottom: 10 }}>환영합니다</div>
-          <div data-ui="app-dashboard-page.div-3" style={{ fontSize: 28, fontWeight: 900, color: C.g800, lineHeight: 1.25 }}>{CURRENT_USER.name}님, 오늘 확인할 프로젝트가 있습니다.</div>
+          <div data-ui="app-dashboard-page.div-3" style={{ fontSize: 28, fontWeight: 900, color: C.g800, lineHeight: 1.25 }}>{user.name}님, 오늘 확인할 프로젝트가 있습니다.</div>
           <div data-ui="app-dashboard-page.div-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginTop: 18 }}>
             {[
             { label: '내 프로젝트', value: dashboardCounts.myProjects, color: C.primary, bg: C.bg },
@@ -37,7 +39,7 @@ export default function DashboardPage() {
                       {STATUS_META[project.status].label}
                     </span>
                   </div>
-                  <div data-ui="app-dashboard-page.div-13" style={{ fontSize: 12, color: C.g600, marginTop: 6 }}>{getPrimaryProjectAction(CURRENT_USER, project).label}</div>
+                  <div data-ui="app-dashboard-page.div-13" style={{ fontSize: 12, color: C.g600, marginTop: 6 }}>{getPrimaryProjectAction(user, project).label}</div>
                 </div>
               </Link>))}
           </div>
@@ -70,7 +72,7 @@ export default function DashboardPage() {
                     </div>
                     <div data-ui="app-dashboard-page.div-27">
                       <div data-ui="app-dashboard-page.div-28" style={{ fontSize: 11, fontWeight: 700, color: C.g400 }}>다음 액션</div>
-                      <div data-ui="app-dashboard-page.div-29" style={{ fontSize: 12, color: C.primary, marginTop: 4, lineHeight: 1.6, fontWeight: 700 }}>{getPrimaryProjectAction(CURRENT_USER, project).label}</div>
+                      <div data-ui="app-dashboard-page.div-29" style={{ fontSize: 12, color: C.primary, marginTop: 4, lineHeight: 1.6, fontWeight: 700 }}>{getPrimaryProjectAction(user, project).label}</div>
                     </div>
                   </div>
                 </div>
