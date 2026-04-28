@@ -9,7 +9,7 @@
   @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
   @keyframes loadingSlide { from { transform:translateX(-140%); } to { transform:translateX(340%); } }
   table { border-collapse: collapse; width: 100%; }
-  th, td { padding: 11px 16px; text-align: left; font-size: 13px; }
+  th, td { padding: 11px 16px; text-align: left; font-size: 15px; }
   th { font-weight: 700; background: #F0FAF3; color: #2A3B32; }
   td { color: #5A726A; border-top: 1px solid #E2EBE5; }
   tr:hover td { background: #F8FAFB; }
@@ -45,7 +45,7 @@
     top: 0;
     left: 0;
     z-index: 30;
-    width: 220px;
+    width: 200px;
     height: 100vh;
     padding: 22px 18px;
     display: flex;

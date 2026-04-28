@@ -33,6 +33,13 @@ export interface ProjectSummary {
   status: ProjectStatus;
   hasUploads: boolean;
   hasActionRequest: boolean;
+  actionRequestDetails?: {
+    title: string;
+    reason: string;
+    assignee: string;
+    dueDate: string;
+    requestedAt: string;
+  };
   reportReady: boolean;
   recentActivity: string;
   participants: string[];
@@ -69,6 +76,13 @@ export const PROJECTS: ProjectSummary[] = [
     status: 'action_required',
     hasUploads: true,
     hasActionRequest: true,
+    actionRequestDetails: {
+      title: '개인보호구 증빙 보완 요청',
+      reason: '안전모 지급 영수증과 현장 착용 사진의 대상 인원이 일치하지 않습니다. 지급 대상자 명단과 착용 확인 사진을 추가 제출해야 합니다.',
+      assignee: '김현장',
+      dueDate: '2026-04-26',
+      requestedAt: '2026-04-23 11:02',
+    },
     reportReady: false,
     recentActivity: 'SHE 담당자가 개인보호구 항목 보완을 요청했습니다.',
     participants: ['홍길동', '김현장', '최안전', '이검토'],

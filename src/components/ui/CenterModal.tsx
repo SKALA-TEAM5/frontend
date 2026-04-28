@@ -18,9 +18,9 @@ export default function CenterModal({ open, title, body, actionLabel, onAction, 
             padding: '28px 26px',
             textAlign: 'center',
         }}>
-        <div data-ui="components-ui-center-modal.div-2" style={{ fontSize: 38, marginBottom: 10 }}>✅</div>
-        <div data-ui="components-ui-center-modal.div-3" style={{ fontSize: 22, fontWeight: 800, color: C.g800, marginBottom: 8 }}>{title}</div>
-        <div data-ui="components-ui-center-modal.div-4" style={{ fontSize: 14, color: C.g400, lineHeight: 1.7, marginBottom: 18 }}>{body}</div>
+        <div data-ui="components-ui-center-modal.div-2" style={{ fontSize: 40, marginBottom: 10 }}>!</div>
+        <div data-ui="components-ui-center-modal.div-3" style={{ fontSize: 24, fontWeight: 800, color: C.g800, marginBottom: 8 }}>{title}</div>
+        <div data-ui="components-ui-center-modal.div-4" style={{ fontSize: 16, color: C.g400, lineHeight: 1.7, marginBottom: 18 }}>{body}</div>
         <Button size="md" onClick={onAction}>
           {actionLabel}
         </Button>

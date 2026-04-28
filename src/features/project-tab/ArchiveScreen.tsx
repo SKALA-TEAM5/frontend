@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import Card from '../../components/ui/Card';
 import { C } from '../../lib/theme';
 import { CATS, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData } from '../../lib/mock-data';
@@ -84,7 +84,7 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
         });
     };
     const removeUsageStatement = (fileId: string) => {
-        if (!confirm('이 사용내역서를 삭제하시겠습니까?'))
+        if (!confirm('이 파일을 삭제하시겠습니까?'))
             return;
         setFileData((prev) => ({
             ...prev,
@@ -165,8 +165,8 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
       <div data-ui="features-project-tab-archive-screen.div-2" className="screen-enter">
         {matchReady && (<Card style={{ marginBottom: 16, padding: '14px 18px', background: C.bg, border: `1px solid ${C.light}` }}>
             <div data-ui="features-project-tab-archive-screen.div-4" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div data-ui="features-project-tab-archive-screen.div-5" style={{ fontSize: 13, fontWeight: 700, color: C.primary }}>매칭 검토가 완료되었습니다. 파일을 드래그해 다른 폴더로 이동할 수 있습니다.</div>
-              <button data-ui="features-project-tab-archive-screen.button-1" onClick={onDismissMatchReady} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.g400, fontSize: 18 }}>x</button>
+              <div data-ui="features-project-tab-archive-screen.div-5" style={{ fontSize: 15, fontWeight: 700, color: C.primary }}>매칭 검토가 완료되었습니다. 파일을 드래그해 다른 폴더로 이동할 수 있습니다.</div>
+              <button data-ui="features-project-tab-archive-screen.button-1" onClick={onDismissMatchReady} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.g400, fontSize: 20 }}>x</button>
             </div>
           </Card>)}
 
@@ -209,3 +209,4 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
         }}/>
     </div>);
 }
+

@@ -1,6 +1,6 @@
 import { C } from '../../lib/theme';
 type ButtonVariant = 'primary' | 'outline' | 'ghost' | 'subtle';
-type ButtonSize = 'sm' | 'md' | 'lg';
+type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 interface ButtonProps {
     children: React.ReactNode;
     onClick?: () => void;
@@ -12,9 +12,10 @@ interface ButtonProps {
 }
 export default function Button({ children, onClick, variant = 'primary', size = 'md', full, disabled, style, }: ButtonProps) {
     const sizes: Record<ButtonSize, React.CSSProperties> = {
-        sm: { fontSize: 12, padding: '7px 14px' },
-        md: { fontSize: 15, padding: '13px 24px' },
-        lg: { fontSize: 16, padding: '14px 28px' },
+        xs: { fontSize: 14, padding: '5px 9px', borderRadius: 9 },
+        sm: { fontSize: 14, padding: '7px 14px' },
+        md: { fontSize: 17, padding: '13px 24px' },
+        lg: { fontSize: 18, padding: '14px 28px' },
     };
     const variants: Record<ButtonVariant, React.CSSProperties> = {
         primary: { background: C.primary, color: '#fff' },
@@ -45,6 +46,6 @@ export default function Button({ children, onClick, variant = 'primary', size = 
         }} onMouseLeave={(e) => {
             e.currentTarget.style.filter = '';
         }}>
-      {children}
+    {children}
     </button>);
 }

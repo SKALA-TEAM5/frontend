@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+﻿import type { CSSProperties } from 'react';
 import { C } from '../../lib/theme';
 import ArchiveFileRow from './ArchiveFileRow';
 import type { EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
@@ -31,7 +31,7 @@ const thumbStyle: CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: 20,
+    fontSize: 22,
     flexShrink: 0,
 };
 function FolderThumb({ empty }: {
@@ -62,13 +62,13 @@ export default function ArchiveFolderGrid({ cats, viewMode, dragFile, getAllFile
                 <div data-ui="features-project-tab-archive-folder-grid.folder-thumbnail" style={thumbStyle}>
                   <FolderThumb empty={empty}/>
                 </div>
-                <div data-ui="features-project-tab-archive-folder-grid.div-6" style={{ fontSize: 13, fontWeight: 800, color: empty ? C.g400 : C.g800, lineHeight: 1.35, wordBreak: 'keep-all' }}>{cat.short}</div>
-                <div data-ui="features-project-tab-archive-folder-grid.div-7" style={{ fontSize: 11, fontWeight: 700, color: C.g400, whiteSpace: 'nowrap' }}>{empty ? '0개' : `${count}개`}</div>
+                <div data-ui="features-project-tab-archive-folder-grid.div-6" style={{ fontSize: 15, fontWeight: 800, color: empty ? C.g400 : C.g800, lineHeight: 1.35, wordBreak: 'keep-all' }}>{cat.short}</div>
+                <div data-ui="features-project-tab-archive-folder-grid.div-7" style={{ fontSize: 13, fontWeight: 700, color: C.g400, whiteSpace: 'nowrap' }}>{empty ? '0건' : `${count}건`}</div>
               </div>
             </div>
             <div data-ui="features-project-tab-archive-folder-grid.div-8" style={{ border: `1px solid ${C.g100}`, borderRadius: 14, background: '#FCFEFD', padding: '10px 8px 0 10px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               <div data-ui="features-project-tab-archive-folder-grid.div-9" style={{ overflowY: 'auto', paddingRight: 4, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 172 }}>
-                {empty && <div data-ui="features-project-tab-archive-folder-grid.div-10" style={{ minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: C.g400 }}>이 폴더는 비어 있습니다</div>}
+                {empty && <div data-ui="features-project-tab-archive-folder-grid.div-10" style={{ minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: C.g400 }}>폴더가 비어 있습니다</div>}
                 {files.map((file) => {
                     const fileKind = file.kind as FolderEvidenceCategory;
                     return (<ArchiveFileRow key={`${file.kind}-${file.id}-${cat.id}`} file={file} catId={cat.id} kind={fileKind} onDragStart={() => onSetDragFile({ file, fromCat: cat.id, kind: fileKind })} onDragEnd={() => onSetDragFile(null)} onRemove={() => onRemove(fileKind, cat.id, file.id)} onPreview={onPreview} onPreviewEnd={onPreviewEnd}/>);
@@ -79,3 +79,4 @@ export default function ArchiveFolderGrid({ cats, viewMode, dragFile, getAllFile
         })}
     </div>);
 }
+

@@ -13,6 +13,8 @@ export interface EvidenceFile {
   amount?: string;
   previewUrl?: string;
   uploadedAt?: string;
+  uploadedBy?: string;
+  documentType?: string;
   categoryIds?: number[];
 }
 

@@ -1,4 +1,4 @@
-import type { ArchiveCategoryMap, ArchiveSeed, ContractInfo, EvidenceCategory, EvidenceFile, ReportRow } from '../types/domain';
+import type { ArchiveCategoryMap, ArchiveSeed, ContractInfo, EvidenceCategory, EvidenceFile, FolderEvidenceCategory, ReportRow } from '../types/domain';
 
 interface CategoryMeta {
   id: number;
@@ -137,6 +137,12 @@ const makeMockUploadedDate = () => {
   const day = (FILE_SEQ % 5) + 18;
   return `2026-04-${String(day).padStart(2, '0')}`;
 };
+const makeMockUploader = (kind: EvidenceCategory) => {
+  if (kind === 'site_photo') return '김현장';
+  if (kind === 'usage_statement') return '박공무';
+  if (kind === 'tax_invoice') return '회계담당자';
+  return 'SHE 담당자';
+};
 export const classifyEvidenceToCategoryIds = (name: string, description = ''): number[] => {
   const text = `${name} ${description}`.toLowerCase();
   const matches = CATS.filter((cat) => CATEGORY_KEYWORDS[cat.id].some((keyword) => text.includes(keyword.toLowerCase()))).map((cat) => cat.id);
@@ -151,12 +157,14 @@ export const makeEntry = (name: string, kind: EvidenceCategory, extra: Partial<E
   amount: extra.amount || '',
   previewUrl: extra.previewUrl || '',
   uploadedAt: extra.uploadedAt || makeMockUploadedDate(),
+  uploadedBy: extra.uploadedBy || makeMockUploader(kind),
   categoryIds: extra.categoryIds || classifyEvidenceToCategoryIds(name, extra.description || ''),
 });
 export const createEntryFromFile = (file: File, kind: EvidenceCategory, extra: Partial<EvidenceFile> = {}): EvidenceFile => makeEntry(file.name, kind, {
   ...extra,
   previewUrl: isImageFile(file.name) ? URL.createObjectURL(file) : '',
   uploadedAt: extra.uploadedAt || new Date().toISOString().slice(0, 10),
+  uploadedBy: extra.uploadedBy || '현재 사용자',
 });
 export const seedArchiveEntries = (source: MockFileBuckets, kind: EvidenceCategory): ArchiveCategoryMap =>
   Object.fromEntries(Object.entries(source).map(([catId, list]) => [catId, list.map((name) => makeEntry(name, kind))]));
@@ -169,12 +177,16 @@ export const normalizeArchiveData = (seed: ArchiveSeed | null): ArchiveSeed => {
   const usageStatement = Array.isArray(rawUsageStatement)
     ? rawUsageStatement
     : Object.values(rawUsageStatement || {}).flat();
+  const withUploader = (kind: EvidenceCategory, files: EvidenceFile[]) =>
+    files.map((file) => ({ ...file, uploadedBy: file.uploadedBy || makeMockUploader(kind), uploadedAt: file.uploadedAt || makeMockUploadedDate() }));
+  const normalizeFolderMap = (kind: FolderEvidenceCategory, source: ArchiveCategoryMap) =>
+    Object.fromEntries(Object.entries(source || {}).map(([catId, files]) => [catId, withUploader(kind, files)]));
   return {
-    receipt: seed.receipt || base.receipt,
-    site_photo: seed.site_photo || base.site_photo,
-    usage_statement: usageStatement.map((file) => ({ ...file, kind: 'usage_statement', categoryIds: [] })),
-    tax_invoice: seed.tax_invoice || base.tax_invoice,
-    other_document: seed.other_document || base.other_document,
+    receipt: normalizeFolderMap('receipt', seed.receipt || base.receipt),
+    site_photo: normalizeFolderMap('site_photo', seed.site_photo || base.site_photo),
+    usage_statement: withUploader('usage_statement', usageStatement).map((file) => ({ ...file, kind: 'usage_statement', categoryIds: [] })),
+    tax_invoice: normalizeFolderMap('tax_invoice', seed.tax_invoice || base.tax_invoice),
+    other_document: normalizeFolderMap('other_document', seed.other_document || base.other_document),
   };
 };
 export const createDefaultArchiveData = (): ArchiveSeed => ({
