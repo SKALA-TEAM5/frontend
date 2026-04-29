@@ -2,6 +2,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Card from '../../../components/ui/Card';
+import { ChevronIcon } from '../../../components/ui';
 import { AppFrame, ProjectStageStepper } from '../../../components/common';
 import { C } from '../../../lib/theme';
 import { getMonthlyUsageStatements, getProjectById, PROJECT_STAGES, STATUS_META } from '../../../lib/project-data';
@@ -79,12 +80,17 @@ export default function ProjectDetailPage() {
     const [uploadCount, setUploadCount] = useState(0);
     const [selectedHeaderHistoryDate, setSelectedHeaderHistoryDate] = useState('all');
     const [historyDateMenuOpen, setHistoryDateMenuOpen] = useState(false);
+    const [monthMenuOpen, setMonthMenuOpen] = useState(false);
+    const [historyOpen, setHistoryOpen] = useState(true);
+    const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
     const historyDateMenuRef = useRef<HTMLDivElement | null>(null);
+    const monthMenuRef = useRef<HTMLDivElement | null>(null);
     const visibleHeaderHistoryItems = selectedHeaderHistoryDate === 'all'
         ? headerHistoryItems
         : headerHistoryItems.filter((item) => item.date === selectedHeaderHistoryDate);
     const selectedStatement = monthlyStatements.find((statement) => statement.month === selectedMonth) || latestStatement;
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
+    const selectedStageLabel = PROJECT_STAGES[selectedStatement.stageIndex] || '등록';
     useEffect(() => {
         setArchiveSeed(workflowStorage.getArchiveSeed(project.id));
         setMatchReady(workflowStorage.getMatchReady(project.id));
@@ -114,6 +120,25 @@ export default function ProjectDetailPage() {
             document.removeEventListener('keydown', handleKeyDown);
         };
     }, [historyDateMenuOpen]);
+    useEffect(() => {
+        if (!monthMenuOpen)
+            return;
+        const handlePointerDown = (event: PointerEvent) => {
+            if (monthMenuRef.current?.contains(event.target as Node))
+                return;
+            setMonthMenuOpen(false);
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape')
+                setMonthMenuOpen(false);
+        };
+        document.addEventListener('pointerdown', handlePointerDown);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [monthMenuOpen]);
     const updateTab = (tab: DetailTab) => {
         if (!availableTabIds.has(tab))
             return;
@@ -130,8 +155,14 @@ export default function ProjectDetailPage() {
             updateTab('validation');
         }, 900);
     };
-    const historyCard = (<Card style={{ padding: '14px 16px', width: 240 }}>
-      <div data-ui="project-detail.1" style={{ fontSize: 14, color: C.g400, fontWeight: 900, marginBottom: 10 }}>최근 이력</div>
+    const historyCard = (<section data-ui="project-detail.40" style={{ borderTop: `1px solid ${C.g200}`, paddingTop: 12, flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <button type="button" onClick={() => setHistoryOpen((open) => !open)} style={{ width: '100%', border: 'none', background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', padding: '8px 4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4 }}>
+        <span data-ui="project-detail.1" style={{ fontSize: 14, color: C.g800, fontWeight: 900 }}>최근 이력</span>
+        <span aria-hidden="true" style={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: C.g400, lineHeight: 1 }}>
+          <ChevronIcon direction={historyOpen ? 'up' : 'down'} size={16} />
+        </span>
+      </button>
+      {historyOpen && (<div data-ui="project-detail.41" style={{ marginTop: 6, minHeight: 0, display: 'flex', flexDirection: 'column', flex: '1 1 auto' }}>
       <div data-ui="project-detail.2" style={{ display: 'grid', gridTemplateColumns: 'auto 92px', gap: 6, alignItems: 'center', marginBottom: 8 }}>
         <button data-ui="project-detail.3" onClick={() => {
             setSelectedHeaderHistoryDate('all');
@@ -139,20 +170,20 @@ export default function ProjectDetailPage() {
         }} style={{ border: 'none', borderRadius: 999, padding: '6px 10px', fontSize: 12, fontWeight: 900, color: selectedHeaderHistoryDate === 'all' ? C.white : C.g600, background: selectedHeaderHistoryDate === 'all' ? C.primary : C.g100, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>전체 날짜</button>
         
         <div data-ui="project-detail.4" ref={historyDateMenuRef} style={{ position: 'relative', minWidth: 0 }}>
-          <button data-ui="project-detail.5" type="button" onClick={() => setHistoryDateMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', fontSize: 12, fontWeight: 900, color: selectedHeaderHistoryDate === 'all' ? C.g400 : C.primary, background: C.white, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <button data-ui="project-detail.5" type="button" onClick={() => setHistoryDateMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', fontSize: 12, fontWeight: 900, color: selectedHeaderHistoryDate === 'all' ? C.g400 : C.primary, background: C.white, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {selectedHeaderHistoryDate === 'all' ? '날짜 선택' : selectedHeaderHistoryDate}
           </button>
           {historyDateMenuOpen && (<div data-ui="project-detail.6" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 30, background: C.white, border: `1px solid ${C.g200}`, borderRadius: 12, boxShadow: '0 8px 20px rgba(27,94,59,.14)', padding: 4 }}>
               {headerHistoryItems.map((item) => (<button data-ui="project-detail.7" key={item.date} type="button" onClick={() => {
                     setSelectedHeaderHistoryDate(item.date);
                     setHistoryDateMenuOpen(false);
-                }} style={{ width: '100%', border: 'none', background: selectedHeaderHistoryDate === item.date ? C.bg : 'transparent', color: selectedHeaderHistoryDate === item.date ? C.primary : C.g600, borderRadius: 9, padding: '7px 8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, textAlign: 'left' }}>
+                }} style={{ width: '100%', border: 'none', background: selectedHeaderHistoryDate === item.date ? C.bg : 'transparent', color: selectedHeaderHistoryDate === item.date ? C.primary : C.g600, borderRadius: 9, padding: '7px 8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, textAlign: 'center' }}>
                   {item.date}
                 </button>))}
             </div>)}
         </div>
       </div>
-      <div data-ui="project-detail.8" style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
+      <div data-ui="project-detail.8" style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
         {visibleHeaderHistoryItems.map((item) => (<div data-ui="project-detail.9" key={`${item.date}-${item.title}`} style={{ padding: '11px 12px', borderRadius: 12, background: C.g100, border: `1px solid ${C.g200}` }}>
             <div data-ui="project-detail.10" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
               <span data-ui="project-detail.11" style={{ fontSize: 12, color: C.g400, fontWeight: 900 }}>{item.date}</span>
@@ -164,10 +195,11 @@ export default function ProjectDetailPage() {
             </div>
           </div>))}
       </div>
-    </Card>);
+      </div>)}
+    </section>);
     
-    const projectInfoCard = (<Card style={{ padding: '15px 16px', width: 240 }}>
-      <div data-ui="project-detail.33" style={{ fontSize: 14, color: C.g400, fontWeight: 900, marginBottom: 10 }}>프로젝트 정보</div>
+    const projectInfoCard = (<section data-ui="project-detail.42" style={{ padding: '4px 4px 12px' }}>
+      <div data-ui="project-detail.33" style={{ fontSize: 14, color: C.g800, fontWeight: 900, marginBottom: 12 }}>프로젝트 정보</div>
       <div data-ui="project-detail.34" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {[
                 ['계약번호', project.contractNumber],
@@ -176,33 +208,56 @@ export default function ProjectDetailPage() {
                 ['공사기간', project.period],
                 ['공사금액', `${project.constructionAmount}원`],
                 ['소재지', project.location],
-            ].map(([label, value]) => (<div data-ui="project-detail.35" key={label} style={{ borderBottom: `1px solid ${C.g100}`, paddingBottom: 9 }}>
+            ].map(([label, value]) => (<div data-ui="project-detail.35" key={label} style={{ paddingBottom: 9 }}>
             <div data-ui="project-detail.36" style={{ fontSize: 12, fontWeight: 900, color: C.g400, marginBottom: 3 }}>{label}</div>
             <div data-ui="project-detail.37" title={value} style={{ fontSize: 13, fontWeight: 900, color: C.g800, lineHeight: 1.4, wordBreak: 'keep-all', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{value}</div>
           </div>))}
       </div>
-    </Card>);
+    </section>);
+    const overviewUsageRows = [
+        ['1. 안전·보건관리자 임금 등', '6,445,770', '6,445,770', '12,891,540'],
+        ['2. 안전시설비 등', '8,725,660', '15,188,000', '23,913,660'],
+        ['3. 보호구 등', '2,458,000', '543,000', '3,001,000'],
+        ['4. 안전보건진단비 등', '-', '600,000', '600,000'],
+        ['5. 안전보건교육비 등', '1,049,545', '305,000', '1,354,545'],
+        ['6. 근로자 건강장해예방비 등', '1,741,800', '5,111,500', '6,853,300'],
+        ['7. 건설재해예방전문지도기관 기술지도비', '-', '-', '-'],
+        ['8. 본사 전담조직 근로자 임금 등', '-', '-', '-'],
+        ['9. 위험성평가 등에 따른 소요비용', '-', '-', '-'],
+        ['계', '20,420,775', '28,193,270', '48,614,045'],
+    ];
     const tabContent = {
-        overview: (<Card style={{ padding: '28px 32px' }}>
-        <div data-ui="project-detail.15" style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 20 }}>{selectedStatement.label} 사용내역서 정보</div>
-        <div data-ui="project-detail.16" style={{ display: 'grid', gridTemplateColumns: '130px minmax(0,1fr) 130px minmax(0,1fr)', gap: '16px 18px', fontSize: 15, maxWidth: 860 }}>
+        overview: (<Card style={{ padding: '22px 24px' }}>
+        <div data-ui="project-detail.15" style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 16 }}>{selectedStatement.label} 사용내역서 정보</div>
+        <div data-ui="project-detail.16" style={{ display: 'grid', gridTemplateColumns: '120px minmax(0,1fr) 120px minmax(0,1fr)', border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', fontSize: 13, marginBottom: 16 }}>
           {[
-                ['보고월', selectedStatement.label],
-                ['원본파일', selectedStatement.sourceFileName],
-                ['개정번호', `${selectedStatement.revisionNo}차`],
-                ['문서작성일', selectedStatement.documentWrittenDate],
-                ['업로드일', selectedStatement.uploadedAt],
-                ['업로드 담당자', selectedStatement.uploadedBy],
-                ['파싱상태', selectedStatement.parseStatus],
-                ['검증상태', selectedStatement.validationStatus],
-                ['금회금액', `${selectedStatement.currentAmount}원`],
-                ['누계금액', `${selectedStatement.cumulativeAmount}원`],
-                ['증빙 파일', `${selectedStatement.evidenceCount}개`],
-                ['이슈 항목', `${selectedStatement.issueCount}건`],
-            ].map(([label, value]) => (<Fragment key={String(label)}>
-              <div data-ui="project-detail.17" style={{ color: C.g400, fontWeight: 900 }}>{label}</div>
-              <div data-ui="project-detail.18" style={{ color: C.g800, fontWeight: 800 }}>{value}</div>
+                ['건설업체명', project.constructionCompany, '공사명', project.constructionName],
+                ['소재지', project.location, '대표자', project.representative],
+                ['공사금액', `${project.constructionAmount}원`, '공사기간', project.period],
+                ['발주자', project.client, '공정률', project.progressRate],
+                ['계상된 안전관리비', `${project.plannedAmount}원`, '사용률', project.usageRate],
+                ['원본파일', selectedStatement.sourceFileName, '개정번호', `${selectedStatement.revisionNo}차`],
+                ['업로드일', selectedStatement.uploadedAt, '업로드 담당자', selectedStatement.uploadedBy],
+                ['문서작성일', selectedStatement.documentWrittenDate, '검증상태', selectedStatement.validationStatus],
+                ['증빙 파일', `${selectedStatement.evidenceCount}개`, '이슈 항목', `${selectedStatement.issueCount}건`],
+            ].map(([labelA, valueA, labelB, valueB]) => (<Fragment key={`${labelA}-${labelB}`}>
+              <div data-ui="project-detail.17" style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 900, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelA}</div>
+              <div data-ui="project-detail.18" title={valueA} style={{ padding: '9px 11px', color: C.g800, fontWeight: 800, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueA}</div>
+              <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 900, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelB}</div>
+              <div title={valueB} style={{ padding: '9px 11px', color: C.g800, fontWeight: 800, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueB}</div>
             </Fragment>))}
+        </div>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 130px 130px', background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
+            {['항목', '전회', '금회', '누계'].map((head) => <div key={head} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 900, textAlign: head === '항목' ? 'left' : 'right', borderRight: head === '누계' ? 'none' : `1px solid ${C.g200}` }}>{head}</div>)}
+          </div>
+          {overviewUsageRows.map(([item, previous, current, cumulative], index) => {
+                const isTotal = item === '계';
+                return (<div key={item} style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 130px 130px', background: isTotal ? C.g100 : C.white, borderBottom: index === overviewUsageRows.length - 1 ? 'none' : `1px solid ${C.g200}` }}>
+                <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, borderRight: `1px solid ${C.g200}` }}>{item}</div>
+                {[previous, current, cumulative].map((amount, amountIndex) => <div key={`${item}-${amountIndex}`} style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, textAlign: 'right', borderRight: amountIndex === 2 ? 'none' : `1px solid ${C.g200}` }}>{amount}</div>)}
+              </div>);
+            })}
         </div>
       </Card>),
         upload: (<UploadScreen contractName={project.name} contractMeta={{
@@ -225,43 +280,39 @@ export default function ProjectDetailPage() {
         archive: (<ArchiveScreen matchReady={matchReady} onDismissMatchReady={() => {
                 workflowStorage.setMatchReady(project.id, false);
                 setMatchReady(false);
-            }} archiveSeed={archiveSeed} validationStatus={selectedValidationStatus} onRunValidation={runArchiveValidation}/>),
+            }} archiveSeed={archiveSeed} validationStatus={selectedValidationStatus} onRunValidation={runArchiveValidation} contractName={project.name} contractMeta={{
+                name: project.name,
+                num: project.contractNumber,
+                period: project.period,
+                round: selectedStatement.label,
+            }}/>),
     };
-    return (<AppFrame title={project.name} mainClassName="project-detail-main-with-history">
-      <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'hidden' }}>
+    return (<AppFrame title={project.name} mainClassName={`project-detail-main-with-history${rightSidebarOpen ? '' : ' project-detail-main-right-closed'}`}>
+      <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20 }}>
         <div data-ui="project-detail.19" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div data-ui="project-detail.20" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
             <h2 data-ui="project-detail.21" style={{ fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>{project.constructionName} 계약 정산</h2>
-            <div data-ui="project-detail.22" style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', justifyContent: 'flex-end', flex: '0 1 auto', minWidth: 0 }}>
-              {monthlyStatements.map((statement) => {
-                const active = selectedStatement.month === statement.month;
-                return (<button data-ui="project-detail.23" key={statement.month} type="button" onClick={() => setSelectedMonth(statement.month)} style={{ border: `1px solid ${active ? C.primary : C.g200}`, borderRadius: 999, padding: '7px 11px', background: active ? C.primary : C.white, color: active ? C.white : C.g600, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  {statement.label.replace('년 ', '.').replace('월', '')}
-                </button>);
-              })}
-            </div>
-          </div>
-          <div data-ui="project-detail.24" style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 900, color: C.g400 }}>월별 진행 현황</span>
-            </div>
-            <div data-ui="project-detail.25" style={{ display: 'grid', gridTemplateColumns: `repeat(${monthlyStatements.length}, minmax(0, 1fr))`, gap: 10, minWidth: 0 }}>
-              {monthlyStatements.map((statement, index) => {
-                const active = statement.month === selectedStatement.month;
-                const isLast = index === monthlyStatements.length - 1;
-                const stageLabel = PROJECT_STAGES[statement.stageIndex] || '등록';
-                return (<div key={statement.month} style={{ minWidth: 0 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: isLast ? '38px' : '38px minmax(0, 1fr)', alignItems: 'center', gap: 8, marginBottom: 6, minWidth: 0 }}>
-                    <button type="button" onClick={() => setSelectedMonth(statement.month)} style={{ width: 38, height: 38, borderRadius: 999, border: `1px solid ${active ? '#B88400' : '#D9C58A'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', background: active ? '#B88400' : '#FFF8E1', color: active ? C.white : '#8A6D00', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, cursor: 'pointer', padding: 0, flexShrink: 0 }}>
-                      {statement.label.replace(/^2026년 /, '')}
-                    </button>
-                    {!isLast && <div style={{ flex: 1, height: 4, borderRadius: 99, background: '#EAD79A' }}/>}
-                  </div>
-                  <div title={`${statement.label} · ${stageLabel}`} style={{ fontSize: 12, fontWeight: 800, color: active ? '#8A6D00' : C.g600, lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {stageLabel}
-                  </div>
-                </div>);
-              })}
+            <div data-ui="project-detail.22" ref={monthMenuRef} style={{ position: 'relative', flex: '0 0 230px', maxWidth: '100%', minWidth: 0 }}>
+              <button data-ui="project-detail.23" type="button" onClick={() => setMonthMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '9px 11px', background: C.white, color: C.g800, fontFamily: 'inherit', cursor: 'pointer', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 16px', alignItems: 'center', gap: 8, textAlign: 'left' }}>
+                <span style={{ minWidth: 0, fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedStatement.label}</span>
+                <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>{selectedStageLabel}</span>
+                <span aria-hidden="true" style={{ color: C.g400, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ChevronIcon direction={monthMenuOpen ? 'up' : 'down'} size={16} />
+                </span>
+              </button>
+              {monthMenuOpen && (<div data-ui="project-detail.24" style={{ position: 'absolute', top: 'calc(100% + 7px)', right: 0, zIndex: 80, width: 250, maxWidth: 'calc(100vw - 40px)', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 12, padding: 6, boxShadow: '0 8px 20px rgba(27,94,59,.14)' }}>
+                {monthlyStatements.map((statement) => {
+                    const active = selectedStatement.month === statement.month;
+                    const stageLabel = PROJECT_STAGES[statement.stageIndex] || '등록';
+                    return (<button data-ui="project-detail.25" key={statement.month} type="button" onClick={() => {
+                            setSelectedMonth(statement.month);
+                            setMonthMenuOpen(false);
+                        }} style={{ width: '100%', border: 'none', borderRadius: 9, padding: '9px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', gridTemplateColumns: '78px minmax(0,1fr)', gap: 8, alignItems: 'center', textAlign: 'left' }}>
+                      <span style={{ fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap' }}>{statement.label.replace(/^2026년 /, '')}</span>
+                      <span style={{ minWidth: 0, fontSize: 12, fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stageLabel}</span>
+                    </button>);
+                })}
+              </div>)}
             </div>
           </div>
           <div data-ui="project-detail.26" style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 2, minWidth: 0 }}>
@@ -290,7 +341,10 @@ export default function ProjectDetailPage() {
       <div data-ui="project-detail.31" style={{ minWidth: 0 }}>
         {tabContent[activeTab]}
       </div>
-      <aside data-ui="project-detail.32" className="project-detail-sidebar">
+      <button type="button" aria-label={rightSidebarOpen ? '우측 사이드바 닫기' : '우측 사이드바 열기'} onClick={() => setRightSidebarOpen((open) => !open)} className="project-detail-right-toggle" style={{ right: rightSidebarOpen ? 205 : 10 }}>
+        <ChevronIcon direction={rightSidebarOpen ? 'right' : 'left'} size={17} color={C.primary}/>
+      </button>
+      <aside data-ui="project-detail.32" className={rightSidebarOpen ? 'project-detail-sidebar' : 'project-detail-sidebar project-detail-sidebar-closed'}>
         <div data-ui="project-detail.38" className="project-detail-side-stack">
           <div data-ui="project-detail.39" className="project-detail-info-sticky">
             {projectInfoCard}

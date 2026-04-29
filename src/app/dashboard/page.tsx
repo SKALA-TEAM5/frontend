@@ -7,7 +7,7 @@ import Button from '../../components/ui/Button';
 import { AppFrame, ProjectStageStepper } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { C } from '../../lib/theme';
-import { getAccessibleProjects, getDashboardCounts, getSheFilterOptions, PROJECT_STAGES, STATUS_META } from '../../lib/project-data';
+import { getAccessibleProjects, getDashboardCounts, getMonthlyUsageStatements, getSheFilterOptions, PROJECT_STAGES, STATUS_META } from '../../lib/project-data';
 import { getPrimaryProjectAction } from '../../lib/project-actions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { REPORT_DATA, fmt } from '../../lib/mock-data';
@@ -184,6 +184,8 @@ export default function DashboardPage() {
     setVisibleWidgetIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   };
   const resetWidgets = () => {
+    window.localStorage.removeItem(DASHBOARD_WIDGET_STORAGE_KEY);
+    window.localStorage.removeItem(DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY);
     setVisibleWidgetIds(DEFAULT_WIDGET_IDS);
     setWidgetLayout(DEFAULT_WIDGET_LAYOUT);
   };
@@ -233,7 +235,7 @@ export default function DashboardPage() {
     {
       project: projects[0],
       date: '2026/04/23 11:02',
-      actor: 'SHE 담당자',
+      actor: 'SHE',
       action: '현장사진 보완 요청 등록',
     },
     {
@@ -319,6 +321,10 @@ export default function DashboardPage() {
       )}
     </div>
   );
+  const getLatestMonthLabel = (projectId: string) => {
+    const statements = getMonthlyUsageStatements(projectId);
+    return statements[statements.length - 1]?.label || '';
+  };
   const widgetFrameProps = (id: DashboardWidgetId, style: CSSProperties = {}) => {
     const size = WIDGET_SIZES[id];
     const position = widgetLayout[id] || DEFAULT_WIDGET_LAYOUT[id];
@@ -446,6 +452,9 @@ export default function DashboardPage() {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.g800, lineHeight: '22px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</div>
+                        <span style={{ fontSize: 11, fontWeight: 900, color: C.primary, background: C.bg, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '2px 7px', lineHeight: '16px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                          {getLatestMonthLabel(project.id)}
+                        </span>
                         <div style={{ fontSize: 12, color: C.g600, fontWeight: 800, lineHeight: '22px', whiteSpace: 'nowrap', flexShrink: 0 }}>{getPrimaryProjectAction(user, project).label}</div>
                       </div>
                       <span style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
@@ -691,8 +700,13 @@ export default function DashboardPage() {
               <Link key={project.id} href={`/projects/${project.id}`} style={{ textDecoration: 'none' }}>
                 <div style={{ border: `1px solid ${C.g200}`, borderRadius: 18, padding: '16px 18px', background: C.white }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 17, fontWeight: 800, color: C.g800 }}>{project.name}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: C.g800 }}>{project.name}</div>
+                        <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, background: C.bg, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '3px 8px', whiteSpace: 'nowrap' }}>
+                          {getLatestMonthLabel(project.id)}
+                        </span>
+                      </div>
                       <div style={{ fontSize: 14, color: C.g400, marginTop: 4 }}>{project.manager} · {project.period}</div>
                     </div>
                     <span style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap' }}>

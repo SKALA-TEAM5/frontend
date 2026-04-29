@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { C } from '../../lib/theme';
+import { ChevronIcon } from '../ui';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { type DevUserRole, useCurrentUser } from '../../lib/dev-user';
 import { getAccessibleProjects } from '../../lib/project-data';
@@ -17,6 +18,7 @@ interface AppFrameProps {
 export default function AppFrame({ title, description, actions, mainClassName, children }: AppFrameProps) {
     const { user, role, setCurrentRole } = useCurrentUser();
     const [projectsOpen, setProjectsOpen] = useState(true);
+    const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
     const router = useRouter();
     const pathname = usePathname();
     const sidebarProjects = getAccessibleProjects(user);
@@ -38,8 +40,16 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         (user.role === 'she_manager' && pathname === '/dashboard') ||
         (user.role === 'project_manager' && pathname === '/projects');
     const hasHeaderContent = Boolean(description || actions);
-    return (<div data-ui="app-frame.1" style={{ minHeight: '100vh', background: C.soft }}>
-      <aside data-ui="app-frame.2" className="app-sidebar">
+    const frameStyle = {
+        minHeight: '100vh',
+        background: C.soft,
+        '--app-left-offset': leftSidebarOpen ? '220px' : '28px',
+    } as React.CSSProperties;
+    return (<div data-ui="app-frame.1" style={frameStyle}>
+      <button type="button" aria-label={leftSidebarOpen ? '좌측 사이드바 닫기' : '좌측 사이드바 열기'} onClick={() => setLeftSidebarOpen((open) => !open)} className="app-sidebar-toggle" style={{ left: leftSidebarOpen ? 205 : 10 }}>
+        <ChevronIcon direction={leftSidebarOpen ? 'left' : 'right'} size={17} color={C.primary}/>
+      </button>
+      <aside data-ui="app-frame.2" className={leftSidebarOpen ? 'app-sidebar' : 'app-sidebar app-sidebar-closed'}>
         <div data-ui="app-frame.3" style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
           <img data-ui="app-frame.4" src="/uploads/character.png" alt="산안비 검증" style={{ width: 38, height: 38, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }}/>
           <div data-ui="app-frame.5" style={{ minWidth: 0 }}>
@@ -61,8 +71,8 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         <div data-ui="side-projects" style={{ marginTop: 18 }}>
           <button type="button" onClick={() => setProjectsOpen((open) => !open)} style={{ width: '100%', border: 'none', background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', padding: '8px 4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4 }}>
             <span style={{ fontSize: 14, fontWeight: 900 }}>프로젝트 목록</span>
-            <span aria-hidden="true" style={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, color: C.g400, lineHeight: 1 }}>
-              {projectsOpen ? '⌃' : '⌄'}
+            <span aria-hidden="true" style={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: C.g400, lineHeight: 1 }}>
+              <ChevronIcon direction={projectsOpen ? 'up' : 'down'} size={16} />
             </span>
           </button>
           {projectsOpen && (<div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6, maxHeight: 240, overflowY: 'auto', paddingRight: 4 }}>

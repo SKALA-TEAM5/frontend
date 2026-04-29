@@ -1,20 +1,23 @@
 ﻿import { useEffect, useState } from 'react';
 import Card from '../../components/ui/Card';
+import Modal from '../../components/ui/Modal';
 import { C } from '../../lib/theme';
-import { CATS, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData } from '../../lib/mock-data';
-import { PhotoDescriptionModal } from './EvidenceModals';
+import { CATS, buildArchiveDataFromUploads, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData } from '../../lib/mock-data';
 import ArchiveFolderGrid from './ArchiveFolderGrid';
 import ArchiveHierarchyView, { type HierarchyEvidenceKind } from './ArchiveHierarchyView';
 import ArchivePreview from './ArchivePreview';
 import ArchiveToolbar, { type ArchiveValidationStatus, type ArchiveViewMode } from './ArchiveToolbar';
 import ArchiveUsageStatementView from './ArchiveUsageStatementView';
-import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
+import UploadScreen from './UploadScreen';
+import type { ArchiveSeed, ContractInfo, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 interface ArchiveScreenProps {
     matchReady: boolean;
     onDismissMatchReady: () => void;
     archiveSeed: ArchiveSeed | null;
     validationStatus: ArchiveValidationStatus;
     onRunValidation: () => void;
+    contractName: string;
+    contractMeta: ContractInfo | null;
 }
 type DragContext = {
     file: EvidenceFile;
@@ -35,17 +38,14 @@ const FOLDER_EVIDENCE_KINDS: FolderEvidenceCategory[] = ['receipt', 'site_photo'
 const HIERARCHY_EVIDENCE_KINDS: HierarchyEvidenceKind[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
 const PROBLEM_CATEGORY_IDS = new Set([4, 5, 8]);
 const PROBLEM_KEYWORDS = ['개인보호구', '보호구', '안전시설물', '안전난간', '본사'];
-export default function ArchiveScreen({ matchReady, onDismissMatchReady, archiveSeed, validationStatus, onRunValidation }: ArchiveScreenProps) {
+export default function ArchiveScreen({ matchReady, onDismissMatchReady, archiveSeed, validationStatus, onRunValidation, contractName, contractMeta }: ArchiveScreenProps) {
     const [viewMode, setViewMode] = useState<ArchiveViewMode>('hierarchy');
     const [dragFile, setDragFile] = useState<DragContext>(null);
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(archiveSeed || createDefaultArchiveData()));
+    const [uploadModalOpen, setUploadModalOpen] = useState(false);
     const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(1);
     const [selectedHierarchyKind, setSelectedHierarchyKind] = useState<HierarchyEvidenceKind>('receipt');
     const [selectedHierarchyFile, setSelectedHierarchyFile] = useState<EvidenceFile | null>(null);
-    const [siteModalContext, setSiteModalContext] = useState<{
-        catId: number;
-        files: EvidenceFile[];
-    } | null>(null);
     const [hoverPreview, setHoverPreview] = useState<{
         entry: EvidenceFile;
         x: number;
@@ -112,29 +112,6 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
         };
         input.click();
     };
-    const openArchiveAdd = (kind: FolderEvidenceCategory, catId: number) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.multiple = true;
-        input.accept = kind === 'site_photo' ? 'image/*' : 'image/*,.pdf,.xlsx';
-        input.onchange = (e) => {
-            const pickedFiles = Array.from((e.target as HTMLInputElement).files || []);
-            if (kind === 'site_photo') {
-                setSiteModalContext({ catId, files: pickedFiles.map((file) => createEntryFromFile(file, 'site_photo', { categoryIds: [catId] })) });
-                return;
-            }
-            setFileData((prev) => {
-                const next = { ...prev, [kind]: { ...prev[kind] } };
-                next[kind][catId] = [...(next[kind][catId] || []), ...pickedFiles.map((file) => createEntryFromFile(file, kind, { categoryIds: [catId] }))];
-                return next;
-            });
-        };
-        input.click();
-    };
-    const openHierarchyAdd = (kind: HierarchyEvidenceKind, catId: number) => {
-        if (kind !== 'misc')
-            openArchiveAdd(kind, catId);
-    };
     const removeHierarchyFile = (kind: HierarchyEvidenceKind, catId: number, fileId: string) => {
         if (kind !== 'misc') {
             removeArchiveFile(kind, catId, fileId);
@@ -172,7 +149,7 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
             </div>
           </Card>)}
 
-        <ArchiveToolbar viewMode={viewMode} validationStatus={validationStatus} onRunValidation={onRunValidation} onViewModeChange={setViewMode}/>
+        <ArchiveToolbar viewMode={viewMode} validationStatus={validationStatus} onRunValidation={onRunValidation} onUpload={viewMode === 'hierarchy' ? () => setUploadModalOpen(true) : undefined} onViewModeChange={setViewMode}/>
 
         <div data-ui="archive-screen.6" key={viewMode} className="screen-enter" style={{ paddingTop: 0 }}>
           {viewMode === 'usage' ? (<ArchiveUsageStatementView files={fileData.usage_statement} isProblemFile={isProblemFile} onAdd={openUsageStatementAdd} onRemove={removeUsageStatement}/>) : viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} selectedCatId={selectedHierarchyCatId} selectedKind={selectedHierarchyKind} selectedFile={selectedHierarchyFile} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} onSelectCat={(catId) => {
@@ -181,7 +158,7 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
             }} onSelectKind={(kind) => {
                 setSelectedHierarchyKind(kind);
                 setSelectedHierarchyFile(null);
-            }} onSelectFile={setSelectedHierarchyFile} onAdd={openHierarchyAdd} onRemove={removeHierarchyFile} onMove={moveHierarchyFile}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
+            }} onSelectFile={setSelectedHierarchyFile} onRemove={removeHierarchyFile} onMove={moveHierarchyFile}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
             if (!dragFile)
                 return;
             moveFile(dragFile.kind, dragFile.fromCat, toCat, dragFile.file);
@@ -192,22 +169,21 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
 
       <ArchivePreview hoverPreview={hoverPreview}/>
 
-      <PhotoDescriptionModal open={Boolean(siteModalContext)} files={siteModalContext?.files || []} onClose={() => setSiteModalContext(null)} onSave={(values) => {
-            if (!siteModalContext)
-                return;
-            setFileData((prev) => {
-                const next = { ...prev, site_photo: { ...prev.site_photo } };
-                next.site_photo[siteModalContext.catId] = [
-                    ...(next.site_photo[siteModalContext.catId] || []),
-                    ...siteModalContext.files.map((file) => ({
-                        ...file,
-                        description: values[file.name],
-                        categoryIds: [siteModalContext.catId],
-                    })),
-                ];
-                return next;
-            });
-            setSiteModalContext(null);
-        }}/>
+      <Modal open={uploadModalOpen} onClose={() => setUploadModalOpen(false)} zIndex={920} maxWidth={720}>
+        <div style={{ background: C.soft, borderRadius: 22, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
+          <div style={{ position: 'relative' }}>
+            <button type="button" onClick={() => setUploadModalOpen(false)} style={{ position: 'absolute', top: 8, right: 10, zIndex: 2, border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
+          </div>
+          <div style={{ padding: '34px 14px 14px' }}>
+            <UploadScreen contractName={contractName} contractMeta={contractMeta} requireUsageStatementFirst={false} onMatchComplete={(payload) => {
+                const nextSeed = buildArchiveDataFromUploads(payload.files);
+                setFileData(normalizeArchiveData(nextSeed));
+                setSelectedHierarchyFile(null);
+                setViewMode('hierarchy');
+                setUploadModalOpen(false);
+            }} compact/>
+          </div>
+        </div>
+      </Modal>
     </div>);
 }

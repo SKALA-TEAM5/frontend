@@ -25,14 +25,14 @@ interface ArchiveFolderGridProps {
     isProblemFile?: (file: EvidenceFile) => boolean;
 }
 const thumbStyle: CSSProperties = {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 8,
     background: '#F1F8F3',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: 22,
+    fontSize: 18,
     flexShrink: 0,
 };
 function FolderThumb({ empty }: {
@@ -46,7 +46,7 @@ function FolderThumb({ empty }: {
     </svg>);
 }
 export default function ArchiveFolderGrid({ cats, viewMode, dragFile, getAllFilesForCategory, onDropFile, onSetDragFile, onRemove, onPreview, onPreviewEnd, isProblemFile }: ArchiveFolderGridProps) {
-    return (<div data-ui="archive-folder-grid.6" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 18 }}>
+    return (<div data-ui="archive-folder-grid.6" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
       {cats.map((cat) => {
             const files = getAllFilesForCategory(cat.id);
             const count = files.length;
@@ -58,22 +58,22 @@ export default function ArchiveFolderGrid({ cats, viewMode, dragFile, getAllFile
                         return;
                     e.preventDefault();
                     onDropFile(cat.id);
-                }} style={{ position: 'relative', background: hasProblem ? C.dangerBg : C.white, border: `1px solid ${hasProblem ? '#FFCDD2' : C.g200}`, borderRadius: 18, padding: '14px 14px 20px', transition: 'all .18s', boxShadow: '0 8px 18px rgba(27,94,59,.06)', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <div data-ui="archive-folder-grid.8" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-              <div data-ui="archive-folder-grid.9" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                }} style={{ position: 'relative', background: hasProblem ? C.dangerBg : C.white, border: `1px solid ${hasProblem ? '#FFCDD2' : C.g200}`, borderRadius: 14, padding: '10px 10px 14px', transition: 'all .18s', boxShadow: '0 6px 14px rgba(27,94,59,.05)', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div data-ui="archive-folder-grid.8" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 8 }}>
+              <div data-ui="archive-folder-grid.9" style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                 <div data-ui="archive-folder-grid.10" style={thumbStyle}>
                   <FolderThumb empty={empty}/>
                 </div>
-                <div data-ui="archive-folder-grid.11" style={{ fontSize: 15, fontWeight: 800, color: hasProblem ? C.danger : empty ? C.g400 : C.g800, lineHeight: 1.35, wordBreak: 'keep-all' }}>{cat.short}</div>
-                <div data-ui="archive-folder-grid.12" style={{ fontSize: 13, fontWeight: 700, color: hasProblem ? C.danger : C.g400, whiteSpace: 'nowrap' }}>{empty ? '0건' : `${count}건`}</div>
+                <div data-ui="archive-folder-grid.11" style={{ fontSize: 12, fontWeight: 800, color: hasProblem ? C.danger : empty ? C.g400 : C.g800, lineHeight: 1.35, wordBreak: 'keep-all' }}>{cat.short}</div>
+                <div data-ui="archive-folder-grid.12" style={{ fontSize: 11, fontWeight: 700, color: hasProblem ? C.danger : C.g400, whiteSpace: 'nowrap' }}>{empty ? '0건' : `${count}건`}</div>
               </div>
             </div>
-            <div data-ui="archive-folder-grid.13" style={{ border: `1px solid ${C.g100}`, borderRadius: 14, background: '#FCFEFD', padding: '10px 8px 0 10px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <div data-ui="archive-folder-grid.14" style={{ overflowY: 'auto', paddingRight: 4, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 172 }}>
-                {empty && <div data-ui="archive-folder-grid.15" style={{ minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: C.g400 }}>폴더가 비어 있습니다</div>}
+            <div data-ui="archive-folder-grid.13" style={{ border: `1px solid ${C.g100}`, borderRadius: 12, background: '#FCFEFD', padding: '8px 6px 0 8px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              <div data-ui="archive-folder-grid.14" style={{ overflowY: 'auto', paddingRight: 3, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 150 }}>
+                {empty && <div data-ui="archive-folder-grid.15" style={{ minHeight: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: C.g400 }}>폴더가 비어 있습니다</div>}
                 {files.map((file) => {
                     const fileKind = file.kind as FolderEvidenceCategory;
-                    return (<ArchiveFileRow key={`${file.kind}-${file.id}-${cat.id}`} file={file} catId={cat.id} kind={fileKind} problem={Boolean(isProblemFile?.(file))} onDragStart={() => onSetDragFile({ file, fromCat: cat.id, kind: fileKind })} onDragEnd={() => onSetDragFile(null)} onRemove={() => onRemove(fileKind, cat.id, file.id)} onPreview={onPreview} onPreviewEnd={onPreviewEnd}/>);
+                    return (<ArchiveFileRow key={`${file.kind}-${file.id}-${cat.id}`} file={file} catId={cat.id} kind={fileKind} compact problem={Boolean(isProblemFile?.(file))} onDragStart={() => onSetDragFile({ file, fromCat: cat.id, kind: fileKind })} onDragEnd={() => onSetDragFile(null)} onRemove={() => onRemove(fileKind, cat.id, file.id)} onPreview={onPreview} onPreviewEnd={onPreviewEnd}/>);
                 })}
               </div>
             </div>

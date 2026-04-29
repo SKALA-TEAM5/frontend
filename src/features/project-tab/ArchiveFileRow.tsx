@@ -5,7 +5,7 @@ const KIND_LABELS: Record<EvidenceCategory, string> = {
     receipt: '영수증',
     site_photo: '현장사진',
     usage_statement: '사용내역서',
-    tax_invoice: '세금계산서 + 전문공사 계약확인서',
+    tax_invoice: '세금계산서 + 제3자발급사실조회서',
     other_document: '기타 자료',
 };
 const TYPE_BADGE_STYLES: Record<EvidenceCategory, {
@@ -41,32 +41,32 @@ export default function ArchiveFileRow({ file, catId, kind, compact = false, pro
     };
     return (<div data-ui="archive-file-row.1" key={`${kind}-${file.id}-${catId}`} draggable onDragStart={onDragStart} onDragEnd={onDragEnd} style={{
             display: 'grid',
-            gridTemplateColumns: compact ? '32px minmax(0,1fr) 18px' : '32px minmax(0,1fr) auto 18px',
-            gap: 8,
+            gridTemplateColumns: compact ? 'minmax(0,1fr) 16px' : '28px minmax(0,1fr) auto 16px',
+            gap: 6,
             alignItems: 'center',
-            padding: '7px 8px',
-            borderRadius: 10,
+            padding: '6px 7px',
+            borderRadius: 9,
             background: problem ? C.dangerBg : C.white,
             border: `1px solid ${problem ? '#FFCDD2' : C.g100}`,
             cursor: 'grab',
         }}>
-      <div data-ui="archive-file-row.2" onMouseEnter={(e) => openPreview(e.currentTarget)} onMouseLeave={onPreviewEnd}>
-        <FileThumb entry={file} size={32}/>
-      </div>
+      {!compact && <div data-ui="archive-file-row.2" onMouseEnter={(e) => openPreview(e.currentTarget)} onMouseLeave={onPreviewEnd}>
+        <FileThumb entry={file} size={28}/>
+      </div>}
       <div data-ui="archive-file-row.3" style={{ minWidth: 0 }}>
-        <div data-ui="archive-file-row.4" data-file-name onMouseEnter={(e) => openPreview(e.currentTarget)} onMouseLeave={onPreviewEnd} style={{ fontSize: 13, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
+        <div data-ui="archive-file-row.4" data-file-name onMouseEnter={(e) => openPreview(e.currentTarget)} onMouseLeave={onPreviewEnd} style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
         <div data-ui="archive-file-row.5" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
-          <span data-ui="archive-file-row.6" style={{ fontSize: 12, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
-          {kind === 'site_photo' && file.description && <span data-ui="archive-file-row.7" style={{ fontSize: 12, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>{file.description}</span>}
+          <span data-ui="archive-file-row.6" style={{ fontSize: 11, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
+          {kind === 'site_photo' && file.description && <span data-ui="archive-file-row.7" style={{ fontSize: 11, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>{file.description}</span>}
         </div>
       </div>
-      {!compact && (<span data-ui="archive-file-row.8" style={{ fontSize: 12, fontWeight: 700, color: badgeStyle.color, background: badgeStyle.bg, border: `1px solid ${badgeStyle.border}`, borderRadius: 999, padding: '3px 8px', whiteSpace: 'nowrap' }}>
+      {!compact && (<span data-ui="archive-file-row.8" style={{ fontSize: 10, fontWeight: 700, color: badgeStyle.color, background: badgeStyle.bg, border: `1px solid ${badgeStyle.border}`, borderRadius: 999, padding: '2px 6px', whiteSpace: 'nowrap' }}>
           {KIND_LABELS[kind]}
         </span>)}
       <button data-ui="archive-file-row.9" type="button" onMouseEnter={onPreviewEnd} onClick={(e) => {
             e.stopPropagation();
             onPreviewEnd();
             onRemove();
-        }} style={{ background: 'none', border: 'none', color: C.g400, cursor: 'pointer', fontSize: 16, padding: 0 }}>x</button>
+        }} style={{ background: 'none', border: 'none', color: C.g400, cursor: 'pointer', fontSize: 14, padding: 0 }}>x</button>
     </div>);
 }

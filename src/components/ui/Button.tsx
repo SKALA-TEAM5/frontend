@@ -9,8 +9,9 @@ interface ButtonProps {
     full?: boolean;
     disabled?: boolean;
     style?: React.CSSProperties;
+    type?: 'button' | 'submit' | 'reset';
 }
-export default function Button({ children, onClick, variant = 'primary', size = 'md', full, disabled, style, }: ButtonProps) {
+export default function Button({ children, onClick, variant = 'primary', size = 'md', full, disabled, style, type = 'button', }: ButtonProps) {
     const sizes: Record<ButtonSize, React.CSSProperties> = {
         xs: { fontSize: 14, padding: '5px 9px', borderRadius: 9 },
         sm: { fontSize: 14, padding: '7px 14px' },
@@ -23,7 +24,7 @@ export default function Button({ children, onClick, variant = 'primary', size = 
         ghost: { background: C.bg, color: C.primary },
         subtle: { background: C.g100, color: C.g800 },
     };
-    return (<button data-ui="button.1" disabled={disabled} onClick={onClick} style={{
+    return (<button data-ui="button.1" type={type} disabled={disabled} onClick={onClick} style={{
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',

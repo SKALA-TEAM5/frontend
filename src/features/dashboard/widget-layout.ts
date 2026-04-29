@@ -40,10 +40,10 @@ export const GRID_EDIT_PADDING = 12;
 export const GRID_COLUMN_COUNT = 10;
 
 export const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
-  projectStatus: { colSpan: 3, rowSpan: 2 },
-  todayTasks: { colSpan: 3, rowSpan: 3 },
+  projectStatus: { colSpan: 2, rowSpan: 2 },
+  todayTasks: { colSpan: 4, rowSpan: 3 },
   recentActivity: { colSpan: 2, rowSpan: 2 },
-  sla: { colSpan: 3, rowSpan: 1 },
+  sla: { colSpan: 2, rowSpan: 1 },
   openActionRequests: { colSpan: 1, rowSpan: 1 },
   risk: { colSpan: 2, rowSpan: 1 },
   missingUpload: { colSpan: 1, rowSpan: 1 },
@@ -54,15 +54,15 @@ export const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
 
 export const DEFAULT_WIDGET_LAYOUT: Record<DashboardWidgetId, WidgetPosition> = {
   projectStatus: { col: 1, row: 1 },
-  todayTasks: { col: 4, row: 1 },
+  todayTasks: { col: 3, row: 1 },
   risk: { col: 7, row: 1 },
   missingUpload: { col: 9, row: 1 },
   openActionRequests: { col: 10, row: 1 },
   workload: { col: 7, row: 2 },
-  settlementProgress: { col: 7, row: 3 },
-  recentActivity: { col: 9, row: 2 },
+  settlementProgress: { col: 9, row: 2 },
+  recentActivity: { col: 9, row: 3 },
   sla: { col: 1, row: 3 },
-  myProjects: { col: 1, row: 5 },
+  myProjects: { col: 1, row: 4 },
 };
 
 export const dashboardGridStyle: CSSProperties = {

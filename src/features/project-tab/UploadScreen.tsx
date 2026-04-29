@@ -16,6 +16,7 @@ interface UploadScreenProps {
     onMatchComplete: (payload: {
         files: Record<EvidenceCategory, EvidenceFile[]>;
     }) => void;
+    compact?: boolean;
 }
 const UPLOAD_ZONES: Array<{
     key: EvidenceCategory;
@@ -25,11 +26,11 @@ const UPLOAD_ZONES: Array<{
     { key: 'usage_statement', label: '사용내역서', hint: null },
     { key: 'receipt', label: '영수증', hint: null },
     { key: 'site_photo', label: '현장사진', hint: '필요 사진만 제출해 주세요.' },
-    { key: 'tax_invoice', label: '세금계산서 + 전문공사 계약확인서', hint: '증빙 자료를\n함께 제출해 주세요.' },
-    { key: 'other_document', label: '기타 자료', hint: '추가 확인 자료를\n자유롭게 제출해 주세요.' },
+    { key: 'tax_invoice', label: '세금계산서 + 제3자발급사실조회서', hint: '두 자료를 함께\n제출해 주세요.' },
+    { key: 'other_document', label: '기타 자료', hint: '추가 확인 자료를\n제출해 주세요.' },
 ];
 const OTHER_DOCUMENT_TYPES = ['지급대장', '점검일지', '선임확인서', '기타'];
-const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst = false, onUploadCountChange, onMatchComplete }: UploadScreenProps) => {
+const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst = false, onUploadCountChange, onMatchComplete, compact = false }: UploadScreenProps) => {
     const [files, setFiles] = useState<Record<EvidenceCategory, EvidenceFile[]>>({ receipt: [], site_photo: [], usage_statement: [], tax_invoice: [], other_document: [] });
     const [loading, setLoading] = useState(false);
     const [matchDone, setMatchDone] = useState(false);
@@ -126,17 +127,17 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
             </div>
         </div>)}
         <div data-ui="upload-screen.12" className="screen-enter">
-          <div data-ui="upload-screen.13" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div data-ui="upload-screen.13" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: compact ? 10 : 10 }}>
             {UPLOAD_ZONES.map((zone) => {
             const count = files[zone.key].length;
             const blockedByInitialUsageRule = requireUsageStatementFirst && zone.key !== 'usage_statement' && !usageStatementReady;
             return (<div data-ui="upload-screen.14" key={zone.key} style={{ gridColumn: zone.key === 'usage_statement' ? '1 / -1' : undefined }}>
-                <UploadZone zone={zone} count={count} names={files[zone.key]} onDrop={(e) => handleDrop(zone.key, e)} onClick={() => pickFile(zone.key)} onRemove={(fileId) => removeFile(zone.key, fileId)} disabled={!basicReady || blockedByInitialUsageRule} disabledReason={blockedByInitialUsageRule ? '첫 프로젝트는 사용내역서를 먼저 업로드해 주세요.' : undefined}/>
+                <UploadZone zone={zone} count={count} names={files[zone.key]} onDrop={(e) => handleDrop(zone.key, e)} onClick={() => pickFile(zone.key)} onRemove={(fileId) => removeFile(zone.key, fileId)} disabled={!basicReady || blockedByInitialUsageRule} disabledReason={blockedByInitialUsageRule ? '첫 프로젝트는 사용내역서를 먼저 업로드해 주세요.' : undefined} compact={compact}/>
               </div>);
         })}
           </div>
-          <div data-ui="upload-screen.16" style={{ marginTop: 16, padding: '15px 20px', borderRadius: 14, background: C.white, border: `1px solid ${C.g200}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-            <div data-ui="upload-screen.17" style={{ fontSize: 15, color: C.g600 }}>제출 완료 후 AI가 <strong data-ui="upload-screen.18" style={{ color: C.primary }}>9개 항목</strong>으로 자동 분류하고, 관련 증빙을 같은 폴더에 묶습니다.</div>
+          <div data-ui="upload-screen.16" style={{ marginTop: compact ? 8 : 10, padding: compact ? '9px 12px' : '10px 14px', borderRadius: compact ? 10 : 12, background: C.white, border: `1px solid ${C.g200}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: compact ? 8 : 10 }}>
+            <div data-ui="upload-screen.17" style={{ fontSize: compact ? 12 : 15, color: C.g600 }}>제출 완료 후 AI가 <strong data-ui="upload-screen.18" style={{ color: C.primary }}>9개 항목</strong>으로 자동 분류하고, 관련 증빙을 같은 폴더에 묶습니다.</div>
             <div data-ui="upload-screen.19" style={{ display: 'flex', gap: 8, flexShrink: 0 }}><Button size="sm" disabled={!canProceed || !hasUploads || loading} onClick={() => { setLoading(true); setTimeout(() => { setLoading(false); setMatchDone(true); }, 1400); }}>분류 검토</Button></div>
           </div>
           {loading && <InlineLoader title="매칭 검토 화면을 준비하고 있어요" body="업로드된 사용내역서, 영수증, 현장사진, 세금계산서와 기타 자료를 항목별로 정리하고 있습니다."/>}
@@ -192,4 +193,3 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
     return <div data-ui="upload-screen.20" style={{ background: C.soft, padding: 0 }}>{content}</div>;
 };
 export default UploadScreen;
-
