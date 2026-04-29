@@ -26,26 +26,26 @@ export const PhotoDescriptionModal = ({ open, files = [], initialValues = {}, on
     }, [open, initialSignature]);
     const canSave = files.every((file) => values[file.name] && values[file.name].trim());
     return (<Modal open={open} onClose={onClose} zIndex={940} maxWidth={760}>
-      <div data-ui="features-project-tab-evidence-modals.div-15" style={{ background: C.white, borderRadius: 24, boxShadow: '0 18px 40px rgba(0,0,0,.16)', border: `1px solid ${C.g200}`, overflow: 'hidden' }}>
-        <div data-ui="features-project-tab-evidence-modals.div-16" style={{ padding: '18px 22px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div data-ui="features-project-tab-evidence-modals.div-17"><div data-ui="features-project-tab-evidence-modals.div-18" style={{ fontSize: 20, fontWeight: 800, color: C.g800 }}>{title}</div><div data-ui="features-project-tab-evidence-modals.div-19" style={{ fontSize: 14, color: C.g400, marginTop: 3 }}>사진마다 설명을 입력해야 저장됩니다</div></div>
-          <button data-ui="features-project-tab-evidence-modals.button-4" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.g400 }}>×</button>
+      <div data-ui="evidence-modals.1" style={{ background: C.white, borderRadius: 24, boxShadow: '0 18px 40px rgba(0,0,0,.16)', border: `1px solid ${C.g200}`, overflow: 'hidden' }}>
+        <div data-ui="evidence-modals.2" style={{ padding: '18px 22px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div data-ui="evidence-modals.3"><div data-ui="evidence-modals.4" style={{ fontSize: 20, fontWeight: 800, color: C.g800 }}>{title}</div><div data-ui="evidence-modals.5" style={{ fontSize: 14, color: C.g400, marginTop: 3 }}>사진마다 설명을 입력해야 저장됩니다</div></div>
+          <button data-ui="evidence-modals.6" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.g400 }}>×</button>
         </div>
-        <div data-ui="features-project-tab-evidence-modals.div-20" style={{ padding: 18, maxHeight: '64vh', overflow: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {files.map((file, i) => (<div data-ui="features-project-tab-evidence-modals.div-21" key={file.name + i} style={{ border: `1px solid ${C.g200}`, borderRadius: 16, padding: 14 }}>
-              <div data-ui="features-project-tab-evidence-modals.div-22" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <div data-ui="evidence-modals.7" style={{ padding: 18, maxHeight: '64vh', overflow: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {files.map((file, i) => (<div data-ui="evidence-modals.8" key={file.name + i} style={{ border: `1px solid ${C.g200}`, borderRadius: 16, padding: 14 }}>
+              <div data-ui="evidence-modals.9" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <FileThumb entry={file} size={64}/>
-                <div data-ui="features-project-tab-evidence-modals.div-23" style={{ minWidth: 0, flex: 1 }}>
-                  <div data-ui="features-project-tab-evidence-modals.div-24" style={{ fontSize: 14, fontWeight: 700, color: C.g800, marginBottom: 8, wordBreak: 'break-all' }}>{file.name}</div>
-                  <textarea data-ui="features-project-tab-evidence-modals.textarea-1" value={values[file.name] || ''} maxLength={PHOTO_DESCRIPTION_MAX_LENGTH} onChange={(e) => setValues((prev) => ({ ...prev, [file.name]: e.target.value.slice(0, PHOTO_DESCRIPTION_MAX_LENGTH) }))} placeholder="예: 안전난간 설치 완료, 작업자 안전모 착용 확인" style={{ width: '100%', minHeight: 88, resize: 'vertical', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 14, outline: 'none', color: '#23352d', background: '#fff', caretColor: '#23352d', lineHeight: 1.6 }}/>
-                  <div data-ui="features-project-tab-evidence-modals.char-count" style={{ marginTop: 5, textAlign: 'right', fontSize: 12, fontWeight: 800, color: (values[file.name] || '').length >= PHOTO_DESCRIPTION_MAX_LENGTH ? C.danger : C.g400 }}>
+                <div data-ui="evidence-modals.10" style={{ minWidth: 0, flex: 1 }}>
+                  <div data-ui="evidence-modals.11" style={{ fontSize: 14, fontWeight: 700, color: C.g800, marginBottom: 8, wordBreak: 'break-all' }}>{file.name}</div>
+                  <textarea data-ui="evidence-modals.12" value={values[file.name] || ''} maxLength={PHOTO_DESCRIPTION_MAX_LENGTH} onChange={(e) => setValues((prev) => ({ ...prev, [file.name]: e.target.value.slice(0, PHOTO_DESCRIPTION_MAX_LENGTH) }))} placeholder="예: 안전난간 설치 완료, 작업자 안전모 착용 확인" style={{ width: '100%', minHeight: 88, resize: 'vertical', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 14, outline: 'none', color: '#23352d', background: '#fff', caretColor: '#23352d', lineHeight: 1.6 }}/>
+                  <div data-ui="evidence-modals.13" style={{ marginTop: 5, textAlign: 'right', fontSize: 12, fontWeight: 800, color: (values[file.name] || '').length >= PHOTO_DESCRIPTION_MAX_LENGTH ? C.danger : C.g400 }}>
                     {(values[file.name] || '').length}/{PHOTO_DESCRIPTION_MAX_LENGTH}
                   </div>
                 </div>
               </div>
             </div>))}
         </div>
-        <div data-ui="features-project-tab-evidence-modals.div-25" style={{ padding: '16px 22px', borderTop: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <div data-ui="evidence-modals.14" style={{ padding: '16px 22px', borderTop: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <Button variant="outline" size="sm" onClick={onClose}>취소</Button>
           <Button size="sm" disabled={!canSave} onClick={() => onSave(values)}>저장</Button>
         </div>

@@ -9,7 +9,7 @@ interface CardProps {
     onDragEnd?: (event: React.DragEvent<HTMLDivElement>) => void;
 }
 export default function Card({ children, style, onClick, draggable, onDragStart, onDragOver, onDrop, onDragEnd }: CardProps) {
-    return (<div data-ui="components-ui-card.div-1" style={{
+    return (<div data-ui="card.1" style={{
             background: '#FFFFFF',
             borderRadius: 20,
             padding: 24,

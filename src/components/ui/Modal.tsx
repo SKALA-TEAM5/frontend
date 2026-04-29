@@ -8,7 +8,7 @@ interface ModalProps {
 export default function Modal({ open, onClose, children, zIndex = 900, maxWidth = 620, }: ModalProps) {
     if (!open)
         return null;
-    return (<div data-ui="components-ui-modal.div-1" onClick={onClose} style={{
+    return (<div data-ui="modal.1" onClick={onClose} style={{
             position: 'fixed',
             inset: 0,
             background: 'transparent',
@@ -18,7 +18,7 @@ export default function Modal({ open, onClose, children, zIndex = 900, maxWidth 
             zIndex,
             padding: 24,
         }}>
-      <div data-ui="components-ui-modal.div-2" onClick={(e) => e.stopPropagation()} className="screen-enter" style={{
+      <div data-ui="modal.2" onClick={(e) => e.stopPropagation()} className="screen-enter" style={{
             width: '100%',
             maxWidth,
         }}>

@@ -6,13 +6,15 @@ import { PhotoDescriptionModal } from './EvidenceModals';
 import ArchiveFolderGrid from './ArchiveFolderGrid';
 import ArchiveHierarchyView, { type HierarchyEvidenceKind } from './ArchiveHierarchyView';
 import ArchivePreview from './ArchivePreview';
-import ArchiveToolbar, { type ArchiveViewMode } from './ArchiveToolbar';
+import ArchiveToolbar, { type ArchiveValidationStatus, type ArchiveViewMode } from './ArchiveToolbar';
 import ArchiveUsageStatementView from './ArchiveUsageStatementView';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 interface ArchiveScreenProps {
     matchReady: boolean;
     onDismissMatchReady: () => void;
     archiveSeed: ArchiveSeed | null;
+    validationStatus: ArchiveValidationStatus;
+    onRunValidation: () => void;
 }
 type DragContext = {
     file: EvidenceFile;
@@ -31,7 +33,9 @@ const uniqueFiles = (files: EvidenceFile[]) => {
 };
 const FOLDER_EVIDENCE_KINDS: FolderEvidenceCategory[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
 const HIERARCHY_EVIDENCE_KINDS: HierarchyEvidenceKind[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
-export default function ArchiveScreen({ matchReady, onDismissMatchReady, archiveSeed }: ArchiveScreenProps) {
+const PROBLEM_CATEGORY_IDS = new Set([4, 5, 8]);
+const PROBLEM_KEYWORDS = ['개인보호구', '보호구', '안전시설물', '안전난간', '본사'];
+export default function ArchiveScreen({ matchReady, onDismissMatchReady, archiveSeed, validationStatus, onRunValidation }: ArchiveScreenProps) {
     const [viewMode, setViewMode] = useState<ArchiveViewMode>('hierarchy');
     const [dragFile, setDragFile] = useState<DragContext>(null);
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(archiveSeed || createDefaultArchiveData()));
@@ -154,32 +158,30 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
         setSelectedHierarchyKind(toKind);
         setSelectedHierarchyFile(movedFile);
     };
-    const totalVisibleFiles = viewMode === 'folder'
-        ? uniqueFiles(CATS.flatMap((cat) => getAllFilesForCategory(cat.id))).length
-        : viewMode === 'hierarchy'
-            ? getAllHierarchyFilesForCategory(selectedHierarchyCatId).length
-        : viewMode === 'usage'
-            ? fileData.usage_statement.length
-            : 0;
-    return (<div data-ui="features-project-tab-archive-screen.div-1" style={{ background: C.soft, position: 'relative' }}>
-      <div data-ui="features-project-tab-archive-screen.div-2" className="screen-enter">
+    const isProblemFile = (file: EvidenceFile) => {
+        if (validationStatus !== 'done')
+            return false;
+        return file.categoryIds?.some((catId) => PROBLEM_CATEGORY_IDS.has(catId)) || PROBLEM_KEYWORDS.some((keyword) => file.name.includes(keyword));
+    };
+    return (<div data-ui="archive-screen.1" style={{ background: C.soft, position: 'relative' }}>
+      <div data-ui="archive-screen.2" className="screen-enter">
         {matchReady && (<Card style={{ marginBottom: 16, padding: '14px 18px', background: C.bg, border: `1px solid ${C.light}` }}>
-            <div data-ui="features-project-tab-archive-screen.div-4" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div data-ui="features-project-tab-archive-screen.div-5" style={{ fontSize: 15, fontWeight: 700, color: C.primary }}>매칭 검토가 완료되었습니다. 파일을 드래그해 다른 폴더로 이동할 수 있습니다.</div>
-              <button data-ui="features-project-tab-archive-screen.button-1" onClick={onDismissMatchReady} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.g400, fontSize: 20 }}>x</button>
+            <div data-ui="archive-screen.3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div data-ui="archive-screen.4" style={{ fontSize: 15, fontWeight: 700, color: C.primary }}>매칭 검토가 완료되었습니다. 파일을 드래그해 다른 폴더로 이동할 수 있습니다.</div>
+              <button data-ui="archive-screen.5" onClick={onDismissMatchReady} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.g400, fontSize: 20 }}>x</button>
             </div>
           </Card>)}
 
-        <ArchiveToolbar viewMode={viewMode} totalVisibleFiles={totalVisibleFiles} onViewModeChange={setViewMode}/>
+        <ArchiveToolbar viewMode={viewMode} validationStatus={validationStatus} onRunValidation={onRunValidation} onViewModeChange={setViewMode}/>
 
-        <div data-ui="features-project-tab-archive-screen.div-6" key={viewMode} className="screen-enter" style={{ paddingTop: 0 }}>
-          {viewMode === 'usage' ? (<ArchiveUsageStatementView files={fileData.usage_statement} onAdd={openUsageStatementAdd} onRemove={removeUsageStatement}/>) : viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} selectedCatId={selectedHierarchyCatId} selectedKind={selectedHierarchyKind} selectedFile={selectedHierarchyFile} getFiles={getHierarchyFilesForCategory} onSelectCat={(catId) => {
+        <div data-ui="archive-screen.6" key={viewMode} className="screen-enter" style={{ paddingTop: 0 }}>
+          {viewMode === 'usage' ? (<ArchiveUsageStatementView files={fileData.usage_statement} isProblemFile={isProblemFile} onAdd={openUsageStatementAdd} onRemove={removeUsageStatement}/>) : viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} selectedCatId={selectedHierarchyCatId} selectedKind={selectedHierarchyKind} selectedFile={selectedHierarchyFile} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} onSelectCat={(catId) => {
                 setSelectedHierarchyCatId(catId);
                 setSelectedHierarchyFile(null);
             }} onSelectKind={(kind) => {
                 setSelectedHierarchyKind(kind);
                 setSelectedHierarchyFile(null);
-            }} onSelectFile={setSelectedHierarchyFile} onAdd={openHierarchyAdd} onRemove={removeHierarchyFile} onMove={moveHierarchyFile}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} onDropFile={(toCat) => {
+            }} onSelectFile={setSelectedHierarchyFile} onAdd={openHierarchyAdd} onRemove={removeHierarchyFile} onMove={moveHierarchyFile}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
             if (!dragFile)
                 return;
             moveFile(dragFile.kind, dragFile.fromCat, toCat, dragFile.file);
@@ -209,4 +211,3 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
         }}/>
     </div>);
 }
-

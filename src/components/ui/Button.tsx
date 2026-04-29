@@ -23,7 +23,7 @@ export default function Button({ children, onClick, variant = 'primary', size = 
         ghost: { background: C.bg, color: C.primary },
         subtle: { background: C.g100, color: C.g800 },
     };
-    return (<button data-ui="components-ui-button.button-1" disabled={disabled} onClick={onClick} style={{
+    return (<button data-ui="button.1" disabled={disabled} onClick={onClick} style={{
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',

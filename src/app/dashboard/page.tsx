@@ -5,43 +5,33 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { AppFrame, ProjectStageStepper } from '../../components/common';
+import PeriodFilter from '../../components/common/PeriodFilter';
 import { C } from '../../lib/theme';
-import { getAccessibleProjects, getDashboardCounts, getSheFilterOptions, PROJECT_STAGES, STATUS_META, type ProjectSummary } from '../../lib/project-data';
+import { getAccessibleProjects, getDashboardCounts, getSheFilterOptions, PROJECT_STAGES, STATUS_META } from '../../lib/project-data';
 import { getPrimaryProjectAction } from '../../lib/project-actions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { REPORT_DATA, fmt } from '../../lib/mock-data';
-
-type SortOption = 'name' | 'recent' | 'progress';
-type WidgetHelpId = 'projectStatus' | 'todayTasks' | 'recentActivity' | 'sla' | 'risk' | 'missingUpload' | 'settlementProgress' | 'workload' | 'myProjects';
-type DashboardWidgetId = WidgetHelpId;
-type WidgetPosition = { col: number; row: number };
-type WidgetSize = { colSpan: number; rowSpan: number };
-
-const SORT_LABELS: Record<SortOption, string> = {
-  name: '사전순',
-  recent: '최근순',
-  progress: '진행 현황순',
-};
-
-const parsePeriodDate = (period: string) => {
-  const [, end = ''] = period.split('~').map((value) => value.trim());
-  const fallback = period.split('~')[0]?.trim() || '';
-  const time = new Date((end || fallback).replace(/\//g, '-')).getTime();
-  return Number.isNaN(time) ? 0 : time;
-};
-
-const progressValue = (project: ProjectSummary) => Number.parseInt(project.progressRate, 10) || 0;
-
-const sortProjects = (projects: ProjectSummary[], sortBy: SortOption) => {
-  const nextProjects = [...projects];
-  if (sortBy === 'name') {
-    return nextProjects.sort((a, b) => a.constructionName.localeCompare(b.constructionName, 'ko-KR'));
-  }
-  if (sortBy === 'recent') {
-    return nextProjects.sort((a, b) => parsePeriodDate(b.period) - parsePeriodDate(a.period));
-  }
-  return nextProjects.sort((a, b) => b.stageIndex - a.stageIndex || progressValue(b) - progressValue(a));
-};
+import { getVisibleProjects, SORT_LABELS, type PeriodMode, type SortOption } from '../../lib/project-list';
+import {
+  DASHBOARD_WIDGETS,
+  DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY,
+  DASHBOARD_WIDGET_STORAGE_KEY,
+  DEFAULT_WIDGET_IDS,
+  DEFAULT_WIDGET_LAYOUT,
+  GRID_COLUMN_COUNT,
+  GRID_EDIT_PADDING,
+  GRID_GAP,
+  GRID_ROW_GUIDE_HEIGHT,
+  WIDGET_SIZES,
+  dashboardEditGridStyle,
+  dashboardGridStyle,
+  getGridCellMetrics,
+  resolveLayoutWithPushDown,
+  widgetPlacementStyle,
+  type DashboardWidgetId,
+  type WidgetHelpId,
+  type WidgetPosition,
+} from '../../features/dashboard/widget-layout';
 
 const fieldStyle: CSSProperties = {
   width: '100%',
@@ -53,13 +43,6 @@ const fieldStyle: CSSProperties = {
   fontSize: 14,
   color: C.g800,
   background: C.white,
-};
-
-const labelStyle: CSSProperties = {
-  fontSize: 13,
-  fontWeight: 700,
-  color: C.g400,
-  marginBottom: 6,
 };
 
 const sortBarStyle: CSSProperties = {
@@ -100,50 +83,12 @@ const widgetValueStyle: CSSProperties = {
   lineHeight: 1.15,
 };
 
-const dashboardGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(10, 110px)',
-  gridAutoRows: 130,
-  gap: 14,
-  alignItems: 'stretch',
-  width: 110 * 10 + 14 * 9,
-  maxWidth: '100%',
-  overflowX: 'auto',
-};
-
-const GRID_COLUMN_WIDTH = 110;
-const GRID_GAP = 14;
-const GRID_ROW_GUIDE_HEIGHT = 130;
-const GRID_EDIT_PADDING = 12;
-const GRID_COLUMN_COUNT = 10;
-
-const dashboardEditGridStyle: CSSProperties = {
-  boxSizing: 'border-box',
-  padding: GRID_EDIT_PADDING,
-  width: GRID_COLUMN_WIDTH * GRID_COLUMN_COUNT + GRID_GAP * (GRID_COLUMN_COUNT - 1) + GRID_EDIT_PADDING * 2,
-  minHeight: GRID_ROW_GUIDE_HEIGHT * 12 + GRID_GAP * 11 + GRID_EDIT_PADDING * 2,
-  maxWidth: '100%',
-  borderRadius: 18,
-  backgroundImage: `linear-gradient(${C.g200} 1px, transparent 1px), linear-gradient(90deg, ${C.g200} 1px, transparent 1px)`,
-  backgroundPosition: `${GRID_EDIT_PADDING}px ${GRID_EDIT_PADDING}px`,
-  backgroundSize: `${GRID_COLUMN_WIDTH + GRID_GAP}px ${GRID_ROW_GUIDE_HEIGHT + GRID_GAP}px`,
-  backgroundColor: '#FAFDFB',
-};
-
-const widgetPlacementStyle = (size: WidgetSize): CSSProperties => ({
-  gridColumn: `span ${size.colSpan}`,
-  gridRow: `span ${size.rowSpan}`,
-  width: '100%',
-  height: '100%',
-  boxSizing: 'border-box',
-});
-
 const tooltipStyle: CSSProperties = {
   position: 'absolute',
   left: 0,
   top: 'calc(100% + 8px)',
   zIndex: 30,
-  width: 260,
+  width: 200,
   padding: '12px 13px',
   borderRadius: 12,
   background: C.white,
@@ -165,7 +110,7 @@ const tooltipItemStyle: CSSProperties = {
 
 const titleTooltipStyle: CSSProperties = {
   ...tooltipStyle,
-  width: 300,
+  width: 250,
   top: 'calc(100% + 6px)',
 };
 
@@ -174,59 +119,12 @@ const widgetHelpText: Record<WidgetHelpId, string> = {
   todayTasks: '오늘 우선 확인해야 하는 프로젝트 작업을 보여줍니다.',
   recentActivity: '최근 업로드, 요청, 보고서 수정과 같은 프로젝트 활동을 보여줍니다.',
   sla: '조치 요청 등록 후 처리 기한까지 남은 시간을 보여줍니다.',
+  openActionRequests: '아직 해결되지 않은 조치 요청 프로젝트 수를 보여줍니다.',
   risk: '검증 결과에서 정산 리스크가 있는 항목을 요약합니다.',
   missingUpload: '증빙 업로드가 아직 부족한 프로젝트를 확인합니다.',
-  settlementProgress: '전체 프로젝트가 정산 프로세스에서 평균적으로 어디까지 진행됐는지 보여줍니다.',
+  settlementProgress: '모든 프로젝트의 정산 진행률을 보여줍니다.',
   workload: '담당자별 프로젝트 부담과 조치 요청 부담을 보여줍니다.',
   myProjects: '내가 볼 수 있는 모든 프로젝트를 검색, 필터, 정렬해 보여줍니다.',
-};
-
-const DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; label: string }> = [
-  { id: 'projectStatus', label: '프로젝트 현황' },
-  { id: 'todayTasks', label: '오늘 할 일' },
-  { id: 'recentActivity', label: '최근 활동' },
-  { id: 'sla', label: '보완 요청 기한' },
-  { id: 'risk', label: '검증 리스크 요약' },
-  { id: 'missingUpload', label: '업로드 누락 체크' },
-  { id: 'settlementProgress', label: '정산 진행률' },
-  { id: 'workload', label: '담당자별 업무량' },
-  { id: 'myProjects', label: '내 프로젝트 현황' },
-];
-
-const DEFAULT_WIDGET_IDS = DASHBOARD_WIDGETS.map((widget) => widget.id);
-const DASHBOARD_WIDGET_STORAGE_KEY = 'she.dashboard.visibleWidgets';
-const DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY = 'she.dashboard.widgetLayout.v2';
-
-const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
-  projectStatus: { colSpan: 3, rowSpan: 2 },
-  todayTasks: { colSpan: 3, rowSpan: 2 },
-  recentActivity: { colSpan: 2, rowSpan: 2 },
-  sla: { colSpan: 3, rowSpan: 1 },
-  risk: { colSpan: 2, rowSpan: 1 },
-  missingUpload: { colSpan: 2, rowSpan: 1 },
-  settlementProgress: { colSpan: 2, rowSpan: 1 },
-  workload: { colSpan: 2, rowSpan: 1 },
-  myProjects: { colSpan: 8, rowSpan: 5 },
-};
-
-const DEFAULT_WIDGET_LAYOUT: Record<DashboardWidgetId, WidgetPosition> = {
-  projectStatus: { col: 1, row: 1 },
-  todayTasks: { col: 4, row: 1 },
-  risk: { col: 7, row: 1 },
-  missingUpload: { col: 9, row: 1 },
-  settlementProgress: { col: 7, row: 2 },
-  workload: { col: 9, row: 2 },
-  recentActivity: { col: 7, row: 3 },
-  sla: { col: 1, row: 4 },
-  myProjects: { col: 1, row: 5 },
-};
-
-const overlaps = (a: WidgetPosition, aSize: WidgetSize, b: WidgetPosition, bSize: WidgetSize) => {
-  const aColEnd = a.col + aSize.colSpan - 1;
-  const bColEnd = b.col + bSize.colSpan - 1;
-  const aRowEnd = a.row + aSize.rowSpan - 1;
-  const bRowEnd = b.row + bSize.rowSpan - 1;
-  return a.col <= bColEnd && b.col <= aColEnd && a.row <= bRowEnd && b.row <= aRowEnd;
 };
 
 export default function DashboardPage() {
@@ -234,13 +132,16 @@ export default function DashboardPage() {
   const projects = getAccessibleProjects(user);
   const dashboardCounts = getDashboardCounts(user);
   const filterOptions = getSheFilterOptions(user);
-  const [keyword, setKeyword] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [contractNumber, setContractNumber] = useState('');
   const [period, setPeriod] = useState('');
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
   const [manager, setManager] = useState(filterOptions.managers[0] || '전체');
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
   const [sortBy, setSortBy] = useState<SortOption>('name');
   const [riskTooltip, setRiskTooltip] = useState<'error' | 'warn' | null>(null);
   const [missingUploadTooltip, setMissingUploadTooltip] = useState(false);
+  const [openActionTooltip, setOpenActionTooltip] = useState(false);
   const [titleTooltip, setTitleTooltip] = useState<WidgetHelpId | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [visibleWidgetIds, setVisibleWidgetIds] = useState<DashboardWidgetId[]>(DEFAULT_WIDGET_IDS);
@@ -254,6 +155,9 @@ export default function DashboardPage() {
     try {
       const parsed = JSON.parse(stored) as DashboardWidgetId[];
       const validIds = parsed.filter((id) => DEFAULT_WIDGET_IDS.includes(id));
+      if (!validIds.includes('openActionRequests')) {
+        validIds.push('openActionRequests');
+      }
       setVisibleWidgetIds(validIds);
     } catch {
       window.localStorage.removeItem(DASHBOARD_WIDGET_STORAGE_KEY);
@@ -288,22 +192,16 @@ export default function DashboardPage() {
     if (!draggedWidgetId || !dashboardGridRef.current) return;
     const grid = dashboardGridRef.current;
     const rect = grid.getBoundingClientRect();
+    const { columnPitch } = getGridCellMetrics(grid);
     const x = Math.max(0, event.clientX - rect.left + grid.scrollLeft - GRID_EDIT_PADDING);
     const y = Math.max(0, event.clientY - rect.top + grid.scrollTop - GRID_EDIT_PADDING);
-    const columnCount = GRID_COLUMN_COUNT;
     const size = WIDGET_SIZES[draggedWidgetId];
-    const maxColumn = Math.max(1, columnCount - size.colSpan + 1);
-    const col = Math.min(maxColumn, Math.floor(x / (GRID_COLUMN_WIDTH + GRID_GAP)) + 1);
+    const maxColumn = Math.max(1, GRID_COLUMN_COUNT - size.colSpan + 1);
+    const col = Math.min(maxColumn, Math.floor(x / columnPitch) + 1);
     const row = Math.min(Math.max(1, Math.floor(y / (GRID_ROW_GUIDE_HEIGHT + GRID_GAP)) + 1), 24);
+    const activeWidgetIds = visibleWidgetIds.includes(draggedWidgetId) ? visibleWidgetIds : [...visibleWidgetIds, draggedWidgetId];
     setWidgetLayout((current) => {
-      const moving = draggedWidgetId;
-      const movingTo = { col, row };
-      const next = { ...current, [moving]: movingTo };
-      const hitWidget = visibleWidgetIds.find((id) => id !== moving && overlaps(movingTo, size, current[id] || DEFAULT_WIDGET_LAYOUT[id], WIDGET_SIZES[id]));
-      if (hitWidget) {
-        return current;
-      }
-      return next;
+      return resolveLayoutWithPushDown(current, activeWidgetIds, draggedWidgetId, { col, row });
     });
     setVisibleWidgetIds((current) => {
       if (current.includes(draggedWidgetId)) return current;
@@ -312,19 +210,17 @@ export default function DashboardPage() {
   };
 
   const visibleProjects = useMemo(() => {
-    const keywordText = keyword.trim().toLowerCase();
-    const periodText = period.trim().toLowerCase();
-    const filteredProjects = projects.filter((project) => {
-      const matchesKeyword =
-        !keywordText ||
-        `${project.name} ${project.constructionName} ${project.contractNumber}`.toLowerCase().includes(keywordText);
-      const matchesPeriod = !periodText || project.period.toLowerCase().includes(periodText);
-      const matchesManager = manager === filterOptions.managers[0] || project.manager === manager;
-      const matchesStatus = status === filterOptions.statuses[0] || STATUS_META[project.status].label === status;
-      return matchesKeyword && matchesPeriod && matchesManager && matchesStatus;
-    });
-    return sortProjects(filteredProjects, sortBy);
-  }, [filterOptions.managers, filterOptions.statuses, keyword, manager, projects, sortBy, status]);
+    return getVisibleProjects(projects, {
+      projectName,
+      contractNumber,
+      period,
+      periodMode,
+      manager,
+      status,
+      allManagerLabel: filterOptions.managers[0],
+      allStatusLabel: filterOptions.statuses[0],
+    }, sortBy);
+  }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, status]);
 
   const workItems = projects.filter((project) => project.status === 'action_required' || project.status === 'drafting_report');
   const recentActivities = [
@@ -357,7 +253,7 @@ export default function DashboardPage() {
     .sort((a, b) => new Date(b.date.replace(/\//g, '-')).getTime() - new Date(a.date.replace(/\//g, '-')).getTime())
     .slice(0, 4);
   const actionProjects = projects.filter((project) => project.status === 'action_required');
-  const todayTime = new Date('2026-04-28').getTime();
+  const todayTime = new Date(new Date().toDateString()).getTime();
   const slaSummary = actionProjects.reduce(
     (acc, project) => {
       const dueTime = project.actionRequestDetails?.dueDate ? new Date(project.actionRequestDetails.dueDate).getTime() : 0;
@@ -375,7 +271,6 @@ export default function DashboardPage() {
   );
   const errorRows = REPORT_DATA.filter((row) => row.status === 'error');
   const warnRows = REPORT_DATA.filter((row) => row.status === 'warn');
-  const riskAmount = errorRows.reduce((sum, row) => sum + row.used, 0);
   const riskCards = [
     {
       id: 'error' as const,
@@ -617,6 +512,38 @@ export default function DashboardPage() {
         </Card>
         )}
 
+        {visibleWidgetSet.has('openActionRequests') && (
+        <Card {...widgetFrameProps('openActionRequests', { padding: '18px 18px', display: 'flex', flexDirection: 'column' })}>
+          {renderWidgetRemoveButton('openActionRequests')}
+          {renderWidgetTitle('조치 미처리', 'openActionRequests', { ...widgetTitleStyle, marginBottom: 0 })}
+          <div style={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+            <div
+              onMouseEnter={() => setOpenActionTooltip(true)}
+              onMouseLeave={() => setOpenActionTooltip(false)}
+              style={{ display: 'inline-flex', alignItems: 'baseline', position: 'relative', cursor: 'default', width: 'fit-content' }}
+            >
+              <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1, color: actionProjects.length ? C.danger : C.ok }}>{actionProjects.length}</div>
+              <div style={{ fontSize: 24, fontWeight: 900, color: actionProjects.length ? C.danger : C.ok, marginLeft: 4 }}>건</div>
+              {openActionTooltip && (
+                <div style={tooltipStyle}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: actionProjects.length ? C.danger : C.ok, marginBottom: 8 }}>미처리 조치 요청 프로젝트</div>
+                  <div style={tooltipListStyle}>
+                    {actionProjects.length === 0 ? (
+                      <div style={{ fontSize: 13, color: C.g400, lineHeight: 1.5 }}>미처리 조치 요청이 없습니다.</div>
+                    ) : actionProjects.slice(0, 4).map((project) => (
+                      <div key={project.id} style={tooltipItemStyle}>
+                        <div style={{ fontWeight: 900, color: C.g800 }}>{project.constructionName}</div>
+                        <div>{project.manager} · {project.actionRequestDetails?.dueDate || '기한 미정'}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+        )}
+
         {visibleWidgetSet.has('risk') && (
         <Card {...widgetFrameProps('risk', { padding: '18px 18px', overflow: 'visible' })}>
           {renderWidgetRemoveButton('risk')}
@@ -653,33 +580,33 @@ export default function DashboardPage() {
         )}
 
         {visibleWidgetSet.has('missingUpload') && (
-        <Card {...widgetFrameProps('missingUpload', { padding: '18px 18px', overflow: 'visible' })}>
+        <Card {...widgetFrameProps('missingUpload', { padding: '18px 18px', overflow: 'visible', display: 'flex', flexDirection: 'column' })}>
           {renderWidgetRemoveButton('missingUpload')}
-          {renderWidgetTitle('업로드 누락 체크', 'missingUpload')}
-          <div
-            onMouseEnter={() => setMissingUploadTooltip(true)}
-            onMouseLeave={() => setMissingUploadTooltip(false)}
-            style={{ display: 'inline-block', position: 'relative', cursor: 'default' }}
-          >
-            <div style={{ ...widgetValueStyle, color: missingUploadProjects.length ? C.warn : C.ok, marginTop: 2 }}>{missingUploadProjects.length}개</div>
-            {missingUploadTooltip && (
-              <div style={tooltipStyle}>
-                <div style={{ fontSize: 13, fontWeight: 900, color: missingUploadProjects.length ? C.warn : C.ok, marginBottom: 8 }}>업로드 누락 세부 내용</div>
-                <div style={tooltipListStyle}>
-                  {missingUploadProjects.length === 0 ? (
-                    <div style={{ fontSize: 13, color: C.g400, lineHeight: 1.5 }}>누락된 프로젝트가 없습니다.</div>
-                  ) : missingUploadProjects.slice(0, 4).map((project) => (
-                    <div key={project.id} style={tooltipItemStyle}>
-                      <div style={{ fontWeight: 900, color: C.g800 }}>{project.constructionName}</div>
-                      <div>{STATUS_META[project.status].label} · {project.manager}</div>
-                    </div>
-                  ))}
+          {renderWidgetTitle('업로드 누락', 'missingUpload', { ...widgetTitleStyle, marginBottom: 0 })}
+          <div style={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+            <div
+              onMouseEnter={() => setMissingUploadTooltip(true)}
+              onMouseLeave={() => setMissingUploadTooltip(false)}
+              style={{ display: 'inline-flex', alignItems: 'baseline', position: 'relative', cursor: 'default', width: 'fit-content' }}
+            >
+              <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1, color: missingUploadProjects.length ? C.warn : C.ok }}>{missingUploadProjects.length}</div>
+              <div style={{ fontSize: 24, fontWeight: 900, color: missingUploadProjects.length ? C.warn : C.ok, marginLeft: 4 }}>개</div>
+              {missingUploadTooltip && (
+                <div style={tooltipStyle}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: missingUploadProjects.length ? C.warn : C.ok, marginBottom: 8 }}>업로드 누락 세부 내용</div>
+                  <div style={tooltipListStyle}>
+                    {missingUploadProjects.length === 0 ? (
+                      <div style={{ fontSize: 13, color: C.g400, lineHeight: 1.5 }}>누락된 프로젝트가 없습니다.</div>
+                    ) : missingUploadProjects.slice(0, 4).map((project) => (
+                      <div key={project.id} style={tooltipItemStyle}>
+                        <div style={{ fontWeight: 900, color: C.g800 }}>{project.constructionName}</div>
+                        <div>{STATUS_META[project.status].label} · {project.manager}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-          <div style={{ fontSize: 14, color: C.g600, marginTop: 10, lineHeight: 1.5 }}>
-            {missingUploadProjects[0]?.constructionName || '누락 프로젝트 없음'}
+              )}
+            </div>
           </div>
         </Card>
         )}
@@ -701,7 +628,7 @@ export default function DashboardPage() {
         {visibleWidgetSet.has('workload') && (
         <Card {...widgetFrameProps('workload', { padding: '18px 18px' })}>
           {renderWidgetRemoveButton('workload')}
-          {renderWidgetTitle('담당자별 업무량', 'workload', widgetTitleStyle, 'right')}
+          {renderWidgetTitle('담당자별 업무량', 'workload', widgetTitleStyle, 'left')}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {managerWorkloads.slice(0, 3).map(([managerName, workload]) => (
               <div key={managerName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -723,29 +650,27 @@ export default function DashboardPage() {
           </div>
 
           <div style={{ border: `1px solid ${C.g200}`, borderRadius: 16, padding: 14, background: '#FCFEFD', marginBottom: 14 }}>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'nowrap' }}>
-              <div style={{ flex: '0 0 240px' }}>
-                <div style={labelStyle}>프로젝트명 / 계약번호</div>
-                <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="프로젝트 검색" style={fieldStyle} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, alignItems: 'end' }}>
+                <div style={{ minWidth: 0 }}>
+                  <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={fieldStyle} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={fieldStyle} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <select aria-label="관리자" value={manager} onChange={(event) => setManager(event.target.value)} style={fieldStyle}>
+                    {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '관리자' : item}</option>)}
+                  </select>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <select aria-label="상태" value={status} onChange={(event) => setStatus(event.target.value)} style={fieldStyle}>
+                    {filterOptions.statuses.map((item) => <option key={item} value={item}>{item === filterOptions.statuses[0] ? '상태' : item}</option>)}
+                  </select>
+                </div>
               </div>
-              <div style={{ flex: '0 0 170px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.g400, marginBottom: 6 }}>기간</div>
-                <input value={period} onChange={(event) => setPeriod(event.target.value)} placeholder="2026-04 ~ 2026-06" style={fieldStyle} />
-              </div>
-              <div style={{ flex: '0 0 140px' }}>
-                <div style={labelStyle}>관리자</div>
-                <select value={manager} onChange={(event) => setManager(event.target.value)} style={fieldStyle}>
-                  {filterOptions.managers.map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </div>
-              <div style={{ flex: '0 0 140px' }}>
-                <div style={labelStyle}>상태</div>
-                <select value={status} onChange={(event) => setStatus(event.target.value)} style={fieldStyle}>
-                  {filterOptions.statuses.map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </div>
-              <div style={{ flex: '0 0 76px' }}>
-                <Button size="xs" style={{ height: 38, width: '100%' }}>조회</Button>
+              <div>
+                <PeriodFilter mode={periodMode} value={period} onModeChange={setPeriodMode} onValueChange={setPeriod} inputStyle={fieldStyle} />
               </div>
             </div>
           </div>

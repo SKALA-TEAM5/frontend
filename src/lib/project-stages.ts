@@ -15,7 +15,7 @@ export interface ProjectStageDefinition {
 
 export const PROJECT_STAGE_DEFINITIONS: ProjectStageDefinition[] = [
   { id: 'registered', label: '등록' },
-  { id: 'upload', label: '업로드' },
+  { id: 'upload', label: '증빙 업로드' },
   { id: 'photo_check', label: '현장사진 검증' },
   { id: 'validation', label: '유효성 검증' },
   { id: 'she_review', label: 'SHE 검토' },

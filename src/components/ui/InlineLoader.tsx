@@ -6,10 +6,10 @@ interface InlineLoaderProps {
 }
 export default function InlineLoader({ title, body }: InlineLoaderProps) {
     return (<Card style={{ marginTop: 16 }}>
-      <div data-ui="components-ui-inline-loader.div-1" style={{ fontSize: 17, fontWeight: 800, color: C.g800, marginBottom: 8 }}>{title}</div>
-      <div data-ui="components-ui-inline-loader.div-2" style={{ fontSize: 15, color: C.g400, marginBottom: 12 }}>{body}</div>
-      <div data-ui="components-ui-inline-loader.div-3" style={{ height: 10, borderRadius: 99, background: C.g100, overflow: 'hidden' }}>
-        <div data-ui="components-ui-inline-loader.div-4" style={{
+      <div data-ui="inline-loader.1" style={{ fontSize: 17, fontWeight: 800, color: C.g800, marginBottom: 8 }}>{title}</div>
+      <div data-ui="inline-loader.2" style={{ fontSize: 15, color: C.g400, marginBottom: 12 }}>{body}</div>
+      <div data-ui="inline-loader.3" style={{ height: 10, borderRadius: 99, background: C.g100, overflow: 'hidden' }}>
+        <div data-ui="inline-loader.4" style={{
             height: '100%',
             width: '40%',
             borderRadius: 99,

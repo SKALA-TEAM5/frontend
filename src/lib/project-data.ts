@@ -47,6 +47,23 @@ export interface ProjectSummary {
 
 export { PROJECT_STAGES };
 
+export interface MonthlyUsageStatementSummary {
+  month: string;
+  label: string;
+  sourceFileName: string;
+  revisionNo: number;
+  documentWrittenDate: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  stageIndex: number;
+  parseStatus: string;
+  validationStatus: string;
+  currentAmount: string;
+  cumulativeAmount: string;
+  evidenceCount: number;
+  issueCount: number;
+}
+
 export const CURRENT_USER: AppUser = {
   id: 'user-hong',
   name: '홍길동',
@@ -175,3 +192,22 @@ export const getProjectById = (projectId: string, user: AppUser = CURRENT_USER) 
 export const getDefaultProjectId = (user: AppUser = CURRENT_USER) => getAccessibleProjects(user)[0]?.id || PROJECTS[0]?.id || '';
 export const getProjectByContractNumber = (contractNumber?: string | null) =>
   getAccessibleProjects().find((project) => project.contractNumber === contractNumber) || getAccessibleProjects()[0] || PROJECTS[0];
+
+const MONTHLY_USAGE_STATEMENTS: Record<string, MonthlyUsageStatementSummary[]> = {
+  'dt-logistics-2024': [
+    { month: '2026-04', label: '2026년 4월', sourceFileName: '동탄_산안비_사용내역서_2026-04.xlsx', revisionNo: 2, documentWrittenDate: '2026-04-22', uploadedAt: '2026-04-23', uploadedBy: '김현장', stageIndex: 5, parseStatus: '파싱 완료', validationStatus: '조치 요청', currentAmount: '7,840,000', cumulativeAmount: '48,614,045', evidenceCount: 34, issueCount: 3 },
+    { month: '2026-03', label: '2026년 3월', sourceFileName: '동탄_산안비_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-24', uploadedAt: '2026-03-25', uploadedBy: '김현장', stageIndex: 7, parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '6,120,000', cumulativeAmount: '40,774,045', evidenceCount: 29, issueCount: 0 },
+    { month: '2026-02', label: '2026년 2월', sourceFileName: '동탄_산안비_사용내역서_2026-02.xlsx', revisionNo: 1, documentWrittenDate: '2026-02-21', uploadedAt: '2026-02-22', uploadedBy: '김현장', stageIndex: 7, parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '5,430,000', cumulativeAmount: '34,654,045', evidenceCount: 26, issueCount: 0 },
+  ],
+  'pt-manufacturing-2024': [
+    { month: '2026-04', label: '2026년 4월', sourceFileName: '평택_사용내역서_2026-04.xlsx', revisionNo: 1, documentWrittenDate: '2026-04-20', uploadedAt: '2026-04-21', uploadedBy: '박공무', stageIndex: 7, parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,920,000', cumulativeAmount: '31,120,000', evidenceCount: 22, issueCount: 0 },
+    { month: '2026-03', label: '2026년 3월', sourceFileName: '평택_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-19', uploadedAt: '2026-03-20', uploadedBy: '박공무', stageIndex: 7, parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,300,000', cumulativeAmount: '26,200,000', evidenceCount: 20, issueCount: 0 },
+  ],
+  'gm-datacenter-2025': [
+    { month: '2026-04', label: '2026년 4월', sourceFileName: '광명_사용내역서_2026-04.xlsx', revisionNo: 1, documentWrittenDate: '2026-04-18', uploadedAt: '2026-04-19', uploadedBy: '이프로', stageIndex: 1, parseStatus: '업로드 대기', validationStatus: '미검증', currentAmount: '0', cumulativeAmount: '9,820,000', evidenceCount: 0, issueCount: 0 },
+    { month: '2026-03', label: '2026년 3월', sourceFileName: '광명_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-20', uploadedAt: '2026-03-21', uploadedBy: '이프로', stageIndex: 3, parseStatus: '파싱 완료', validationStatus: '검증 중', currentAmount: '3,120,000', cumulativeAmount: '9,820,000', evidenceCount: 12, issueCount: 1 },
+  ],
+};
+
+export const getMonthlyUsageStatements = (projectId: string) =>
+  (MONTHLY_USAGE_STATEMENTS[projectId] || MONTHLY_USAGE_STATEMENTS[PROJECTS[0].id]).toSorted((a, b) => a.month.localeCompare(b.month));

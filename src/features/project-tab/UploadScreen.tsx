@@ -24,7 +24,7 @@ const UPLOAD_ZONES: Array<{
 }> = [
     { key: 'usage_statement', label: '사용내역서', hint: null },
     { key: 'receipt', label: '영수증', hint: null },
-    { key: 'site_photo', label: '현장사진', hint: '필요 사진만 제출하고\n설명을 함께 입력해 주세요.' },
+    { key: 'site_photo', label: '현장사진', hint: '필요 사진만 제출해 주세요.' },
     { key: 'tax_invoice', label: '세금계산서 + 전문공사 계약확인서', hint: '증빙 자료를\n함께 제출해 주세요.' },
     { key: 'other_document', label: '기타 자료', hint: '추가 확인 자료를\n자유롭게 제출해 주세요.' },
 ];
@@ -108,36 +108,36 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
     const canProceed = basicReady && files.site_photo.every((file) => file.description?.trim());
     const hasUploads = files.receipt.length || files.site_photo.length || files.usage_statement.length || files.tax_invoice.length || files.other_document.length;
     const content = (<>
-        {classificationToast && classificationToast.length > 0 && (<div data-ui="features-project-tab-upload-screen.div-1" style={{ position: 'fixed', top: 18, left: '50%', transform: 'translateX(-50%)', zIndex: 900, width: 'min(760px, calc(100vw - 40px))', pointerEvents: 'none' }}>
-            <div data-ui="features-project-tab-upload-screen.div-2" className="screen-enter" style={{ width: '100%', background: C.white, border: `1px solid ${C.light}`, boxShadow: '0 12px 30px rgba(27,94,59,.12)', borderRadius: 18, padding: '14px 18px', pointerEvents: 'auto' }}>
-              <div data-ui="features-project-tab-upload-screen.div-3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-                <div data-ui="features-project-tab-upload-screen.div-4" style={{ fontSize: 15, fontWeight: 800, color: C.primary }}>제출 완료 자동 분류 결과</div>
-                <button data-ui="features-project-tab-upload-screen.button-1" onClick={() => setClassificationToast(null)} style={{ background: 'none', border: 'none', color: C.g400, cursor: 'pointer', fontSize: 20 }}>×</button>
+        {classificationToast && classificationToast.length > 0 && (<div data-ui="upload-screen.1" style={{ position: 'fixed', top: 18, left: '50%', transform: 'translateX(-50%)', zIndex: 900, width: 'min(760px, calc(100vw - 40px))', pointerEvents: 'none' }}>
+            <div data-ui="upload-screen.2" className="screen-enter" style={{ width: '100%', background: C.white, border: `1px solid ${C.light}`, boxShadow: '0 12px 30px rgba(27,94,59,.12)', borderRadius: 18, padding: '14px 18px', pointerEvents: 'auto' }}>
+              <div data-ui="upload-screen.3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                <div data-ui="upload-screen.4" style={{ fontSize: 15, fontWeight: 800, color: C.primary }}>제출 완료 자동 분류 결과</div>
+                <button data-ui="upload-screen.5" onClick={() => setClassificationToast(null)} style={{ background: 'none', border: 'none', color: C.g400, cursor: 'pointer', fontSize: 20 }}>×</button>
               </div>
-              <div data-ui="features-project-tab-upload-screen.div-5" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {classificationToast.map((item) => (<div data-ui="features-project-tab-upload-screen.div-6" key={item.id} style={{ display: 'grid', gridTemplateColumns: '86px minmax(0,1fr) minmax(0,1fr)', gap: 10, alignItems: 'center', padding: '9px 10px', borderRadius: 12, background: C.bg }}>
-                    <div data-ui="features-project-tab-upload-screen.div-7" style={{ fontSize: 13, fontWeight: 800, color: C.primary }}>{item.kind === 'receipt' ? '영수증' : item.kind === 'site_photo' ? '현장사진' : item.kind === 'usage_statement' ? '사용내역서' : item.kind === 'tax_invoice' ? '세금계산서' : '기타 자료'}</div>
-                    <div data-ui="features-project-tab-upload-screen.div-8" style={{ fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
-                    <div data-ui="features-project-tab-upload-screen.div-9" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {item.labels.map((label) => <span data-ui="features-project-tab-upload-screen.span-1" key={label} style={{ fontSize: 12, fontWeight: 700, color: C.ok, background: '#F4FBF6', border: '1px solid #D6EEDB', borderRadius: 999, padding: '3px 8px' }}>{label} 폴더</span>)}
+              <div data-ui="upload-screen.6" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {classificationToast.map((item) => (<div data-ui="upload-screen.7" key={item.id} style={{ display: 'grid', gridTemplateColumns: '86px minmax(0,1fr) minmax(0,1fr)', gap: 10, alignItems: 'center', padding: '9px 10px', borderRadius: 12, background: C.bg }}>
+                    <div data-ui="upload-screen.8" style={{ fontSize: 13, fontWeight: 800, color: C.primary }}>{item.kind === 'receipt' ? '영수증' : item.kind === 'site_photo' ? '현장사진' : item.kind === 'usage_statement' ? '사용내역서' : item.kind === 'tax_invoice' ? '세금계산서' : '기타 자료'}</div>
+                    <div data-ui="upload-screen.9" style={{ fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                    <div data-ui="upload-screen.10" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {item.labels.map((label) => <span data-ui="upload-screen.11" key={label} style={{ fontSize: 12, fontWeight: 700, color: C.ok, background: '#F4FBF6', border: '1px solid #D6EEDB', borderRadius: 999, padding: '3px 8px' }}>{label} 폴더</span>)}
                     </div>
                   </div>))}
               </div>
             </div>
         </div>)}
-        <div data-ui="features-project-tab-upload-screen.div-10" className="screen-enter">
-          <div data-ui="features-project-tab-upload-screen.div-20" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div data-ui="upload-screen.12" className="screen-enter">
+          <div data-ui="upload-screen.13" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             {UPLOAD_ZONES.map((zone) => {
             const count = files[zone.key].length;
             const blockedByInitialUsageRule = requireUsageStatementFirst && zone.key !== 'usage_statement' && !usageStatementReady;
-            return (<div data-ui="features-project-tab-upload-screen.upload-zone-wrap" key={zone.key} style={{ gridColumn: zone.key === 'usage_statement' ? '1 / -1' : undefined }}>
+            return (<div data-ui="upload-screen.14" key={zone.key} style={{ gridColumn: zone.key === 'usage_statement' ? '1 / -1' : undefined }}>
                 <UploadZone zone={zone} count={count} names={files[zone.key]} onDrop={(e) => handleDrop(zone.key, e)} onClick={() => pickFile(zone.key)} onRemove={(fileId) => removeFile(zone.key, fileId)} disabled={!basicReady || blockedByInitialUsageRule} disabledReason={blockedByInitialUsageRule ? '첫 프로젝트는 사용내역서를 먼저 업로드해 주세요.' : undefined}/>
               </div>);
         })}
           </div>
-          <div data-ui="features-project-tab-upload-screen.div-24" style={{ marginTop: 16, padding: '15px 20px', borderRadius: 14, background: C.white, border: `1px solid ${C.g200}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-            <div data-ui="features-project-tab-upload-screen.div-25" style={{ fontSize: 15, color: C.g600 }}>제출 완료 후 AI가 <strong data-ui="features-project-tab-upload-screen.strong-1" style={{ color: C.primary }}>9개 항목</strong>으로 자동 분류하고, 관련 증빙을 같은 폴더에 묶습니다.</div>
-            <div data-ui="features-project-tab-upload-screen.div-26" style={{ display: 'flex', gap: 8, flexShrink: 0 }}><Button size="sm" disabled={!canProceed || !hasUploads || loading} onClick={() => { setLoading(true); setTimeout(() => { setLoading(false); setMatchDone(true); }, 1400); }}>분류 검토</Button></div>
+          <div data-ui="upload-screen.16" style={{ marginTop: 16, padding: '15px 20px', borderRadius: 14, background: C.white, border: `1px solid ${C.g200}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+            <div data-ui="upload-screen.17" style={{ fontSize: 15, color: C.g600 }}>제출 완료 후 AI가 <strong data-ui="upload-screen.18" style={{ color: C.primary }}>9개 항목</strong>으로 자동 분류하고, 관련 증빙을 같은 폴더에 묶습니다.</div>
+            <div data-ui="upload-screen.19" style={{ display: 'flex', gap: 8, flexShrink: 0 }}><Button size="sm" disabled={!canProceed || !hasUploads || loading} onClick={() => { setLoading(true); setTimeout(() => { setLoading(false); setMatchDone(true); }, 1400); }}>분류 검토</Button></div>
           </div>
           {loading && <InlineLoader title="매칭 검토 화면을 준비하고 있어요" body="업로드된 사용내역서, 영수증, 현장사진, 세금계산서와 기타 자료를 항목별로 정리하고 있습니다."/>}
           <CenterModal open={matchDone} title="매칭 검토가 완료되었습니다" body="분류가 완료되었습니다. 아카이브에서 확인하고 필요하면 폴더 간 이동으로 위치를 조정할 수 있습니다." actionLabel="아카이브로 이동" onAction={() => { setMatchDone(false); onMatchComplete({ files }); }}/>
@@ -189,8 +189,7 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
           </Modal>
         </div>
     </>);
-    return <div data-ui="features-project-tab-upload-screen.div-29" style={{ background: C.soft, padding: 0 }}>{content}</div>;
+    return <div data-ui="upload-screen.20" style={{ background: C.soft, padding: 0 }}>{content}</div>;
 };
 export default UploadScreen;
-
 

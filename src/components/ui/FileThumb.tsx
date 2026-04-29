@@ -6,7 +6,7 @@ interface FileThumbProps {
     size?: number;
 }
 export default function FileThumb({ entry, size = 56 }: FileThumbProps) {
-    return (<div data-ui="components-ui-file-thumb.div-1" style={{
+    return (<div data-ui="file-thumb.1" style={{
             width: size,
             height: size,
             borderRadius: 12,
@@ -17,6 +17,6 @@ export default function FileThumb({ entry, size = 56 }: FileThumbProps) {
             justifyContent: 'center',
             flexShrink: 0,
         }}>
-      {entry.previewUrl || isImageFile(entry.name) ? (<img data-ui="components-ui-file-thumb.img-1" src={entry.previewUrl || `data:image/svg+xml;charset=UTF-8,${makeThumbSvg(entry.kind)}`} alt={entry.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}/>) : (<span data-ui="components-ui-file-thumb.span-1" style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>문서</span>)}
+      {entry.previewUrl || isImageFile(entry.name) ? (<img data-ui="file-thumb.2" src={entry.previewUrl || `data:image/svg+xml;charset=UTF-8,${makeThumbSvg(entry.kind)}`} alt={entry.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}/>) : (<span data-ui="file-thumb.3" style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>문서</span>)}
     </div>);
 }

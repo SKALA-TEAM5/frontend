@@ -8,10 +8,6 @@ interface CategoryMeta {
 
 type MockFileBuckets = Record<number, string[]>;
 
-interface MatchStatusMap {
-  [key: number]: 'ok' | 'review' | 'edit';
-}
-
 type UploadedEvidenceMap = Record<EvidenceCategory, EvidenceFile[]>;
 type CategoryKeywordMap = Record<number, string[]>;
 
@@ -83,13 +79,11 @@ const CATEGORY_KEYWORDS: CategoryKeywordMap = {
   9: ['건강검진', '건강관리', '건강상담'],
 };
 
-export const MOCK_USAGE: string[] = ['사용내역서_2024_1분기.pdf', '사용내역서_2024_2분기.pdf', '사용내역서_2024_3분기.xlsx'];
 export const CONTRACT_DB: ContractInfo[] = [
   { name: '동탄 물류센터 증축공사 산안비 정산', num: '2024-0042', project: '동탄 물류센터 증축공사', period: '2024/10/23~2025/06/21', round: '4차', planned: '12,000,000,000', accumulated: '48,614,045' },
   { name: '평택 제조시설 안전보건관리비 집행', num: '2024-0108', project: '평택 제조시설 증설', period: '2023/06/01~2024/12/31', round: '2차', planned: '8,500,000,000', accumulated: '31,120,000' },
   { name: '광명 데이터센터 산업안전보건관리비', num: '2025-0016', project: '광명 데이터센터 신축', period: '2025/02/01~2026/08/31', round: '1차', planned: '15,700,000,000', accumulated: '9,820,000' },
 ];
-export const MATCH_STATUS: MatchStatusMap = { 1: 'ok', 2: 'review', 3: 'ok', 4: 'ok', 5: 'ok', 6: 'edit', 7: 'ok', 8: 'review', 9: 'ok' };
 export const SITE_DESCRIPTION_SEED: Record<string, string> = {
   '안전관리자_현장순찰_사진.jpg': '안전관리자가 작업 구간을 순찰하며 위험요인을 점검하는 모습',
   '안전관리자_점검_현장.jpg': '안전관리자가 체크리스트로 현장을 점검하는 모습',
