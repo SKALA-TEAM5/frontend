@@ -1,9 +1,16 @@
-import type { ArchiveCategoryMap, ArchiveSeed, ContractInfo, EvidenceCategory, EvidenceFile, FolderEvidenceCategory, ReportRow } from '../types/domain';
+import type { ArchiveCategoryMap, ArchiveSeed, ContractInfo, EvidenceCategory, EvidenceFile, FolderEvidenceCategory, ReportRow, ValidationDashboardResult } from '../types/domain';
 
 interface CategoryMeta {
   id: number;
   label: string;
   short: string;
+}
+
+export interface UsageLineItem {
+  id: string;
+  categoryId: number;
+  name: string;
+  amount: number;
 }
 
 type MockFileBuckets = Record<number, string[]>;
@@ -21,6 +28,18 @@ export const CATS: CategoryMeta[] = [
   { id: 7, label: '건설재해예방전문지도기관 기술지도비', short: '건설재해예방전문지도기관\n기술지도비' },
   { id: 8, label: '본사 전담조직 근로자 임금 등', short: '본사 전담조직 근로자 임금 등' },
   { id: 9, label: '위험성평가 등에 따른 소요비용', short: '위험성평가 등에 따른 소요비용' },
+];
+
+export const USAGE_LINE_ITEMS: UsageLineItem[] = [
+  { id: 'line-001', categoryId: 5, name: '안전테이프(접근방지책)', amount: 320000 },
+  { id: 'line-002', categoryId: 5, name: '안전타포린(추락위험, 접근금지)', amount: 540000 },
+  { id: 'line-003', categoryId: 5, name: '안전난간 부품 및 설치 자재', amount: 850000 },
+  { id: 'line-004', categoryId: 4, name: '안전모 및 턱끈 세트', amount: 380000 },
+  { id: 'line-005', categoryId: 4, name: '안전화, 안전장갑, 안전조끼 지급분', amount: 820000 },
+  { id: 'line-006', categoryId: 1, name: '안전관리자 현장 순찰 및 점검 수수료', amount: 3200000 },
+  { id: 'line-007', categoryId: 7, name: '위험성평가 컨설팅 및 결과 보고', amount: 2100000 },
+  { id: 'line-008', categoryId: 8, name: '본사 전담조직 안전관리 인건비', amount: 4800000 },
+  { id: 'line-009', categoryId: 9, name: '근로자 건강검진 및 건강상담', amount: 4200000 },
 ];
 
 const MOCK_FILES: Record<EvidenceCategory, MockFileBuckets> = {
@@ -123,6 +142,204 @@ export const REPORT_DATA: ReportRow[] = [
   { id: 8, cat: '본사 사용비', status: 'error', used: 4800000, tax: 0, settled: 0, note: '본사 사용비 계상액 ₩4,800,000은 전체 산업안전관리비의 25.4%로 허용 한도(20%) 초과. 산업안전보건관리비 고시 제5조 제2항 위반 — 초과분 ₩1,007,400 반환 조치 필요.' },
   { id: 9, cat: '근로자 건강관리', status: 'ok', used: 4200000, tax: 381818, settled: 3818182, note: '' },
 ];
+
+export const VALIDATION_DASHBOARD_RESULT: ValidationDashboardResult = {
+  id: 'validation-202604-001',
+  checkedAt: '2026-04-30 14:18',
+  usageStatementFile: '동탄_산안비_사용내역서_2026-04.xlsx',
+  lawAgent: {
+    name: '법령 agent',
+    version: '산업안전보건관리비 고시 기준 검토',
+    basis: '산업안전보건법 및 건설업 산업안전보건관리비 계상 및 사용기준',
+  },
+  categories: [
+    {
+      categoryId: 1,
+      categoryName: CATS[0].label,
+      usageAmount: 3200000,
+      recognizedAmount: 3200000,
+      disputedAmount: 0,
+      decision: 'appropriate',
+      riskLevel: 'low',
+      evidenceSummary: {
+        requiredTypes: ['사용내역서', '영수증', '세금내역서', '선임계'],
+        submittedFiles: [
+          { id: 'seed-1-r', name: '안전관리자_선임수수료_1월.pdf', kind: 'receipt' },
+          { id: 'seed-1-t', name: '세금내역서_안전관리자_1월.pdf', kind: 'tax_invoice' },
+          { id: 'seed-1-o', name: '안전관리자_선임계.pdf', kind: 'other_document' },
+        ],
+        missingTypes: [],
+        problematicFiles: [],
+      },
+      legalBasis: [{ lawName: '건설업 산업안전보건관리비 계상 및 사용기준', article: '제7조', summary: '안전관리자 등 인건비와 업무수행 비용은 목적에 맞는 경우 사용 가능 항목입니다.', agentReasoning: '사용내역서 금액과 영수증, 세금내역서가 일치하고 선임 관련 문서가 제출되어 적정으로 판단했습니다.' }],
+      issues: [],
+    },
+    {
+      categoryId: 2,
+      categoryName: CATS[1].label,
+      usageAmount: 5800000,
+      recognizedAmount: 5800000,
+      disputedAmount: 0,
+      decision: 'appropriate',
+      riskLevel: 'low',
+      evidenceSummary: {
+        requiredTypes: ['사용내역서', '영수증', '현장사진'],
+        submittedFiles: [
+          { id: 'seed-2-r', name: '보건관리_용역비_청구서.pdf', kind: 'receipt' },
+          { id: 'seed-2-p', name: '보건시설_점검_사진.jpg', kind: 'site_photo' },
+        ],
+        missingTypes: [],
+        problematicFiles: [],
+      },
+      legalBasis: [{ lawName: '건설업 산업안전보건관리비 계상 및 사용기준', article: '제7조', summary: '안전시설 및 보건관리 활동에 직접 필요한 비용은 목적 적합성이 확인되면 인정됩니다.', agentReasoning: '현장 설치 및 점검 사진이 제출되어 보건관리 활동과 비용의 직접 관련성이 확인됩니다.' }],
+      issues: [],
+    },
+    {
+      categoryId: 3,
+      categoryName: CATS[2].label,
+      usageAmount: 1450000,
+      recognizedAmount: 1450000,
+      disputedAmount: 0,
+      decision: 'appropriate',
+      riskLevel: 'low',
+      evidenceSummary: {
+        requiredTypes: ['사용내역서', '교육비 영수증', '교육 이수 자료'],
+        submittedFiles: [
+          { id: 'seed-3-r', name: '안전교육_수강료_영수증.jpg', kind: 'receipt' },
+          { id: 'seed-3-o', name: '보호구_지급대장.xlsx', kind: 'other_document' },
+        ],
+        missingTypes: [],
+        problematicFiles: [],
+      },
+      legalBasis: [{ lawName: '산업안전보건법', article: '제29조', summary: '근로자 안전보건교육은 사업주의 의무이며 관련 비용은 목적 적합성 검토 대상입니다.', agentReasoning: '교육비 영수증과 사용내역서 금액이 일치하고 교육 목적이 확인되어 적정으로 판단했습니다.' }],
+      issues: [],
+    },
+    {
+      categoryId: 4,
+      categoryName: CATS[3].label,
+      usageAmount: 1200000,
+      recognizedAmount: 980000,
+      disputedAmount: 220000,
+      decision: 'inappropriate',
+      riskLevel: 'high',
+      evidenceSummary: {
+        requiredTypes: ['사용내역서', '구매 영수증', '지급대장', '현장 착용 사진'],
+        submittedFiles: [
+          { id: 'seed-4-r1', name: '안전모_구입_영수증.jpg', kind: 'receipt' },
+          { id: 'seed-4-r2', name: '보호구_세트_영수증.pdf', kind: 'receipt' },
+          { id: 'seed-4-p', name: '보호구_착용확인.jpg', kind: 'site_photo' },
+        ],
+        missingTypes: ['지급대장 일부'],
+        problematicFiles: [{ fileName: '보호구_세트_영수증.pdf', kind: 'receipt', reason: '사용내역서 보호구 금액 1,200,000원 대비 영수증 합계가 980,000원으로 220,000원 부족합니다.' }],
+      },
+      legalBasis: [{ lawName: '건설업 산업안전보건관리비 계상 및 사용기준', article: '제7조', clause: '사용내역 증빙', summary: '사용내역서와 증빙 금액의 일치 및 목적 외 사용 여부를 확인해야 합니다.', agentReasoning: '금액 불일치가 존재하고 지급대장 일부가 없어 초과 기재분 220,000원은 인정하기 어렵습니다.' }],
+      issues: [{ title: '사용내역서와 영수증 금액 불일치', description: '보호구 항목의 증빙 합계가 사용내역서보다 작아 초과 계상 가능성이 있습니다.', problemFileNames: ['보호구_세트_영수증.pdf'], requiredAction: '사용내역서 금액을 증빙 합계에 맞게 정정하거나 부족 금액에 대한 추가 영수증을 제출해야 합니다.', recommendedFiles: ['누락 구매 영수증', '보호구 지급대장 보완본'] }],
+    },
+    {
+      categoryId: 5,
+      categoryName: CATS[4].label,
+      usageAmount: 3100000,
+      recognizedAmount: 2250000,
+      disputedAmount: 850000,
+      decision: 'conditional',
+      riskLevel: 'medium',
+      evidenceSummary: {
+        requiredTypes: ['사용내역서', '설치 영수증', '현장 설치 사진', '설치확인서'],
+        submittedFiles: [
+          { id: 'seed-5-r', name: '안전난간_영수증.jpg', kind: 'receipt' },
+          { id: 'seed-5-p', name: '안전시설_전체사진.jpg', kind: 'site_photo' },
+          { id: 'seed-5-o', name: '안전시설_설치확인서.pdf', kind: 'other_document' },
+        ],
+        missingTypes: ['안전난간 상세 설치 사진'],
+        problematicFiles: [{ fileName: '안전난간_영수증.jpg', kind: 'receipt', reason: '850,000원 상당 안전난간 부품의 설치 위치와 완성 상태를 특정할 현장사진이 부족합니다.' }],
+      },
+      legalBasis: [{ lawName: '건설업 산업안전보건관리비 계상 및 사용기준', article: '제7조', summary: '안전시설 설치비는 현장 안전조치와 직접 관련된 설치 사실이 확인되어야 합니다.', agentReasoning: '영수증과 설치확인서는 있으나 일부 품목의 설치 사진이 부족해 조건부 인정으로 판단했습니다.' }],
+      issues: [{ title: '현장 설치 증빙 부족', description: '안전난간 부품 구매 사실은 확인되지만 실제 설치 상태 확인 자료가 부족합니다.', problemFileNames: ['안전난간_영수증.jpg'], requiredAction: '안전난간 설치 위치와 완성 상태가 보이는 사진을 추가 제출해야 합니다.', recommendedFiles: ['안전난간 상세 설치 사진', '설치 전후 비교 사진'] }],
+    },
+    {
+      categoryId: 6,
+      categoryName: CATS[5].label,
+      usageAmount: 800000,
+      recognizedAmount: 800000,
+      disputedAmount: 0,
+      decision: 'appropriate',
+      riskLevel: 'low',
+      evidenceSummary: {
+        requiredTypes: ['진단 용역 계약/청구서', '현장 확인 자료'],
+        submittedFiles: [
+          { id: 'seed-6-r', name: '안전보건진단_용역비.pdf', kind: 'receipt' },
+          { id: 'seed-6-p', name: '안전보건진단_현장사진.jpg', kind: 'site_photo' },
+        ],
+        missingTypes: [],
+        problematicFiles: [],
+      },
+      legalBasis: [{ lawName: '산업안전보건법', article: '제47조', summary: '안전보건진단 등 예방 목적의 전문 진단 비용은 관련성과 증빙을 기준으로 검토합니다.', agentReasoning: '진단 수행 자료와 청구서가 함께 제출되어 비용의 목적 적합성이 확인됩니다.' }],
+      issues: [],
+    },
+    {
+      categoryId: 7,
+      categoryName: CATS[6].label,
+      usageAmount: 2100000,
+      recognizedAmount: 2100000,
+      disputedAmount: 0,
+      decision: 'appropriate',
+      riskLevel: 'low',
+      evidenceSummary: {
+        requiredTypes: ['기술지도 영수증', '세금내역서', '결과 자료'],
+        submittedFiles: [
+          { id: 'seed-7-r', name: '위험성평가_수수료_1차.pdf', kind: 'receipt' },
+          { id: 'seed-7-t', name: '세금내역서_위험성평가_6월.pdf', kind: 'tax_invoice' },
+          { id: 'seed-7-p', name: '위험성평가_결과사진.jpg', kind: 'site_photo' },
+        ],
+        missingTypes: [],
+        problematicFiles: [],
+      },
+      legalBasis: [{ lawName: '산업안전보건법', article: '제36조', summary: '위험성평가와 그 결과 개선에 필요한 비용은 예방 활동의 직접성을 기준으로 판단합니다.', agentReasoning: '위험성평가 수행, 결과 확인, 세금내역서가 모두 제출되어 적정으로 판단했습니다.' }],
+      issues: [],
+    },
+    {
+      categoryId: 8,
+      categoryName: CATS[7].label,
+      usageAmount: 4800000,
+      recognizedAmount: 3792600,
+      disputedAmount: 1007400,
+      decision: 'inappropriate',
+      riskLevel: 'high',
+      evidenceSummary: {
+        requiredTypes: ['사용내역서', '본사 전담조직 인건비 산정표', '업무분장 자료'],
+        submittedFiles: [
+          { id: 'seed-8-r1', name: '본사_관리비_1분기.pdf', kind: 'receipt' },
+          { id: 'seed-8-r2', name: '본사_인건비_2분기.pdf', kind: 'receipt' },
+        ],
+        missingTypes: ['전담조직 업무분장표', '인건비 산정 근거'],
+        problematicFiles: [{ fileName: '본사_운영비_영수증.jpg', kind: 'receipt', reason: '본사 공통 운영비 성격으로 산안비 직접 사용 여부가 불명확합니다.' }],
+      },
+      legalBasis: [{ lawName: '건설업 산업안전보건관리비 계상 및 사용기준', article: '제5조', clause: '본사 사용비 한도', summary: '본사 전담조직 관련 비용은 정해진 인정 범위와 직접 관련성 확인이 필요합니다.', agentReasoning: '본사 사용비가 내부 산정 기준상 인정 가능 범위를 초과했고 직접 수행 근거가 부족해 초과분은 부적정으로 판단했습니다.' }],
+      issues: [{ title: '본사 사용비 인정 범위 초과', description: '현재 계상액 중 1,007,400원은 인정 가능 범위를 초과한 것으로 산정됩니다.', problemFileNames: ['본사_운영비_영수증.jpg'], requiredAction: '본사 전담조직 인건비 산정표와 업무분장 자료를 제출하고 초과분을 정정해야 합니다.', recommendedFiles: ['전담조직 업무분장표', '인건비 산정표', '직접 수행 내역서'] }],
+    },
+    {
+      categoryId: 9,
+      categoryName: CATS[8].label,
+      usageAmount: 4200000,
+      recognizedAmount: 4200000,
+      disputedAmount: 0,
+      decision: 'appropriate',
+      riskLevel: 'low',
+      evidenceSummary: {
+        requiredTypes: ['건강관리 청구서', '건강검진 자료', '세금내역서'],
+        submittedFiles: [
+          { id: 'seed-9-r', name: '건강검진_청구서_1차.pdf', kind: 'receipt' },
+          { id: 'seed-9-t', name: '세금내역서_건강관리_7월.pdf', kind: 'tax_invoice' },
+          { id: 'seed-9-p', name: '근로자_건강관리_현장.jpg', kind: 'site_photo' },
+        ],
+        missingTypes: [],
+        problematicFiles: [],
+      },
+      legalBasis: [{ lawName: '산업안전보건법', article: '제129조', summary: '근로자 건강진단 및 건강장해 예방 조치는 관련 비용의 적정성 검토 대상입니다.', agentReasoning: '건강검진 청구서와 현장 수행 자료가 제출되어 건강장해 예방 목적이 확인됩니다.' }],
+      issues: [],
+    },
+  ],
+};
 
 let FILE_SEQ = 0;
 export const nextFileId = () => `file-${++FILE_SEQ}`;
