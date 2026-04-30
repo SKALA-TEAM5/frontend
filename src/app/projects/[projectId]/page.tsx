@@ -12,14 +12,14 @@ import { useCurrentUser } from '../../../lib/dev-user';
 import UploadScreen from '../../../features/project-tab/UploadScreen';
 import ArchiveScreen from '../../../features/project-tab/ArchiveScreen';
 import VerifyScreen from '../../../features/project-tab/VerifyScreen';
-import { buildArchiveDataFromUploads } from '../../../lib/mock-data';
+import { CATS, USAGE_LINE_ITEMS, buildArchiveDataFromUploads, fmt } from '../../../lib/mock-data';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile } from '../../../types/domain';
 type DetailTab = 'overview' | 'upload' | 'validation' | 'report' | 'archive';
 const TABS: Array<{
     id: DetailTab;
     label: string;
 }> = [
-    { id: 'overview', label: '개요' },
+    { id: 'overview', label: '사용내역서' },
     { id: 'upload', label: '증빙 업로드' },
     { id: 'archive', label: '아카이브' },
     { id: 'validation', label: '유효성 검증' },
@@ -76,11 +76,13 @@ export default function ProjectDetailPage() {
     const [archiveSeed, setArchiveSeed] = useState<ArchiveSeed | null>(null);
     const [matchReady, setMatchReady] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState(latestStatement.month);
+    const [usageStatementPage, setUsageStatementPage] = useState(0);
     const [validationStatusByMonth, setValidationStatusByMonth] = useState<Record<string, 'idle' | 'running' | 'done'>>({});
     const [uploadCount, setUploadCount] = useState(0);
     const [selectedHeaderHistoryDate, setSelectedHeaderHistoryDate] = useState('all');
     const [historyDateMenuOpen, setHistoryDateMenuOpen] = useState(false);
     const [monthMenuOpen, setMonthMenuOpen] = useState(false);
+    const [projectHeaderOpen, setProjectHeaderOpen] = useState(true);
     const [historyOpen, setHistoryOpen] = useState(true);
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
     const historyDateMenuRef = useRef<HTMLDivElement | null>(null);
@@ -98,6 +100,9 @@ export default function ProjectDetailPage() {
     useEffect(() => {
         setSelectedMonth(latestStatement.month);
     }, [latestStatement.month]);
+    useEffect(() => {
+        setUsageStatementPage(0);
+    }, [selectedMonth]);
     useEffect(() => {
         setActiveTab(requestedTab);
     }, [requestedTab]);
@@ -226,9 +231,24 @@ export default function ProjectDetailPage() {
         ['9. 위험성평가 등에 따른 소요비용', '-', '-', '-'],
         ['계', '20,420,775', '28,193,270', '48,614,045'],
     ];
+    const usageDetailPageSize = 5;
+    const usageDetailPages = Array.from({ length: Math.ceil(USAGE_LINE_ITEMS.length / usageDetailPageSize) }, (_, index) => USAGE_LINE_ITEMS.slice(index * usageDetailPageSize, (index + 1) * usageDetailPageSize));
+    const usageStatementPageCount = 1 + usageDetailPages.length;
+    const selectedUsageDetailPage = usageDetailPages[usageStatementPage - 1] || [];
     const tabContent = {
         overview: (<Card style={{ padding: '22px 24px' }}>
-        <div data-ui="project-detail.15" style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 16 }}>{selectedStatement.label} 사용내역서 정보</div>
+        <div data-ui="project-detail.15" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>{selectedStatement.label} 사용내역서</div>
+            <div style={{ fontSize: 12, color: C.g400, marginTop: 4 }}>{usageStatementPage === 0 ? '1페이지 · 기본 정보 및 9개 항목 요약' : `${usageStatementPage + 1}페이지 · 세부 사용내역 항목`}</div>
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <button type="button" onClick={() => setUsageStatementPage((page) => Math.max(0, page - 1))} disabled={usageStatementPage === 0} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 10, background: C.white, color: usageStatementPage === 0 ? C.g400 : C.g800, cursor: usageStatementPage === 0 ? 'not-allowed' : 'pointer', fontSize: 18, fontWeight: 900, fontFamily: 'inherit' }}>{'<'}</button>
+            <span style={{ minWidth: 58, textAlign: 'center', fontSize: 12, fontWeight: 900, color: C.g600 }}>{usageStatementPage + 1} / {usageStatementPageCount}</span>
+            <button type="button" onClick={() => setUsageStatementPage((page) => Math.min(usageStatementPageCount - 1, page + 1))} disabled={usageStatementPage >= usageStatementPageCount - 1} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 10, background: C.white, color: usageStatementPage >= usageStatementPageCount - 1 ? C.g400 : C.g800, cursor: usageStatementPage >= usageStatementPageCount - 1 ? 'not-allowed' : 'pointer', fontSize: 18, fontWeight: 900, fontFamily: 'inherit' }}>{'>'}</button>
+          </div>
+        </div>
+        {usageStatementPage === 0 ? <>
         <div data-ui="project-detail.16" style={{ display: 'grid', gridTemplateColumns: '120px minmax(0,1fr) 120px minmax(0,1fr)', border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', fontSize: 13, marginBottom: 16 }}>
           {[
                 ['건설업체명', project.constructionCompany, '공사명', project.constructionName],
@@ -259,6 +279,23 @@ export default function ProjectDetailPage() {
               </div>);
             })}
         </div>
+        </> : <>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '64px minmax(220px, 1fr) minmax(180px, .75fr) 130px', background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
+            {['번호', '세부 항목', '9개 항목', '금액'].map((head) => <div key={head} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 900, textAlign: head === '금액' ? 'right' : 'left', borderRight: head === '금액' ? 'none' : `1px solid ${C.g200}` }}>{head}</div>)}
+          </div>
+          {selectedUsageDetailPage.map((line, index) => {
+            const absoluteIndex = (usageStatementPage - 1) * usageDetailPageSize + index + 1;
+            const category = CATS.find((cat) => cat.id === line.categoryId);
+            return <div key={line.id} style={{ display: 'grid', gridTemplateColumns: '64px minmax(220px, 1fr) minmax(180px, .75fr) 130px', borderBottom: index === selectedUsageDetailPage.length - 1 ? 'none' : `1px solid ${C.g200}` }}>
+              <div style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}` }}>{absoluteIndex}</div>
+              <div title={line.name} style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: 900, borderRight: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{line.name}</div>
+              <div title={category?.label || ''} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{category?.label || '-'}</div>
+              <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: 900, textAlign: 'right' }}>{fmt(line.amount)}</div>
+            </div>;
+          })}
+        </div>
+        </>}
       </Card>),
         upload: (<UploadScreen contractName={project.name} contractMeta={{
                 name: project.name,
@@ -275,8 +312,8 @@ export default function ProjectDetailPage() {
                 setMatchReady(true);
                 updateTab('archive');
             }}/>),
-        validation: (<VerifyScreen initialTab="dashboard" initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`}/>),
-        report: (<VerifyScreen initialTab="report" initialStatus="done" contractName={`${project.name} · ${selectedStatement.label}`}/>),
+        validation: (<VerifyScreen projectId={project.id} initialTab="dashboard" initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`}/>),
+        report: (<VerifyScreen projectId={project.id} initialTab="report" initialStatus="done" contractName={`${project.name} · ${selectedStatement.label}`}/>),
         archive: (<ArchiveScreen matchReady={matchReady} onDismissMatchReady={() => {
                 workflowStorage.setMatchReady(project.id, false);
                 setMatchReady(false);
@@ -292,30 +329,35 @@ export default function ProjectDetailPage() {
         <div data-ui="project-detail.19" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div data-ui="project-detail.20" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
             <h2 data-ui="project-detail.21" style={{ fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>{project.constructionName} 계약 정산</h2>
-            <div data-ui="project-detail.22" ref={monthMenuRef} style={{ position: 'relative', flex: '0 0 230px', maxWidth: '100%', minWidth: 0 }}>
-              <button data-ui="project-detail.23" type="button" onClick={() => setMonthMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '9px 11px', background: C.white, color: C.g800, fontFamily: 'inherit', cursor: 'pointer', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 16px', alignItems: 'center', gap: 8, textAlign: 'left' }}>
-                <span style={{ minWidth: 0, fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedStatement.label}</span>
-                <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>{selectedStageLabel}</span>
-                <span aria-hidden="true" style={{ color: C.g400, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <ChevronIcon direction={monthMenuOpen ? 'up' : 'down'} size={16} />
-                </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 245px', maxWidth: '100%', minWidth: 0 }}>
+              <div data-ui="project-detail.22" ref={monthMenuRef} style={{ position: 'relative', flex: '0 0 170px', maxWidth: '100%', minWidth: 0 }}>
+                <button data-ui="project-detail.23" type="button" onClick={() => setMonthMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '9px 11px', background: C.white, color: C.g800, fontFamily: 'inherit', cursor: 'pointer', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 16px', alignItems: 'center', gap: 8, textAlign: 'left' }}>
+                  <span style={{ minWidth: 0, fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedStatement.label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>{selectedStageLabel}</span>
+                  <span aria-hidden="true" style={{ color: C.g400, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <ChevronIcon direction={monthMenuOpen ? 'up' : 'down'} size={16} />
+                  </span>
+                </button>
+                {monthMenuOpen && (<div data-ui="project-detail.24" style={{ position: 'absolute', top: 'calc(100% + 7px)', right: 0, zIndex: 80, width: 250, maxWidth: 'calc(100vw - 40px)', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 12, padding: 6, boxShadow: '0 8px 20px rgba(27,94,59,.14)' }}>
+                  {monthlyStatements.map((statement) => {
+                      const active = selectedStatement.month === statement.month;
+                      const stageLabel = PROJECT_STAGES[statement.stageIndex] || '등록';
+                      return (<button data-ui="project-detail.25" key={statement.month} type="button" onClick={() => {
+                              setSelectedMonth(statement.month);
+                              setMonthMenuOpen(false);
+                          }} style={{ width: '100%', border: 'none', borderRadius: 9, padding: '9px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', gridTemplateColumns: '78px minmax(0,1fr)', gap: 8, alignItems: 'center', textAlign: 'left' }}>
+                        <span style={{ fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap' }}>{statement.label.replace(/^2026년 /, '')}</span>
+                        <span style={{ minWidth: 0, fontSize: 12, fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stageLabel}</span>
+                      </button>);
+                  })}
+                </div>)}
+              </div>
+              <button type="button" onClick={() => setProjectHeaderOpen((open) => !open)} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, height: 40, padding: '0 11px', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>
+                <ChevronIcon direction={projectHeaderOpen ? 'up' : 'down'} size={16} />
               </button>
-              {monthMenuOpen && (<div data-ui="project-detail.24" style={{ position: 'absolute', top: 'calc(100% + 7px)', right: 0, zIndex: 80, width: 250, maxWidth: 'calc(100vw - 40px)', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 12, padding: 6, boxShadow: '0 8px 20px rgba(27,94,59,.14)' }}>
-                {monthlyStatements.map((statement) => {
-                    const active = selectedStatement.month === statement.month;
-                    const stageLabel = PROJECT_STAGES[statement.stageIndex] || '등록';
-                    return (<button data-ui="project-detail.25" key={statement.month} type="button" onClick={() => {
-                            setSelectedMonth(statement.month);
-                            setMonthMenuOpen(false);
-                        }} style={{ width: '100%', border: 'none', borderRadius: 9, padding: '9px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', gridTemplateColumns: '78px minmax(0,1fr)', gap: 8, alignItems: 'center', textAlign: 'left' }}>
-                      <span style={{ fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap' }}>{statement.label.replace(/^2026년 /, '')}</span>
-                      <span style={{ minWidth: 0, fontSize: 12, fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stageLabel}</span>
-                    </button>);
-                })}
-              </div>)}
             </div>
           </div>
-          <div data-ui="project-detail.26" style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 2, minWidth: 0 }}>
+          {projectHeaderOpen && <div data-ui="project-detail.26" style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 2, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, fontWeight: 900, color: C.g400 }}>{selectedStatement.label} 진행 단계</span>
               <span data-ui="project-detail.27" style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '4px 10px' }}>
@@ -323,7 +365,7 @@ export default function ProjectDetailPage() {
               </span>
             </div>
             <ProjectStageStepper currentStage={selectedStatement.stageIndex}/>
-          </div>
+          </div>}
         </div>
       </Card>
 
