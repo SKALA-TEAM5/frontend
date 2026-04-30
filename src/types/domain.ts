@@ -54,6 +54,62 @@ export interface ReportRow {
   note: string;
 }
 
+export type ValidationDecision = 'appropriate' | 'conditional' | 'inappropriate';
+export type ValidationRiskLevel = 'low' | 'medium' | 'high';
+
+export interface ValidationProblemFile {
+  fileId?: string;
+  fileName: string;
+  kind: EvidenceCategory;
+  reason: string;
+}
+
+export interface ValidationLegalBasis {
+  lawName: string;
+  article?: string;
+  clause?: string;
+  summary: string;
+  agentReasoning: string;
+}
+
+export interface ValidationIssue {
+  title: string;
+  description: string;
+  problemFileNames: string[];
+  requiredAction: string;
+  recommendedFiles: string[];
+}
+
+export interface CategoryValidationResult {
+  categoryId: number;
+  categoryName: string;
+  usageAmount: number;
+  recognizedAmount: number;
+  disputedAmount: number;
+  decision: ValidationDecision;
+  riskLevel: ValidationRiskLevel;
+  evidenceSummary: {
+    requiredTypes: string[];
+    submittedFiles: Pick<EvidenceFile, 'id' | 'name' | 'kind'>[];
+    missingTypes: string[];
+    problematicFiles: ValidationProblemFile[];
+  };
+  legalBasis: ValidationLegalBasis[];
+  issues: ValidationIssue[];
+}
+
+export interface ValidationDashboardResult {
+  id: string;
+  checkedAt: string;
+  usageStatementFile: string;
+  lawAgent: {
+    name: string;
+    version: string;
+    basis: string;
+  };
+  categories: CategoryValidationResult[];
+}
+
 export type ValidationStatus = 'not_started' | 'running' | 'completed' | 'needs_action';
 
 export type ActionRequestStatus = 'open' | 'supplement_uploaded' | 'resolved';
