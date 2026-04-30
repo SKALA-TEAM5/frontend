@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import FileThumb from '../../components/ui/FileThumb';
-import { isImageFile, makeThumbSvg } from '../../lib/mock-data';
+import { fmt, isImageFile, makeThumbSvg, type UsageLineItem } from '../../lib/mock-data';
 import { C } from '../../lib/theme';
 import type { EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 
@@ -11,34 +12,48 @@ interface CategoryMeta {
 
 export type HierarchyEvidenceKind = FolderEvidenceCategory | 'misc';
 
-const HIERARCHY_SECTIONS: Array<{ id: HierarchyEvidenceKind; label: string }> = [
-  { id: 'receipt', label: '영수증' },
-  { id: 'site_photo', label: '사진' },
-  { id: 'tax_invoice', label: '세금계산서' },
-  { id: 'other_document', label: '기타' },
+const EVIDENCE_SECTIONS: Array<{ id: FolderEvidenceCategory; label: string; requiredLabel: string }> = [
+  { id: 'receipt', label: '영수증', requiredLabel: '영수증' },
+  { id: 'site_photo', label: '사진', requiredLabel: '현장사진' },
+  { id: 'tax_invoice', label: '세금계산서', requiredLabel: '세금계산서' },
+  { id: 'other_document', label: '기타', requiredLabel: '기타 증빙' },
 ];
+
+const REQUIRED_EVIDENCE_BY_CATEGORY: Record<number, FolderEvidenceCategory[]> = {
+  1: ['receipt', 'tax_invoice', 'other_document'],
+  2: ['receipt', 'site_photo'],
+  3: ['receipt', 'other_document'],
+  4: ['receipt', 'site_photo', 'other_document'],
+  5: ['receipt', 'site_photo', 'tax_invoice', 'other_document'],
+  6: ['receipt', 'site_photo'],
+  7: ['receipt', 'tax_invoice', 'other_document'],
+  8: ['receipt', 'other_document'],
+  9: ['receipt', 'site_photo', 'tax_invoice'],
+};
 
 interface ArchiveHierarchyViewProps {
   cats: CategoryMeta[];
+  usageItems: UsageLineItem[];
   selectedCatId: number;
-  selectedKind: HierarchyEvidenceKind;
-  selectedFile: EvidenceFile | null;
+  selectedUsageItemId: string;
   getFiles: (kind: HierarchyEvidenceKind, catId: number) => EvidenceFile[];
   onSelectCat: (catId: number) => void;
-  onSelectKind: (kind: HierarchyEvidenceKind) => void;
+  onSelectUsageItem: (item: UsageLineItem) => void;
   onSelectFile: (file: EvidenceFile) => void;
   onRemove: (kind: HierarchyEvidenceKind, catId: number, fileId: string) => void;
   onMove: (fromKind: HierarchyEvidenceKind, fromCatId: number, toKind: HierarchyEvidenceKind, toCatId: number, file: EvidenceFile) => void;
+  onUploadMissing: (kind: FolderEvidenceCategory, catId: number) => void;
   isProblemFile?: (file: EvidenceFile) => boolean;
 }
 
-export default function ArchiveHierarchyView({ cats, selectedCatId, selectedKind, selectedFile, getFiles, onSelectCat, onSelectKind, onSelectFile, onRemove, onMove, isProblemFile }: ArchiveHierarchyViewProps) {
+export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, selectedUsageItemId, getFiles, onSelectCat, onSelectUsageItem, onSelectFile, onRemove, onMove, onUploadMissing, isProblemFile }: ArchiveHierarchyViewProps) {
   const [dragPayload, setDragPayload] = useState<{ kind: HierarchyEvidenceKind; catId: number; file: EvidenceFile } | null>(null);
-  const activeCat = cats.find((cat) => cat.id === selectedCatId) || cats[0];
-  const activeSection = HIERARCHY_SECTIONS.find((section) => section.id === selectedKind) || HIERARCHY_SECTIONS[0];
-  const activeFiles = getFiles(activeSection.id, activeCat.id);
-  const previewSrc = selectedFile ? selectedFile.previewUrl || `data:image/svg+xml;charset=UTF-8,${makeThumbSvg(selectedFile.kind)}` : '';
-  const canShowImagePreview = Boolean(selectedFile && (selectedFile.previewUrl || isImageFile(selectedFile.name)));
+  const [hoverPreview, setHoverPreview] = useState<{ file: EvidenceFile; x: number; y: number } | null>(null);
+  const filteredItems = usageItems.filter((item) => item.categoryId === selectedCatId);
+  const activeItem = filteredItems.find((item) => item.id === selectedUsageItemId) || filteredItems[0] || usageItems[0];
+  const activeCategory = cats.find((cat) => cat.id === selectedCatId) || cats[0];
+  const requiredKinds = REQUIRED_EVIDENCE_BY_CATEGORY[selectedCatId] || ['receipt'];
+  const allActiveFiles = EVIDENCE_SECTIONS.flatMap((section) => getFiles(section.id, selectedCatId));
 
   const dropInto = (kind: HierarchyEvidenceKind, catId: number) => {
     if (!dragPayload) return;
@@ -46,83 +61,133 @@ export default function ArchiveHierarchyView({ cats, selectedCatId, selectedKind
     setDragPayload(null);
   };
 
+  const openTooltip = (file: EvidenceFile, target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    setHoverPreview({
+      file,
+      x: rect.left,
+      y: rect.bottom + 2,
+    });
+  };
+
+  const renderFileRow = (kind: FolderEvidenceCategory, file: EvidenceFile) => {
+    const problem = Boolean(isProblemFile?.(file));
+    return (
+      <div key={file.id} draggable onMouseLeave={() => setHoverPreview(null)} onDragStart={() => setDragPayload({ kind, catId: selectedCatId, file })} onDragEnd={() => setDragPayload(null)} onClick={() => onSelectFile(file)} style={{ border: `1px solid ${problem ? '#FFCDD2' : C.g100}`, background: problem ? C.dangerBg : C.white, borderRadius: 9, padding: '7px 8px', cursor: 'pointer' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 18px', alignItems: 'center', gap: 6 }}>
+          <div style={{ minWidth: 0 }}>
+            <div title={file.name} onMouseEnter={(event) => openTooltip(file, event.currentTarget)} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
+            <div style={{ fontSize: 10, color: C.g400, marginTop: 2 }}>{file.uploadedAt || '날짜 미상'}</div>
+          </div>
+          <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(kind, selectedCatId, file.id); }} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 14 }}>×</button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderPreviewTooltip = () => {
+    if (!hoverPreview || typeof document === 'undefined') return null;
+    const file = hoverPreview.file;
+    const previewSrc = file.previewUrl || `data:image/svg+xml;charset=UTF-8,${makeThumbSvg(file.kind)}`;
+    const canShowImagePreview = Boolean(file.previewUrl || isImageFile(file.name));
+    return createPortal(
+      <div style={{ position: 'fixed', top: hoverPreview.y, left: hoverPreview.x, width: 260, background: C.white, border: `1px solid ${C.g200}`, borderRadius: 12, boxShadow: '0 12px 28px rgba(0,0,0,.16)', padding: 11, zIndex: 9999, pointerEvents: 'none' }}>
+        <div style={{ borderRadius: 10, overflow: 'hidden', background: C.g100, marginBottom: 9, minHeight: 138, display: 'grid', placeItems: 'center' }}>
+          {canShowImagePreview ? <img src={previewSrc} alt={file.name} style={{ width: '100%', height: 138, objectFit: 'cover', display: 'block' }} /> : <FileThumb entry={file} size={72} />}
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 5, wordBreak: 'break-all' }}>{file.name}</div>
+        <div style={{ fontSize: 11, color: C.g400, lineHeight: 1.5 }}>{file.uploadedBy || '업로더 미상'} · {file.uploadedAt || '날짜 미상'}</div>
+        {file.description && <div style={{ marginTop: 6, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{file.description}</div>}
+      </div>,
+      document.body
+    );
+  };
+
   return (
-    <div data-ui="archive-hierarchy-view.1" style={{ display: 'grid', gridTemplateColumns: '240px 120px minmax(150px, .66fr) minmax(160px, .48fr)', gap: 9, alignItems: 'start' }}>
-      <aside style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 14, padding: 10, overflow: 'hidden' }}>
-        <div style={{ fontSize: 12, color: C.g400, fontWeight: 900, margin: '3px 5px 8px' }}>9개 항목</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', paddingRight: 3 }}>
-          {cats.map((cat) => {
-            const count = HIERARCHY_SECTIONS.reduce((sum, section) => sum + getFiles(section.id, cat.id).length, 0);
-            const hasProblem = HIERARCHY_SECTIONS.some((section) => getFiles(section.id, cat.id).some((file) => isProblemFile?.(file)));
-            const active = cat.id === selectedCatId;
-            return (
-              <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(selectedKind, cat.id)} style={{ width: '100%', border: `1px solid ${hasProblem ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasProblem ? C.dangerBg : active ? C.bg : C.white, borderRadius: 10, padding: '8px 9px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 900, color: hasProblem ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line' }}>{cat.short}</span>
-                  <span style={{ fontSize: 11, fontWeight: 900, color: hasProblem ? C.danger : active ? C.primary : C.g400, whiteSpace: 'nowrap' }}>{count}건</span>
-                </div>
-              </button>
-            );
-          })}
+    <div data-ui="archive-hierarchy-view.1" style={{ position: 'relative', width: '100%', minWidth: 0, overflow: 'visible' }}>
+      <section style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 14, overflow: 'visible', minWidth: 0 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, .72fr) minmax(180px, .9fr) minmax(0, 1.9fr)', borderBottom: `1px solid ${C.g100}`, background: '#FCFEFD', borderRadius: '14px 14px 0 0', minWidth: 0 }}>
+          <div style={{ padding: '10.5px 14px', borderRight: `1px solid ${C.g100}`, fontSize: 12, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>9개 항목</div>
+          <div style={{ padding: '10.5px 14px', borderRight: `1px solid ${C.g100}`, fontSize: 12, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>사용내역서 세부 항목</div>
+          <div style={{ padding: '10.5px 14px', fontSize: 12, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>파일보기</div>
         </div>
-      </aside>
 
-      <aside style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 14, padding: 10 }}>
-        <div style={{ fontSize: 12, color: C.g400, fontWeight: 900, margin: '3px 5px 8px' }}>자료 종류</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {HIERARCHY_SECTIONS.map((section) => {
-            const count = getFiles(section.id, activeCat.id).length;
-            const hasProblem = getFiles(section.id, activeCat.id).some((file) => isProblemFile?.(file));
-            const active = section.id === selectedKind;
-            return (
-              <button key={section.id} type="button" onClick={() => onSelectKind(section.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(section.id, activeCat.id)} style={{ width: '100%', border: `1px solid ${hasProblem ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasProblem ? C.dangerBg : active ? C.bg : C.white, borderRadius: 10, padding: '9px 9px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 900, color: hasProblem ? C.danger : active ? C.primary : C.g800 }}>{section.label}</span>
-                  <span style={{ fontSize: 11, fontWeight: 900, color: hasProblem ? C.danger : active ? C.primary : C.g400 }}>{count}건</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-
-      <section style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 14, padding: 10, minHeight: 380 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', margin: '3px 5px 8px' }}>
-          <div>
-            <div style={{ fontSize: 12, color: C.g400, fontWeight: 900 }}>선택 파일</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, .72fr) minmax(180px, .9fr) minmax(0, 1.9fr)', minHeight: 540, minWidth: 0 }}>
+          <div style={{ padding: 10, borderRight: `1px solid ${C.g100}`, overflow: 'hidden', minWidth: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 540, overflowY: 'auto', paddingRight: 3 }}>
+              {cats.map((cat) => {
+                const items = usageItems.filter((item) => item.categoryId === cat.id);
+                const count = EVIDENCE_SECTIONS.reduce((sum, section) => sum + getFiles(section.id, cat.id).length, 0);
+                const requiredKindsForCat = REQUIRED_EVIDENCE_BY_CATEGORY[cat.id] || [];
+                const missingCount = requiredKindsForCat.filter((kind) => getFiles(kind, cat.id).length === 0).length;
+                const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, cat.id).some((file) => isProblemFile?.(file)));
+                const flagged = missingCount > 0 || hasProblem;
+                const active = cat.id === selectedCatId;
+                return (
+                  <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${flagged ? '#FFE082' : active ? C.light : C.g100}`, background: flagged ? C.warnBg : active ? C.bg : C.white, borderRadius: 10, padding: '8px 9px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: flagged ? C.warn : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{cat.short}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
+                      <span style={{ fontSize: 10, color: C.g400, fontWeight: 800 }}>{items.length}개 세부</span>
+                      <span style={{ fontSize: 10, color: flagged ? C.warn : C.g400, fontWeight: 900 }}>{flagged ? `${missingCount}개 누락` : `${count}건`}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-        <div onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(activeSection.id, activeCat.id)} style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 328, overflowY: 'auto', paddingRight: 3 }}>
-          {activeFiles.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 12, padding: 22, textAlign: 'center', color: C.g400, fontSize: 12 }}>이 폴더에 파일이 없습니다</div>}
-          {activeFiles.map((file) => {
-            const problem = Boolean(isProblemFile?.(file));
-            return (
-            <div key={file.id} draggable onDragStart={() => setDragPayload({ kind: activeSection.id, catId: activeCat.id, file })} onDragEnd={() => setDragPayload(null)} onClick={() => onSelectFile(file)} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 20px', alignItems: 'center', gap: 7, border: `1px solid ${problem ? '#FFCDD2' : selectedFile?.id === file.id ? C.light : C.g100}`, background: problem ? C.dangerBg : selectedFile?.id === file.id ? C.bg : '#FCFEFD', borderRadius: 10, padding: '8px 9px', cursor: 'pointer' }}>
+
+          <div style={{ padding: 10, borderRight: `1px solid ${C.g100}`, overflow: 'hidden', minWidth: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 540, overflowY: 'auto', paddingRight: 3 }}>
+              {filteredItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 10, padding: 14, fontSize: 12, color: C.g400, textAlign: 'center' }}>OCR 항목이 없습니다</div>}
+              {filteredItems.map((item) => {
+                const active = item.id === activeItem.id;
+                return (
+                  <button key={item.id} type="button" onClick={() => onSelectUsageItem(item)} style={{ width: '100%', border: `1px solid ${active ? C.light : C.g100}`, background: active ? C.bg : C.white, borderRadius: 10, padding: '8px 9px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                    <div title={item.name} style={{ fontSize: 12, fontWeight: 900, color: active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                    <div style={{ fontSize: 10, color: C.g400, fontWeight: 800, marginTop: 4 }}>{fmt(item.amount)}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ padding: 12, overflow: 'hidden', minWidth: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
-                <div style={{ fontSize: 11, color: C.g400, marginTop: 2 }}>{file.uploadedBy || '업로더 미상'} · {file.uploadedAt || '날짜 미상'}</div>
+                <div title={activeItem?.name} style={{ fontSize: 15, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeItem?.name || activeCategory.short}</div>
+                <div style={{ fontSize: 11, color: C.g400, marginTop: 4 }}>{activeCategory.short}{activeItem ? ` · ${fmt(activeItem.amount)}` : ''}</div>
               </div>
-              <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(activeSection.id, activeCat.id, file.id); }} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 14 }}>×</button>
+              <div style={{ fontSize: 11, fontWeight: 900, color: C.primary, background: C.bg, borderRadius: 999, padding: '5px 9px', whiteSpace: 'nowrap' }}>{allActiveFiles.length}개 파일</div>
             </div>
-          );
-          })}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 9, maxHeight: 462, overflowY: 'auto', paddingRight: 4 }}>
+              {EVIDENCE_SECTIONS.map((section) => {
+                const files = getFiles(section.id, selectedCatId);
+                const required = requiredKinds.includes(section.id);
+                const missing = required && files.length === 0;
+                return (
+                  <div key={section.id} onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(section.id, selectedCatId)} style={{ border: `1px solid ${missing ? '#FFE082' : C.g100}`, borderRadius: 12, background: missing ? '#FFFDF0' : '#FCFEFD', padding: 9 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 900, color: missing ? C.warn : C.g800 }}>{section.label}</div>
+                      <div style={{ fontSize: 10, fontWeight: 900, color: C.g400 }}>{files.length}</div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {files.map((file) => renderFileRow(section.id, file))}
+                      {missing && (
+                        <button type="button" onClick={() => onUploadMissing(section.id, selectedCatId)} style={{ width: '100%', border: '1px dashed #F9C74F', borderRadius: 10, padding: '10px 8px', background: C.warnBg, color: C.warn, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, lineHeight: 1.45, textAlign: 'left' }}>
+                          {section.requiredLabel}가 없습니다. 업로드하세요
+                        </button>
+                      )}
+                      {!missing && files.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 10, padding: '12px 8px', color: C.g400, fontSize: 11, textAlign: 'center' }}>선택 자료 없음</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </section>
-
-      <section style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 14, padding: 10, minHeight: 380 }}>
-        {selectedFile ? (
-          <div>
-            <div style={{ border: `1px solid ${C.g100}`, borderRadius: 12, minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FCFEFD', overflow: 'hidden' }}>
-              {canShowImagePreview ? <img src={previewSrc} alt={selectedFile.name} style={{ maxWidth: '100%', maxHeight: 240, objectFit: 'contain' }}/> : <FileThumb entry={selectedFile} size={82}/>}
-            </div>
-            <div style={{ marginTop: 10, fontSize: 12, color: C.g800, fontWeight: 900, wordBreak: 'break-all' }}>{selectedFile.name}</div>
-            <div style={{ marginTop: 4, fontSize: 11, color: C.g400 }}>{selectedFile.uploadedBy || '업로더 미상'} · {selectedFile.uploadedAt || '날짜 미상'}</div>
-            {selectedFile.description && <div style={{ marginTop: 8, fontSize: 11, color: C.g600, lineHeight: 1.45 }}>{selectedFile.description}</div>}
-          </div>
-        ) : (
-          <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 12, padding: 22, textAlign: 'center', color: C.g400, fontSize: 12 }}>파일을 선택하면 상세 정보가 표시됩니다</div>
-        )}
-      </section>
+      {renderPreviewTooltip()}
     </div>
   );
 }

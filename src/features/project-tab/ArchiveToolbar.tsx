@@ -1,6 +1,6 @@
 import { C } from '../../lib/theme';
 
-export type ArchiveViewMode = 'hierarchy' | 'folder' | 'usage';
+export type ArchiveViewMode = 'hierarchy' | 'folder';
 export type ArchiveValidationStatus = 'idle' | 'running' | 'done';
 
 interface ArchiveToolbarProps {
@@ -15,7 +15,6 @@ export default function ArchiveToolbar({ viewMode, onViewModeChange, validationS
     const viewOptions = [
         { id: 'hierarchy', label: '계층 보기' },
         { id: 'folder', label: '9개 폴더 통합 보기' },
-        { id: 'usage', label: '사용내역서 보기' },
     ] as const;
     const validationLabel = validationStatus === 'running' ? '검증 중...' : validationStatus === 'done' ? '재검증하기' : '유효성 검증';
 

@@ -2,12 +2,11 @@
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
 import { C } from '../../lib/theme';
-import { CATS, buildArchiveDataFromUploads, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData } from '../../lib/mock-data';
+import { CATS, USAGE_LINE_ITEMS, buildArchiveDataFromUploads, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData } from '../../lib/mock-data';
 import ArchiveFolderGrid from './ArchiveFolderGrid';
 import ArchiveHierarchyView, { type HierarchyEvidenceKind } from './ArchiveHierarchyView';
 import ArchivePreview from './ArchivePreview';
 import ArchiveToolbar, { type ArchiveValidationStatus, type ArchiveViewMode } from './ArchiveToolbar';
-import ArchiveUsageStatementView from './ArchiveUsageStatementView';
 import UploadScreen from './UploadScreen';
 import type { ArchiveSeed, ContractInfo, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 interface ArchiveScreenProps {
@@ -43,7 +42,8 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
     const [dragFile, setDragFile] = useState<DragContext>(null);
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(archiveSeed || createDefaultArchiveData()));
     const [uploadModalOpen, setUploadModalOpen] = useState(false);
-    const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(1);
+    const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(USAGE_LINE_ITEMS[0]?.categoryId || 1);
+    const [selectedUsageItemId, setSelectedUsageItemId] = useState(USAGE_LINE_ITEMS[0]?.id || '');
     const [selectedHierarchyKind, setSelectedHierarchyKind] = useState<HierarchyEvidenceKind>('receipt');
     const [selectedHierarchyFile, setSelectedHierarchyFile] = useState<EvidenceFile | null>(null);
     const [hoverPreview, setHoverPreview] = useState<{
@@ -57,7 +57,7 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
     }, [archiveSeed]);
     const getFilesForCategory = (kind: FolderEvidenceCategory, catId: number) => fileData[kind]?.[catId] || [];
     const getHierarchyFilesForCategory = (kind: HierarchyEvidenceKind, catId: number) => kind === 'misc' ? [] : getFilesForCategory(kind, catId);
-    const getAllHierarchyFilesForCategory = (catId: number) => HIERARCHY_EVIDENCE_KINDS.flatMap((kind) => getHierarchyFilesForCategory(kind, catId));
+    const selectedUsageItem = USAGE_LINE_ITEMS.find((item) => item.id === selectedUsageItemId) || USAGE_LINE_ITEMS[0];
     const getAllFilesForCategory = (catId: number) => {
         const merged = FOLDER_EVIDENCE_KINDS.flatMap((kind) => getFilesForCategory(kind, catId).map((file) => ({ ...file, kind })));
         return uniqueFiles(merged);
@@ -65,11 +65,11 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
     useEffect(() => {
         if (viewMode !== 'hierarchy')
             return;
-        const files = getHierarchyFilesForCategory(selectedHierarchyKind, selectedHierarchyCatId);
+        const files = HIERARCHY_EVIDENCE_KINDS.flatMap((kind) => getHierarchyFilesForCategory(kind, selectedHierarchyCatId));
         if (selectedHierarchyFile && files.some((file) => file.id === selectedHierarchyFile.id))
             return;
         setSelectedHierarchyFile(files[0] || null);
-    }, [fileData, selectedHierarchyCatId, selectedHierarchyFile, selectedHierarchyKind, viewMode]);
+    }, [fileData, selectedHierarchyCatId, selectedHierarchyFile, viewMode]);
     const moveFile = (kind: FolderEvidenceCategory, fromCat: number, toCat: number, fileEntry: EvidenceFile) => {
         setFileData((prev) => {
             const next = { ...prev, [kind]: { ...prev[kind] } };
@@ -112,6 +112,29 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
         };
         input.click();
     };
+    const uploadMissingEvidence = (kind: FolderEvidenceCategory, catId: number) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.accept = 'image/*,.pdf,.xlsx';
+        input.onchange = (e) => {
+            const pickedFiles = Array.from((e.target as HTMLInputElement).files || []);
+            if (pickedFiles.length === 0)
+                return;
+            setFileData((prev) => ({
+                ...prev,
+                [kind]: {
+                    ...prev[kind],
+                    [catId]: [
+                        ...(prev[kind][catId] || []),
+                        ...pickedFiles.map((file) => createEntryFromFile(file, kind, { categoryIds: [catId] })),
+                    ],
+                },
+            }));
+            setSelectedHierarchyKind(kind);
+        };
+        input.click();
+    };
     const removeHierarchyFile = (kind: HierarchyEvidenceKind, catId: number, fileId: string) => {
         if (kind !== 'misc') {
             removeArchiveFile(kind, catId, fileId);
@@ -131,6 +154,9 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
             next[toKind][toCatId] = [...(next[toKind][toCatId] || []), movedFile];
             return next;
         });
+        const nextUsageItem = USAGE_LINE_ITEMS.find((item) => item.categoryId === toCatId);
+        if (nextUsageItem)
+            setSelectedUsageItemId(nextUsageItem.id);
         setSelectedHierarchyCatId(toCatId);
         setSelectedHierarchyKind(toKind);
         setSelectedHierarchyFile(movedFile);
@@ -152,13 +178,15 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
         <ArchiveToolbar viewMode={viewMode} validationStatus={validationStatus} onRunValidation={onRunValidation} onUpload={viewMode === 'hierarchy' ? () => setUploadModalOpen(true) : undefined} onViewModeChange={setViewMode}/>
 
         <div data-ui="archive-screen.6" key={viewMode} className="screen-enter" style={{ paddingTop: 0 }}>
-          {viewMode === 'usage' ? (<ArchiveUsageStatementView files={fileData.usage_statement} isProblemFile={isProblemFile} onAdd={openUsageStatementAdd} onRemove={removeUsageStatement}/>) : viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} selectedCatId={selectedHierarchyCatId} selectedKind={selectedHierarchyKind} selectedFile={selectedHierarchyFile} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} onSelectCat={(catId) => {
+          {viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} usageItems={USAGE_LINE_ITEMS} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} onSelectCat={(catId) => {
                 setSelectedHierarchyCatId(catId);
+                setSelectedUsageItemId(USAGE_LINE_ITEMS.find((item) => item.categoryId === catId)?.id || '');
                 setSelectedHierarchyFile(null);
-            }} onSelectKind={(kind) => {
-                setSelectedHierarchyKind(kind);
+            }} onSelectUsageItem={(item) => {
+                setSelectedUsageItemId(item.id);
+                setSelectedHierarchyCatId(item.categoryId);
                 setSelectedHierarchyFile(null);
-            }} onSelectFile={setSelectedHierarchyFile} onRemove={removeHierarchyFile} onMove={moveHierarchyFile}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
+            }} onSelectFile={setSelectedHierarchyFile} onRemove={removeHierarchyFile} onMove={moveHierarchyFile} onUploadMissing={uploadMissingEvidence}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
             if (!dragFile)
                 return;
             moveFile(dragFile.kind, dragFile.fromCat, toCat, dragFile.file);
@@ -179,6 +207,8 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
                 const nextSeed = buildArchiveDataFromUploads(payload.files);
                 setFileData(normalizeArchiveData(nextSeed));
                 setSelectedHierarchyFile(null);
+                setSelectedHierarchyCatId(USAGE_LINE_ITEMS[0]?.categoryId || 1);
+                setSelectedUsageItemId(USAGE_LINE_ITEMS[0]?.id || '');
                 setViewMode('hierarchy');
                 setUploadModalOpen(false);
             }} compact/>
