@@ -12,6 +12,7 @@ import { getPrimaryProjectAction } from '../../lib/project-actions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { REPORT_DATA, fmt } from '../../lib/mock-data';
 import { getVisibleProjects, SORT_LABELS, type PeriodMode, type SortOption } from '../../lib/project-list';
+import { ACTION_NOTIFICATION_EVENT, getActionNotifications, type ActionNotification } from '../../lib/action-notifications';
 import {
   DASHBOARD_WIDGETS,
   DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY,
@@ -122,6 +123,7 @@ const widgetHelpText: Record<WidgetHelpId, string> = {
   openActionRequests: '아직 해결되지 않은 조치 요청 프로젝트 수를 보여줍니다.',
   risk: '검증 결과에서 정산 리스크가 있는 항목을 요약합니다.',
   missingUpload: '증빙 업로드가 아직 부족한 프로젝트를 확인합니다.',
+  unreadNotifications: '프로젝트 담당자가 보낸 미확인 조치 완료 알림을 보여줍니다.',
   settlementProgress: '모든 프로젝트의 정산 진행률을 보여줍니다.',
   workload: '담당자별 프로젝트 부담과 조치 요청 부담을 보여줍니다.',
   myProjects: '내가 볼 수 있는 모든 프로젝트를 검색, 필터, 정렬해 보여줍니다.',
@@ -142,11 +144,13 @@ export default function DashboardPage() {
   const [riskTooltip, setRiskTooltip] = useState<'error' | 'warn' | null>(null);
   const [missingUploadTooltip, setMissingUploadTooltip] = useState(false);
   const [openActionTooltip, setOpenActionTooltip] = useState(false);
+  const [unreadNotificationTooltip, setUnreadNotificationTooltip] = useState(false);
   const [titleTooltip, setTitleTooltip] = useState<WidgetHelpId | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [visibleWidgetIds, setVisibleWidgetIds] = useState<DashboardWidgetId[]>(DEFAULT_WIDGET_IDS);
   const [draggedWidgetId, setDraggedWidgetId] = useState<DashboardWidgetId | null>(null);
   const [widgetLayout, setWidgetLayout] = useState<Record<DashboardWidgetId, WidgetPosition>>(DEFAULT_WIDGET_LAYOUT);
+  const [notifications, setNotifications] = useState<ActionNotification[]>([]);
   const dashboardGridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -157,6 +161,9 @@ export default function DashboardPage() {
       const validIds = parsed.filter((id) => DEFAULT_WIDGET_IDS.includes(id));
       if (!validIds.includes('openActionRequests')) {
         validIds.push('openActionRequests');
+      }
+      if (!validIds.includes('unreadNotifications')) {
+        validIds.push('unreadNotifications');
       }
       setVisibleWidgetIds(validIds);
     } catch {
@@ -170,6 +177,17 @@ export default function DashboardPage() {
     } catch {
       window.localStorage.removeItem(DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY);
     }
+  }, []);
+
+  useEffect(() => {
+    const syncNotifications = () => setNotifications(getActionNotifications());
+    syncNotifications();
+    window.addEventListener(ACTION_NOTIFICATION_EVENT, syncNotifications);
+    window.addEventListener('storage', syncNotifications);
+    return () => {
+      window.removeEventListener(ACTION_NOTIFICATION_EVENT, syncNotifications);
+      window.removeEventListener('storage', syncNotifications);
+    };
   }, []);
 
   useEffect(() => {
@@ -292,6 +310,7 @@ export default function DashboardPage() {
     },
   ];
   const missingUploadProjects = projects.filter((project) => !project.hasUploads || project.status === 'upload_pending');
+  const unreadSheNotifications = notifications.filter((notification) => notification.recipientRole === 'she_manager' && !notification.read);
   const progressPercent = projects.length
     ? Math.round((projects.reduce((sum, project) => sum + project.stageIndex, 0) / (projects.length * Math.max(PROJECT_STAGES.length - 1, 1))) * 100)
     : 0;
@@ -611,6 +630,40 @@ export default function DashboardPage() {
                         <div style={{ fontWeight: 900, color: C.g800 }}>{project.constructionName}</div>
                         <div>{STATUS_META[project.status].label} · {project.manager}</div>
                       </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+        )}
+
+        {visibleWidgetSet.has('unreadNotifications') && (
+        <Card {...widgetFrameProps('unreadNotifications', { padding: '18px 18px', overflow: 'visible', display: 'flex', flexDirection: 'column' })}>
+          {renderWidgetRemoveButton('unreadNotifications')}
+          {renderWidgetTitle('미확인 알림', 'unreadNotifications', { ...widgetTitleStyle, marginBottom: 0 })}
+          <div style={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+            <div
+              onMouseEnter={() => setUnreadNotificationTooltip(true)}
+              onMouseLeave={() => setUnreadNotificationTooltip(false)}
+              style={{ display: 'inline-flex', alignItems: 'baseline', position: 'relative', cursor: 'default', width: 'fit-content' }}
+            >
+              <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1, color: unreadSheNotifications.length ? C.primary : C.ok }}>{unreadSheNotifications.length}</div>
+              <div style={{ fontSize: 24, fontWeight: 900, color: unreadSheNotifications.length ? C.primary : C.ok, marginLeft: 4 }}>건</div>
+              {unreadNotificationTooltip && (
+                <div style={tooltipStyle}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: unreadSheNotifications.length ? C.primary : C.ok, marginBottom: 8 }}>미확인 알림</div>
+                  <div style={tooltipListStyle}>
+                    {unreadSheNotifications.length === 0 ? (
+                      <div style={{ fontSize: 13, color: C.g400, lineHeight: 1.5 }}>미확인 알림이 없습니다.</div>
+                    ) : unreadSheNotifications.slice(0, 4).map((notification) => (
+                      <Link key={notification.id} href={notification.projectId ? `/projects/${notification.projectId}` : '/projects'} style={{ textDecoration: 'none' }}>
+                        <div style={tooltipItemStyle}>
+                          <div style={{ fontWeight: 900, color: C.g800 }}>{notification.projectName}</div>
+                          <div>{notification.categoryName} · {notification.createdAt}</div>
+                        </div>
+                      </Link>
                     ))}
                   </div>
                 </div>
