@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ACTION_NOTIFICATION_EVENT, addActionNotification, getActionNotifications, markActionNotificationRead, type ActionNotification } from '../../lib/action-notifications';
+import { addActionNotification, markActionNotificationRead, type ActionNotification } from '../../lib/action-notifications';
+import { useActionNotifications } from '../../lib/use-action-notifications';
 import { C } from '../../lib/theme';
 import { ChevronIcon } from '../ui';
 import { ROLE_LABELS } from '../../lib/permissions';
@@ -20,7 +21,6 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const { user, role, setCurrentRole } = useCurrentUser();
     const [projectsOpen, setProjectsOpen] = useState(true);
     const [activeUtilityView, setActiveUtilityView] = useState<'notifications' | null>(null);
-    const [notifications, setNotifications] = useState<ActionNotification[]>([]);
     const [notificationQuery, setNotificationQuery] = useState('');
     const [notificationProjectFilter, setNotificationProjectFilter] = useState('all');
     const [notificationPeriodFilter, setNotificationPeriodFilter] = useState('all');
@@ -29,6 +29,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const router = useRouter();
     const pathname = usePathname();
     const sidebarProjects = getAccessibleProjects(user);
+    const { notifications, visibleNotifications: roleNotifications, unreadNotifications } = useActionNotifications(user);
     const handleRoleChange = (nextRole: DevUserRole) => {
         setCurrentRole(nextRole);
         setActiveUtilityView(null);
@@ -37,8 +38,6 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const navItems = user.role === 'she_manager'
         ? [{ href: '/dashboard', label: '대시보드' }, { href: '/projects', label: '전체 프로젝트' }]
         : [{ href: '/projects', label: '담당 프로젝트' }];
-    const roleNotifications = notifications.filter((notification) => notification.recipientRole === user.role);
-    const unreadNotifications = roleNotifications.filter((notification) => !notification.read);
     const latestUnreadNotification = unreadNotifications[0];
     const notificationProjectOptions = Array.from(new Set(roleNotifications.map((notification) => notification.projectName))).filter(Boolean);
     const notificationPeriodStart = (() => {
@@ -77,18 +76,8 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     };
     const hasCompletionNotification = (notification: ActionNotification) => notifications.some((item) => item.recipientRole === 'she_manager' && item.projectId === notification.projectId && item.categoryName === notification.categoryName && item.title === `${notification.categoryName} 조치 완료`);
     useEffect(() => {
-        const syncNotifications = () => {
-            setNotifications(getActionNotifications());
-            setToastVisible(true);
-        };
-        syncNotifications();
-        window.addEventListener(ACTION_NOTIFICATION_EVENT, syncNotifications);
-        window.addEventListener('storage', syncNotifications);
-        return () => {
-            window.removeEventListener(ACTION_NOTIFICATION_EVENT, syncNotifications);
-            window.removeEventListener('storage', syncNotifications);
-        };
-    }, []);
+        setToastVisible(true);
+    }, [latestUnreadNotification?.id]);
     useEffect(() => {
         setToastVisible(true);
     }, [role]);
@@ -181,7 +170,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
 
         <nav data-ui="app-frame.8" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 30 }}>
           {navItems.map((item) => {
-            const active = pathname === item.href;
+            const active = activeUtilityView === null && pathname === item.href;
             return (<Link key={item.href} href={item.href} onClick={() => setActiveUtilityView(null)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 12px', borderRadius: 12, textDecoration: 'none', color: active ? C.primary : C.g600, background: active ? C.bg : 'transparent', fontSize: 15, fontWeight: 900 }}>
               <span data-ui="app-frame.9" style={{ width: 7, height: 7, borderRadius: 99, background: active ? C.primary : C.g200, flexShrink: 0 }}/>
               {item.label}
@@ -189,9 +178,12 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         })}
         </nav>
 
-        <div data-ui="side-notifications" style={{ marginTop: 12 }}>
-          <button type="button" onClick={() => setActiveUtilityView('notifications')} style={{ width: '100%', border: 'none', borderRadius: 12, background: activeUtilityView === 'notifications' ? C.bg : 'transparent', color: activeUtilityView === 'notifications' ? C.primary : C.g800, cursor: 'pointer', fontFamily: 'inherit', padding: '10px 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <span style={{ fontSize: 15, fontWeight: 900 }}>알림</span>
+        <div data-ui="side-notifications" style={{ marginTop: 8 }}>
+          <button type="button" onClick={() => setActiveUtilityView('notifications')} style={{ width: '100%', border: 'none', borderRadius: 12, background: activeUtilityView === 'notifications' ? C.bg : 'transparent', color: activeUtilityView === 'notifications' ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', padding: '11px 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 9, fontSize: 15, fontWeight: 900 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+              <span style={{ width: 7, height: 7, borderRadius: 99, background: activeUtilityView === 'notifications' ? C.primary : C.g200, flexShrink: 0 }}/>
+              알림
+            </span>
             <span style={{ minWidth: 22, height: 22, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: unreadNotifications.length ? C.primary : C.g100, color: unreadNotifications.length ? C.white : C.g400, fontSize: 11, fontWeight: 900 }}>{unreadNotifications.length}</span>
           </button>
         </div>

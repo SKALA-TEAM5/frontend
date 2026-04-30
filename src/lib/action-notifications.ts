@@ -8,6 +8,7 @@ export interface ActionNotification {
   requestedFiles: string[];
   senderName: string;
   recipientRole: 'project_manager' | 'she_manager';
+  recipientUserName?: string;
   createdAt: string;
   createdAtMs: number;
   read: boolean;

@@ -10,6 +10,7 @@ interface CategoryMeta {
 type DragContext = {
     file: EvidenceFile;
     fromCat: number;
+    fromUsageItemId?: string;
     kind: FolderEvidenceCategory;
 } | null;
 interface ArchiveFolderGridProps {
@@ -73,7 +74,7 @@ export default function ArchiveFolderGrid({ cats, viewMode, dragFile, getAllFile
                 {empty && <div data-ui="archive-folder-grid.15" style={{ minHeight: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: C.g400 }}>폴더가 비어 있습니다</div>}
                 {files.map((file) => {
                     const fileKind = file.kind as FolderEvidenceCategory;
-                    return (<ArchiveFileRow key={`${file.kind}-${file.id}-${cat.id}`} file={file} catId={cat.id} kind={fileKind} compact problem={Boolean(isProblemFile?.(file))} onDragStart={() => onSetDragFile({ file, fromCat: cat.id, kind: fileKind })} onDragEnd={() => onSetDragFile(null)} onRemove={() => onRemove(fileKind, cat.id, file.id)} onPreview={onPreview} onPreviewEnd={onPreviewEnd}/>);
+                    return (<ArchiveFileRow key={`${file.kind}-${file.id}-${cat.id}`} file={file} catId={cat.id} kind={fileKind} compact problem={Boolean(isProblemFile?.(file))} onDragStart={() => onSetDragFile({ file, fromCat: cat.id, fromUsageItemId: file.usageItemIds?.[0], kind: fileKind })} onDragEnd={() => onSetDragFile(null)} onRemove={() => onRemove(fileKind, cat.id, file.id)} onPreview={onPreview} onPreviewEnd={onPreviewEnd}/>);
                 })}
               </div>
             </div>

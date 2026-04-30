@@ -16,6 +16,7 @@ export interface EvidenceFile {
   uploadedBy?: string;
   documentType?: string;
   categoryIds?: number[];
+  usageItemIds?: string[];
 }
 
 export interface ContractInfo {
@@ -28,14 +29,13 @@ export interface ContractInfo {
   accumulated?: string;
 }
 
-export type ArchiveCategoryMap = Record<string, EvidenceFile[]>;
+export type ArchiveEvidenceByKind = Partial<Record<FolderEvidenceCategory, EvidenceFile[]>>;
+export type ArchiveLineItemMap = Record<string, ArchiveEvidenceByKind>;
+export type ArchiveCategoryMap = Record<string, ArchiveLineItemMap>;
 
 export interface ArchiveSeed {
-  receipt: ArchiveCategoryMap;
-  site_photo: ArchiveCategoryMap;
   usage_statement: EvidenceFile[];
-  tax_invoice: ArchiveCategoryMap;
-  other_document: ArchiveCategoryMap;
+  categories: ArchiveCategoryMap;
 }
 
 export interface ValidationSummary {

@@ -317,7 +317,10 @@ export default function ProjectDetailPage() {
         archive: (<ArchiveScreen matchReady={matchReady} onDismissMatchReady={() => {
                 workflowStorage.setMatchReady(project.id, false);
                 setMatchReady(false);
-            }} archiveSeed={archiveSeed} validationStatus={selectedValidationStatus} onRunValidation={runArchiveValidation} contractName={project.name} contractMeta={{
+            }} archiveSeed={archiveSeed} validationStatus={selectedValidationStatus} onRunValidation={runArchiveValidation} onArchiveSeedChange={(nextSeed) => {
+                workflowStorage.setArchiveSeed(project.id, nextSeed);
+                setArchiveSeed(nextSeed);
+            }} contractName={project.name} contractMeta={{
                 name: project.name,
                 num: project.contractNumber,
                 period: project.period,

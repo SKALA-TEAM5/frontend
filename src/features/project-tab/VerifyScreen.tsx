@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
+import CenterModal from '../../components/ui/CenterModal';
 import { addActionNotification } from '../../lib/action-notifications';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
+import { getProjectById } from '../../lib/project-data';
 import { C } from '../../lib/theme';
 import { VALIDATION_DASHBOARD_RESULT, fmt } from '../../lib/mock-data';
 import type { CategoryValidationResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
@@ -113,6 +115,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
   const [reportWorkflowStatus, setReportWorkflowStatus] = useState<ReportWorkflowStatus>('editing');
   const [reportDraft, setReportDraft] = useState('');
   const [savedAt, setSavedAt] = useState('');
+  const [exportNoticeOpen, setExportNoticeOpen] = useState(false);
   const [amountTooltip, setAmountTooltip] = useState<AmountTooltip>(null);
   const [summaryWidgetTooltip, setSummaryWidgetTooltip] = useState<SummaryWidgetTooltip>(null);
   const [submittedEvidenceOpen, setSubmittedEvidenceOpen] = useState(false);
@@ -234,6 +237,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
     const message = isAmountCorrection
       ? `${issue.categoryName} 항목에서 ${issue.title} 문제가 있습니다. 인정 범위를 초과하거나 사용내역서와 증빙 금액이 맞지 않으니 초과분을 정정해 주세요.`
       : `${issue.categoryName} 항목에서 ${issue.title} 문제가 있습니다. ${issue.recommendedFiles.join(', ')} 자료를 제출해 주세요.`;
+    const targetProject = projectId ? getProjectById(projectId, user) : null;
     addActionNotification({
       projectId,
       projectName: contractName,
@@ -242,6 +246,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
       message,
       requestedFiles: issue.recommendedFiles,
       senderName: user.name,
+      recipientUserName: targetProject?.manager,
     });
     setSentActionKeys((prev) => prev.includes(notificationKey) ? prev : [...prev, notificationKey]);
   };
@@ -609,7 +614,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <Button size="lg" onClick={handleReportGenerate} disabled={!canGenerateReport || reportStatus === 'generating'}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
-            <Button size="lg" variant="outline" onClick={() => alert('PDF 보고서 추출 중입니다...')} disabled={reportStatus !== 'done'}>PDF 추출</Button>
+            <Button size="lg" variant="outline" onClick={() => setExportNoticeOpen(true)} disabled={reportStatus !== 'done'}>PDF 추출</Button>
           </div>
         </div>
         {reportStatus === 'generating' && <div style={{ marginTop: 16 }}>
@@ -635,39 +640,6 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
         <textarea value={reportDraft} onChange={(e) => setReportDraft(e.target.value)} style={{ width: '100%', minHeight: 210, resize: 'vertical', border: `1px solid ${C.light}`, borderRadius: 12, padding: '12px 14px', fontFamily: 'inherit', fontSize: 13, color: C.g800, lineHeight: 1.7, background: C.white, outline: 'none' }} />
       </Card>}
 
-      {reportStatus === 'done' && <Card style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '18px 24px', borderBottom: `1px solid ${C.g100}` }}>
-          <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>항목별 적정성 검토 결과</div>
-          <div style={{ fontSize: 11, color: C.g400, marginTop: 4 }}>계약명: {contractName} · 기준: {result.lawAgent.basis}</div>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table>
-            <thead>
-              <tr>
-                <th>항목</th>
-                <th style={{ textAlign: 'right' }}>사용내역서</th>
-                <th style={{ textAlign: 'right' }}>인정 가능</th>
-                <th style={{ textAlign: 'right' }}>쟁점 금액</th>
-                <th style={{ textAlign: 'center' }}>결과</th>
-                <th>보완 요청</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedCategories.map((item) => {
-                const meta = decisionMeta[item.decision];
-                return <tr key={item.categoryId}>
-                  <td style={{ fontWeight: 800, color: C.g800 }}>{item.categoryName}</td>
-                  <td style={{ textAlign: 'right' }}>{fmt(item.usageAmount)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, color: C.ok }}>{fmt(item.recognizedAmount)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 900, color: item.disputedAmount ? C.danger : C.g400 }}>{item.disputedAmount ? fmt(item.disputedAmount) : '-'}</td>
-                  <td style={{ textAlign: 'center' }}><span style={chipStyle(meta.color, meta.bg, meta.border)}>{meta.label}</span></td>
-                  <td style={{ fontSize: 12, lineHeight: 1.55 }}>{item.issues[0]?.requiredAction || '추가 조치 없음'}</td>
-                </tr>;
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>}
     </div>;
   };
 
@@ -677,6 +649,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
     {activeTab === 'dashboard' && status === 'idle' && renderEmpty()}
     {activeTab === 'dashboard' && status === 'done' && renderDashboard()}
     {activeTab === 'report' && renderReport()}
+    <CenterModal open={exportNoticeOpen} title="PDF 추출" body="보고서 PDF 추출 요청이 접수되었습니다." actionLabel="확인" onAction={() => setExportNoticeOpen(false)} />
   </div>;
 };
 

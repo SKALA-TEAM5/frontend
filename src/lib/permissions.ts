@@ -31,9 +31,9 @@ const PERMISSION_MIN_ROLE: Record<Permission, UserRole> = {
   viewOwnProjects: 'general',
   uploadEvidence: 'general',
   viewProjectStatus: 'project_manager',
-  runValidation: 'project_manager',
+  runValidation: 'she_manager',
   requestReport: 'project_manager',
-  reviewReport: 'project_manager',
+  reviewReport: 'she_manager',
   requestAction: 'she_manager',
   confirmFinalReport: 'she_manager',
 };
