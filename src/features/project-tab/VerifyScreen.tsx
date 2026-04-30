@@ -1,191 +1,683 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
+import { addActionNotification } from '../../lib/action-notifications';
+import { useCurrentUser } from '../../lib/dev-user';
+import { can } from '../../lib/permissions';
 import { C } from '../../lib/theme';
-import { REPORT_DATA, fmt } from '../../lib/mock-data';
+import { VALIDATION_DASHBOARD_RESULT, fmt } from '../../lib/mock-data';
+import type { CategoryValidationResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
+
 interface VerifyScreenProps {
-    contractName: string;
-    initialTab?: VerifyTab;
-    initialStatus?: VerifyStatus;
-    hideValidationIntro?: boolean;
+  contractName: string;
+  projectId?: string;
+  initialTab?: VerifyTab;
+  initialStatus?: VerifyStatus;
+  hideValidationIntro?: boolean;
 }
+
 type VerifyStatus = 'idle' | 'loading' | 'done';
 type VerifyTab = 'dashboard' | 'report';
 type ReportGenerationStatus = 'idle' | 'generating' | 'done';
 type ReportWorkflowStatus = 'editing' | 'saved';
-const VerifyScreen = ({ contractName, initialTab = 'dashboard', initialStatus = 'idle', hideValidationIntro = false }: VerifyScreenProps) => {
-    const [status, setStatus] = useState<VerifyStatus>(initialStatus);
-    const [progress, setProgress] = useState(0);
-    const [stepsDone, setStepsDone] = useState<string[]>([]);
-    const [reportStatus, setReportStatus] = useState<ReportGenerationStatus>('idle');
-    const [reportProgress, setReportProgress] = useState(0);
-    const [reportWorkflowStatus, setReportWorkflowStatus] = useState<ReportWorkflowStatus>('editing');
-    const [reportDraft, setReportDraft] = useState('본 보고서는 제출된 사용내역서, 영수증, 현장사진, 세금내역서 및 제3자사실관계확인서를 기준으로 산업안전보건관리비 사용 적정성을 검토한 초안입니다.\n\n부적정 항목과 조건부 인정 항목은 보완 조치 후 최종 제출 여부를 판단해야 합니다.');
-    const [savedAt, setSavedAt] = useState('');
-    const verifyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const reportTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const activeTab: VerifyTab = initialTab;
-    const STEPS = ['사용내역서 OCR 분석 중...', '영수증 항목 매칭 중...', '세금내역서와 제3자사실관계확인서 확인 중...', '법령 기준 적정성 판단 중...', '최종 정산 금액 계산 중...'];
-    const REPORT_STEPS = ['검증 결과 요약 구성', '부적정 항목 사유 정리', '보고서 초안 생성', 'PDF 출력 준비'];
-    const clearVerifyTimer = () => {
-        if (!verifyTimerRef.current)
-            return;
-        clearInterval(verifyTimerRef.current);
-        verifyTimerRef.current = null;
-    };
-    const clearReportTimer = () => {
-        if (!reportTimerRef.current)
-            return;
-        clearInterval(reportTimerRef.current);
-        reportTimerRef.current = null;
-    };
-    useEffect(() => () => {
+type ResultFilter = 'all' | ValidationDecision;
+type AmountTooltip = {
+  label: string;
+  value: number;
+  rate: number;
+  color: string;
+  detail: string;
+  placement: 'top' | 'middle' | 'bottom' | 'left';
+} | null;
+type SummaryWidgetTooltip = {
+  source: 'highRisk' | 'decision' | 'evidence';
+  title: string;
+  accent: string;
+  rows: Array<{ label: string; value?: string; detail?: string; color?: string }>;
+  placement?: 'right' | 'left';
+} | null;
+
+const decisionMeta: Record<ValidationDecision, { label: string; color: string; bg: string; border: string }> = {
+  appropriate: { label: '적정', color: C.ok, bg: '#F4FBF6', border: C.light },
+  conditional: { label: '조건부', color: C.warn, bg: C.warnBg, border: '#FFE082' },
+  inappropriate: { label: '부적정', color: C.danger, bg: C.dangerBg, border: '#FFCDD2' },
+};
+
+const riskMeta: Record<ValidationRiskLevel, { label: string; color: string; bg: string }> = {
+  low: { label: '낮음', color: C.ok, bg: '#F4FBF6' },
+  medium: { label: '중간', color: C.warn, bg: C.warnBg },
+  high: { label: '높음', color: C.danger, bg: C.dangerBg },
+};
+
+const fileKindLabel: Record<string, string> = {
+  receipt: '영수증',
+  site_photo: '현장사진',
+  usage_statement: '사용내역서',
+  tax_invoice: '세금내역서',
+  other_document: '기타자료',
+};
+
+const chipStyle = (color: string, bg: string, border?: string): CSSProperties => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: 24,
+  padding: '4px 9px',
+  borderRadius: 999,
+  border: border ? `1px solid ${border}` : 'none',
+  background: bg,
+  color,
+  fontSize: 11,
+  fontWeight: 900,
+  lineHeight: 1,
+  whiteSpace: 'nowrap',
+});
+
+const compactChipStyle = (color: string, bg: string, border?: string): CSSProperties => ({
+  ...chipStyle(color, bg, border),
+  minHeight: 20,
+  padding: '3px 7px',
+  fontSize: 10,
+});
+
+const getDecisionWeight = (decision: ValidationDecision) => {
+  if (decision === 'inappropriate') return 3;
+  if (decision === 'conditional') return 2;
+  return 1;
+};
+
+const sumBy = (items: CategoryValidationResult[], key: 'usageAmount' | 'recognizedAmount' | 'disputedAmount') =>
+  items.reduce((total, item) => total + item[key], 0);
+
+const flattenIssues = (items: CategoryValidationResult[]) =>
+  items.flatMap((item) => item.issues.map((issue) => ({ ...issue, categoryName: item.categoryName, decision: item.decision, riskLevel: item.riskLevel })));
+
+const renderCategoryTableName = (item: CategoryValidationResult) => {
+  if (item.categoryId !== 7) return item.categoryName;
+  return <>
+    건설재해예방전문지도기관<br />
+    기술지도비
+  </>;
+};
+
+const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initialStatus = 'idle', hideValidationIntro = false }: VerifyScreenProps) => {
+  const { user } = useCurrentUser();
+  const [status, setStatus] = useState<VerifyStatus>(initialStatus);
+  const [progress, setProgress] = useState(0);
+  const [stepsDone, setStepsDone] = useState<string[]>([]);
+  const [filter, setFilter] = useState<ResultFilter>('all');
+  const [selectedCategoryId, setSelectedCategoryId] = useState(4);
+  const [reportStatus, setReportStatus] = useState<ReportGenerationStatus>('idle');
+  const [reportProgress, setReportProgress] = useState(0);
+  const [reportWorkflowStatus, setReportWorkflowStatus] = useState<ReportWorkflowStatus>('editing');
+  const [reportDraft, setReportDraft] = useState('');
+  const [savedAt, setSavedAt] = useState('');
+  const [amountTooltip, setAmountTooltip] = useState<AmountTooltip>(null);
+  const [summaryWidgetTooltip, setSummaryWidgetTooltip] = useState<SummaryWidgetTooltip>(null);
+  const [submittedEvidenceOpen, setSubmittedEvidenceOpen] = useState(false);
+  const [sentActionKeys, setSentActionKeys] = useState<string[]>([]);
+  const verifyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reportTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeTab: VerifyTab = initialTab;
+  const result = VALIDATION_DASHBOARD_RESULT;
+  const categories = result.categories;
+
+  const STEPS = ['사용내역서 금액 구조화', '9개 항목별 증빙 매칭', '누락 및 문제 파일 탐지', '법령 agent 기준 검토', '인정 가능 금액 산정'];
+  const REPORT_STEPS = ['항목별 판정 요약', '부적정 사유 정리', '보완 요청 문안 생성', '보고서 초안 저장'];
+
+  const sortedCategories = useMemo(
+    () => [...categories].sort((a, b) => getDecisionWeight(b.decision) - getDecisionWeight(a.decision) || a.categoryId - b.categoryId),
+    [categories],
+  );
+  const filteredCategories = filter === 'all' ? sortedCategories : sortedCategories.filter((item) => item.decision === filter);
+  const selectedCategory = categories.find((item) => item.categoryId === selectedCategoryId) || sortedCategories[0];
+  const issues = useMemo(() => flattenIssues(categories), [categories]);
+  const totalUsage = sumBy(categories, 'usageAmount');
+  const totalRecognized = sumBy(categories, 'recognizedAmount');
+  const totalDisputed = sumBy(categories, 'disputedAmount');
+  const recognizedRate = Math.round((totalRecognized / totalUsage) * 100);
+  const counts = {
+    appropriate: categories.filter((item) => item.decision === 'appropriate').length,
+    conditional: categories.filter((item) => item.decision === 'conditional').length,
+    inappropriate: categories.filter((item) => item.decision === 'inappropriate').length,
+    highRisk: categories.filter((item) => item.riskLevel === 'high').length,
+  };
+
+  const clearVerifyTimer = () => {
+    if (!verifyTimerRef.current) return;
+    clearInterval(verifyTimerRef.current);
+    verifyTimerRef.current = null;
+  };
+
+  const clearReportTimer = () => {
+    if (!reportTimerRef.current) return;
+    clearInterval(reportTimerRef.current);
+    reportTimerRef.current = null;
+  };
+
+  useEffect(() => () => {
+    clearVerifyTimer();
+    clearReportTimer();
+  }, []);
+
+  useEffect(() => {
+    if (initialStatus === 'done') setStatus('done');
+  }, [initialStatus]);
+
+  const buildReportDraft = () => {
+    const issueText = issues.map((issue) => `- ${issue.categoryName}: ${issue.title}. ${issue.requiredAction}`).join('\n');
+    return `본 검토는 ${result.usageStatementFile} 및 제출 증빙을 기준으로 산업안전보건관리비 사용 적정성을 검토한 초안입니다.
+
+총 사용내역서 금액은 ${fmt(totalUsage)}이며, 현재 인정 가능 금액은 ${fmt(totalRecognized)}입니다. 부적정 또는 보완 필요 금액은 ${fmt(totalDisputed)}입니다.
+
+주요 보완 요청:
+${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
+
+법령 agent 검토 기준: ${result.lawAgent.basis}`;
+  };
+
+  const handleVerify = () => {
+    clearVerifyTimer();
+    setStatus('loading');
+    setProgress(0);
+    setStepsDone([]);
+    setSelectedCategoryId(4);
+    setReportStatus('idle');
+    setReportDraft('');
+    setReportWorkflowStatus('editing');
+    setSavedAt('');
+    let p = 0;
+    let stepIndex = 0;
+    verifyTimerRef.current = setInterval(() => {
+      p += Math.random() * 12 + 7;
+      if (p >= ((stepIndex + 1) * 100) / STEPS.length && stepIndex < STEPS.length) {
+        setStepsDone((prev) => [...prev, STEPS[stepIndex]]);
+        stepIndex += 1;
+      }
+      if (p >= 100) {
         clearVerifyTimer();
+        setStatus('done');
+      }
+      setProgress(Math.min(p, 100));
+    }, 320);
+  };
+
+  const handleReportGenerate = () => {
+    if (status !== 'done') return;
+    clearReportTimer();
+    setReportStatus('generating');
+    setReportProgress(0);
+    let p = 0;
+    reportTimerRef.current = setInterval(() => {
+      p += Math.random() * 17 + 10;
+      if (p >= 100) {
         clearReportTimer();
-    }, []);
-    const handleVerify = () => {
-        clearVerifyTimer();
-        setStatus('loading');
-        setProgress(0);
-        setStepsDone([]);
-        let p = 0;
-        let si = 0;
-        verifyTimerRef.current = setInterval(() => {
-            p += Math.random() * 13 + 5;
-            if (p >= ((si + 1) * 100) / STEPS.length && si < STEPS.length) {
-                setStepsDone((prev) => [...prev, STEPS[si]]);
-                si += 1;
-            }
-            if (p >= 100) {
-                clearVerifyTimer();
-                setStatus('done');
-            }
-            setProgress(Math.min(p, 100));
-        }, 340);
-    };
-    const handleReportGenerate = () => {
-        clearReportTimer();
-        setReportStatus('generating');
-        setReportProgress(0);
-        let p = 0;
-        reportTimerRef.current = setInterval(() => {
-            p += Math.random() * 18 + 9;
-            if (p >= 100) {
-                clearReportTimer();
-                setReportStatus('done');
-                setReportWorkflowStatus('editing');
-                setSavedAt('');
-            }
-            setReportProgress(Math.min(p, 100));
-        }, 300);
-    };
-    const handleSaveDraft = () => {
-        setReportWorkflowStatus('saved');
-        setSavedAt(new Date().toLocaleString('ko-KR'));
-    };
-    const okItems = REPORT_DATA.filter((r) => r.status === 'ok');
-    const warnItems = REPORT_DATA.filter((r) => r.status === 'warn');
-    const errorItems = REPORT_DATA.filter((r) => r.status === 'error');
-    const totalUsed = REPORT_DATA.reduce((a, r) => a + r.used, 0);
-    const totalTax = REPORT_DATA.reduce((a, r) => a + r.tax, 0);
-    const totalSettled = REPORT_DATA.reduce((a, r) => a + r.settled, 0);
-    const settleRate = Math.round((totalSettled / totalUsed) * 100);
-    const highRiskCount = warnItems.length + errorItems.length;
-    const riskScore = 62;
-    const issueTypeData = [{ label: '증빙 불일치', count: 2, color: C.danger }, { label: '현장사진 미흡', count: 1, color: C.warn }, { label: '한도 초과 집행', count: 1, color: C.primary }];
-    const reportWorkflowMeta = {
-        editing: { label: '초안 편집 가능', color: C.warn, bg: C.warnBg, description: '생성된 초안을 바로 편집할 수 있습니다. 수정 후 저장해 주세요.' },
-        saved: { label: '저장됨', color: C.ok, bg: '#F4FBF6', description: savedAt ? `마지막 저장: ${savedAt} · 저장 후에도 계속 편집할 수 있습니다.` : '저장된 초안입니다.' },
-    }[reportWorkflowStatus];
-    const canEditReport = reportStatus === 'done';
-    const auditSignals = [
-        { title: '본사 사용비 한도 초과', detail: '허용 한도 20% 대비 25.4% 집행으로 반환 조치 가능성이 있습니다.', tone: 'error' },
-        { title: '개인보호구 금액 불일치', detail: '사용내역서와 영수증 금액 차이 220,000원이 확인되었습니다.', tone: 'error' },
-        { title: '안전시설물 현장사진 보완 필요', detail: '일부 품목은 사진 제출 후 조건부 인정이 가능합니다.', tone: 'warn' },
+        setReportDraft(buildReportDraft());
+        setReportStatus('done');
+        setReportWorkflowStatus('editing');
+        setSavedAt('');
+      }
+      setReportProgress(Math.min(p, 100));
+    }, 280);
+  };
+
+  const handleSaveDraft = () => {
+    setReportWorkflowStatus('saved');
+    setSavedAt(new Date().toLocaleString('ko-KR'));
+  };
+
+  const handleSendActionNotification = (issue: ValidationIssue & { categoryName: string; decision: ValidationDecision; riskLevel: ValidationRiskLevel }) => {
+    if (!can(user, 'requestAction')) return;
+    const notificationKey = `${issue.categoryName}-${issue.title}`;
+    const isAmountCorrection = issue.title.includes('금액') || issue.description.includes('초과') || issue.requiredAction.includes('정정');
+    const message = isAmountCorrection
+      ? `${issue.categoryName} 항목에서 ${issue.title} 문제가 있습니다. 인정 범위를 초과하거나 사용내역서와 증빙 금액이 맞지 않으니 초과분을 정정해 주세요.`
+      : `${issue.categoryName} 항목에서 ${issue.title} 문제가 있습니다. ${issue.recommendedFiles.join(', ')} 자료를 제출해 주세요.`;
+    addActionNotification({
+      projectId,
+      projectName: contractName,
+      categoryName: issue.categoryName,
+      title: issue.title,
+      message,
+      requestedFiles: issue.recommendedFiles,
+      senderName: user.name,
+    });
+    setSentActionKeys((prev) => prev.includes(notificationKey) ? prev : [...prev, notificationKey]);
+  };
+
+  const renderProgress = () => (
+    <Card style={{ marginBottom: 18, padding: '18px 20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 900, color: C.g800 }}>AI 검증 실행 중</div>
+        <div style={{ fontSize: 12, fontWeight: 900, color: C.primary }}>{Math.round(progress)}%</div>
+      </div>
+      <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 12 }}>
+        <div style={{ height: '100%', width: `${progress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+        {STEPS.map((step, index) => {
+          const done = stepsDone.includes(step);
+          return <div key={step} style={{ padding: '9px 10px', borderRadius: 10, background: done ? C.bg : C.g100, color: done ? C.primary : C.g400, fontSize: 12, fontWeight: 800 }}>{done ? '완료' : `대기 ${index + 1}`} · {step}</div>;
+        })}
+      </div>
+    </Card>
+  );
+
+  const renderIntro = () => (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 24 }}>
+      <img src="/uploads/character.png" alt="캐릭터" style={{ width: 88, height: 'auto', flexShrink: 0, objectFit: 'contain' }} />
+      <div style={{ flex: 1 }}>
+        <div className="speech-bubble">
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.g800, lineHeight: 1.6 }}>업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.</div>
+          <div style={{ fontSize: 13, color: C.g400, marginTop: 4 }}>9개 항목별 증빙, 문제 파일, 법령 근거, 인정 가능 금액을 함께 확인합니다.</div>
+        </div>
+      </div>
+      <Button size="lg" onClick={handleVerify} disabled={status === 'loading'} style={{ flexShrink: 0, alignSelf: 'center' }}>{status === 'loading' ? '분석 중...' : status === 'done' ? '재검증하기' : '검증하기'}</Button>
+    </div>
+  );
+
+  const renderEmpty = () => (
+    <div style={{ padding: '48px 32px', borderRadius: 18, border: `2px dashed ${C.g200}`, textAlign: 'center', background: C.white }}>
+      <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, marginBottom: 6 }}>{hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료'}</div>
+      <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.</div>
+      <button type="button" onClick={handleVerify} disabled={status === 'loading'} style={{ border: 'none', borderRadius: 999, padding: '9px 14px', background: C.primary, color: C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 700, cursor: status === 'loading' ? 'wait' : 'pointer', boxShadow: `0 6px 14px ${C.primary}26` }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
+    </div>
+  );
+
+  const renderSummary = () => {
+    const radius = 48;
+    const circumference = 2 * Math.PI * radius;
+    const recognizedLength = (totalRecognized / totalUsage) * circumference;
+    const disputedLength = circumference - recognizedLength;
+    const recognizedColor = C.ok;
+    const disputedColor = C.danger;
+    const totalTooltip: NonNullable<AmountTooltip> = { label: '총 사용내역서 금액', value: totalUsage, rate: 100, color: C.primary, detail: result.usageStatementFile, placement: 'top' };
+    const recognizedTooltip: NonNullable<AmountTooltip> = { label: '인정 가능 금액', value: totalRecognized, rate: recognizedRate, color: recognizedColor, detail: `부적정/보완 금액 ${fmt(totalDisputed)} · ${counts.inappropriate + counts.conditional}개 항목 확인 필요`, placement: 'middle' };
+    const disputedTooltip: NonNullable<AmountTooltip> = { label: '부적정/보완 금액', value: totalDisputed, rate: 100 - recognizedRate, color: C.danger, detail: `${counts.inappropriate + counts.conditional}개 항목에서 정정 또는 보완 자료가 필요합니다.`, placement: 'left' };
+    const tooltipTop = amountTooltip?.placement === 'top' ? -6 : amountTooltip?.placement === 'bottom' ? 50 : 20;
+    const tooltipPosition: CSSProperties = amountTooltip?.placement === 'left'
+      ? { right: 'calc(100% - 70px)', top: 34 }
+      : { left: 'calc(100% + 10px)', top: tooltipTop };
+    const decisionBars = [
+      { label: '적정', count: counts.appropriate, color: C.ok },
+      { label: '조건부', count: counts.conditional, color: C.warn },
+      { label: '부적정', count: counts.inappropriate, color: C.danger },
     ];
-    const content = (<>
-        <div data-ui="verify-screen.1" className="screen-enter">
-          {activeTab === 'dashboard' && !hideValidationIntro && <div data-ui="verify-screen.2" style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 28 }}>
-            <img data-ui="verify-screen.3" src="/uploads/character.png" alt="캐릭터" style={{ width: 88, height: 'auto', flexShrink: 0, objectFit: 'contain' }}/>
-            <div data-ui="verify-screen.4" style={{ flex: 1 }}>
-              <div data-ui="verify-screen.5" className="speech-bubble">
-                <div data-ui="verify-screen.6" style={{ fontSize: 16, fontWeight: 700, color: C.g800, lineHeight: 1.6 }}>증빙 유효성을 사전에 검증해 보세요!</div>
-                <div data-ui="verify-screen.7" style={{ fontSize: 13, fontWeight: 400, color: C.g400, marginTop: 4 }}>산업안전보건법 및 관련 고시를 기준으로 AI가 판단합니다</div>
-              </div>
+    const evidenceIssueBars = [
+      { label: '문제 파일', count: categories.reduce((sum, item) => sum + item.evidenceSummary.problematicFiles.length, 0), color: C.danger },
+      { label: '누락 자료', count: categories.reduce((sum, item) => sum + item.evidenceSummary.missingTypes.length, 0), color: C.warn },
+      { label: '조치 요청', count: issues.length, color: C.primary },
+    ];
+    const maxEvidenceIssueCount = Math.max(1, ...evidenceIssueBars.map((item) => item.count));
+    const highRiskRows = categories
+      .filter((item) => item.riskLevel === 'high')
+      .map((item) => ({
+        label: item.categoryName,
+        value: decisionMeta[item.decision].label,
+        detail: item.issues[0]?.title || `쟁점 금액 ${fmt(item.disputedAmount)}`,
+        color: decisionMeta[item.decision].color,
+      }));
+    const decisionRows = decisionBars.map((bar) => ({
+      label: bar.label,
+      value: `${bar.count}건`,
+      detail: categories.filter((item) => decisionMeta[item.decision].label === bar.label).map((item) => item.categoryName).join(', ') || '해당 항목 없음',
+      color: bar.color,
+    }));
+    const problematicFiles = categories.flatMap((item) => item.evidenceSummary.problematicFiles.map((file) => `${item.categoryName}: ${file.fileName}`));
+    const missingEvidence = categories.flatMap((item) => item.evidenceSummary.missingTypes.map((missing) => `${item.categoryName}: ${missing}`));
+    const evidenceRows = [
+      { label: '문제 파일', value: `${problematicFiles.length}건`, detail: problematicFiles.join(', ') || '문제 파일 없음', color: C.danger },
+      { label: '누락 자료', value: `${missingEvidence.length}건`, detail: missingEvidence.join(', ') || '누락 자료 없음', color: C.warn },
+      { label: '조치 요청', value: `${issues.length}건`, detail: issues.map((issue) => `${issue.categoryName}: ${issue.title}`).join(', ') || '조치 요청 없음', color: C.primary },
+    ];
+    const renderWidgetTooltip = (source: NonNullable<SummaryWidgetTooltip>['source']) => {
+      if (!summaryWidgetTooltip || summaryWidgetTooltip.source !== source) return null;
+      const placementStyle: CSSProperties = summaryWidgetTooltip.placement === 'left'
+        ? { right: 'calc(100% + 10px)', top: 8 }
+        : { left: 'calc(100% + 10px)', top: 8 };
+      return <div style={{ position: 'absolute', ...placementStyle, zIndex: 1100, width: 286, padding: '11px 12px', borderRadius: 6, background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 10px 24px rgba(0,0,0,.14)', pointerEvents: 'none' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+          <span style={{ width: 9, height: 9, borderRadius: 99, background: summaryWidgetTooltip.accent, flexShrink: 0 }} />
+          <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{summaryWidgetTooltip.title}</div>
+        </div>
+        <div style={{ display: 'grid', gap: 7 }}>
+          {summaryWidgetTooltip.rows.map((row) => <div key={`${row.label}-${row.value || ''}`} style={{ paddingBottom: 7, borderBottom: `1px solid ${C.g100}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 900, color: C.g800 }}>{row.label}</span>
+              {row.value && <span style={{ fontSize: 11, fontWeight: 900, color: row.color || summaryWidgetTooltip.accent, whiteSpace: 'nowrap' }}>{row.value}</span>}
             </div>
-            <Button size="lg" onClick={handleVerify} disabled={status === 'loading'} style={{ flexShrink: 0, alignSelf: 'center' }}>{status === 'loading' ? '분석 중...' : status === 'done' ? '재검증하기' : '검증하기'}</Button>
-          </div>}
-          {activeTab === 'dashboard' && status === 'loading' && <Card style={{ marginBottom: 20 }}><div data-ui="verify-screen.8" style={{ fontSize: 13, fontWeight: 600, color: C.g600, marginBottom: 12 }}>AI가 9개 항목을 분석하고 있어요...</div><div data-ui="verify-screen.9" style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}><div data-ui="verify-screen.10" style={{ height: '100%', width: `${progress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }}/></div><div data-ui="verify-screen.11" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>{stepsDone.map((s, i) => <div data-ui="verify-screen.12" key={i} style={{ fontSize: 12, color: C.mid, display: 'flex', gap: 6 }}><span data-ui="verify-screen.13" style={{ color: C.ok }}>✓</span>{s}</div>)}</div></Card>}
-          {activeTab === 'dashboard' && status === 'idle' && <div data-ui="verify-screen.14" style={{ padding: '48px 32px', borderRadius: 18, border: `2px dashed ${C.g200}`, textAlign: 'center', background: C.white }}><div data-ui="verify-screen.15" style={{ fontSize: 32, marginBottom: 12 }}>📋</div><div data-ui="verify-screen.16" style={{ fontSize: 16, fontWeight: 700, color: C.g600, marginBottom: 6 }}>{hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료'}</div><div data-ui="verify-screen.17" style={{ fontSize: 13, color: C.g400 }}>{hideValidationIntro ? '아카이브 탭에서 유효성 검증을 실행하면 결과 대시보드가 표시됩니다.' : "위 '검증하기' 버튼을 눌러 분석을 시작하세요"}</div></div>}
-          {activeTab === 'report' && <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
-            <div data-ui="verify-screen.18" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 16, alignItems: 'center' }}>
-              <div data-ui="verify-screen.19" style={{ minWidth: 0 }}>
-                <div data-ui="verify-screen.20" style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 생성</div>
-                <div data-ui="verify-screen.21" style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>검증 결과와 보완 사유를 기준으로 감사 제출용 보고서 초안을 생성합니다.</div>
-              </div>
-              <div data-ui="verify-screen.22" style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                <Button size="lg" onClick={handleReportGenerate} disabled={reportStatus === 'generating'}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
-                <Button size="lg" variant="outline" onClick={() => alert('PDF 보고서 추출 중입니다...')}>PDF 추출</Button>
-              </div>
+            {row.detail && <div style={{ marginTop: 3, fontSize: 10, color: C.g600, lineHeight: 1.45 }}>{row.detail}</div>}
+          </div>)}
+        </div>
+      </div>;
+    };
+
+    return <div style={{ display: 'grid', gridTemplateColumns: '160px 160px minmax(280px, 340px) minmax(240px, 1fr)', gap: 12, alignItems: 'start', marginBottom: 14, overflow: 'visible' }}>
+      <Card style={{ width: '100%', height: 160, boxSizing: 'border-box', padding: 14, position: 'relative', overflow: 'visible', display: 'grid', placeItems: 'center' }}>
+        <div style={{ position: 'relative', width: 132, height: 132, display: 'grid', placeItems: 'center' }} onMouseLeave={() => setAmountTooltip(null)}>
+          <svg width="132" height="132" viewBox="0 0 132 132" aria-hidden="true">
+            <circle cx="66" cy="66" r={radius} fill="none" stroke={C.g100} strokeWidth="16" />
+            <circle cx="66" cy="66" r={radius} fill="none" stroke={recognizedColor} strokeWidth="16" strokeLinecap="butt" strokeDasharray={`${recognizedLength} ${circumference - recognizedLength}`} transform="rotate(-90 66 66)" style={{ cursor: 'help' }} onMouseEnter={() => setAmountTooltip(recognizedTooltip)} />
+            <circle cx="66" cy="66" r={radius} fill="none" stroke={disputedColor} strokeWidth="16" strokeLinecap="butt" strokeDasharray={`${disputedLength} ${recognizedLength}`} strokeDashoffset={-recognizedLength} transform="rotate(-90 66 66)" style={{ cursor: 'help' }} onMouseEnter={() => setAmountTooltip(disputedTooltip)} />
+          </svg>
+          <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none', textAlign: 'center' }}>
+            <div onMouseEnter={() => setAmountTooltip(totalTooltip)} style={{ pointerEvents: 'auto', cursor: 'help', padding: 4 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.g800, lineHeight: 1.18 }}>인정률</div>
+              <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, lineHeight: 1.12 }}>{recognizedRate}%</div>
             </div>
-            {reportStatus === 'generating' && <div data-ui="verify-screen.23" style={{ marginTop: 16 }}>
-              <div data-ui="verify-screen.24" style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}><div data-ui="verify-screen.25" style={{ height: '100%', width: `${reportProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }}/></div>
-              <div data-ui="verify-screen.26" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{REPORT_STEPS.map((step, index) => <span data-ui="verify-screen.27" key={step} style={{ fontSize: 11, fontWeight: 800, color: reportProgress >= ((index + 1) * 100) / REPORT_STEPS.length ? C.primary : C.g400, background: C.g100, borderRadius: 999, padding: '5px 9px' }}>{step}</span>)}</div>
-            </div>}
-            {reportStatus === 'done' && <div data-ui="verify-screen.28" style={{ marginTop: 14, padding: '10px 12px', borderRadius: 12, background: C.bg, border: `1px solid ${C.light}`, fontSize: 12, color: C.primary, fontWeight: 800 }}>보고서 초안 생성이 완료되었습니다. 아래 보고서 내용을 검토할 수 있습니다.</div>}
-          </Card>}
-          {((activeTab === 'dashboard' && status === 'done') || (activeTab === 'report' && reportStatus === 'done')) && <div data-ui="verify-screen.29" className="screen-enter">
-            {activeTab === 'dashboard' && <>
-              <div data-ui="verify-screen.30" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 18 }}>
-                {[{ label: '총 집행액', value: fmt(totalUsed), sub: '사용내역서 기준', color: C.primary, bg: C.soft }, { label: '정산 가능액', value: fmt(totalSettled), sub: `정산률 ${settleRate}%`, color: C.ok, bg: '#F4FBF6' }, { label: '공제 세액', value: fmt(totalTax), sub: '세금 제외 금액', color: C.g600, bg: C.g100 }, { label: '리스크 항목', value: `${highRiskCount}건`, sub: '즉시 확인 필요', color: C.danger, bg: C.dangerBg }].map((card, i) => <Card key={i} style={{ padding: '18px 18px 16px', background: card.bg }}><div data-ui="verify-screen.31" style={{ fontSize: 12, fontWeight: 800, color: C.g400, marginBottom: 10 }}>{card.label}</div><div data-ui="verify-screen.32" style={{ fontSize: 26, fontWeight: 900, color: card.color, lineHeight: 1.1 }}>{card.value}</div><div data-ui="verify-screen.33" style={{ fontSize: 11, color: C.g600, marginTop: 8 }}>{card.sub}</div></Card>)}
-              </div>
-              <div data-ui="verify-screen.34" style={{ display: 'grid', gridTemplateColumns: '1.4fr .9fr', gap: 12, marginBottom: 18 }}>
-                <Card style={{ padding: '18px 20px' }}>
-                  <div data-ui="verify-screen.35" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}><div data-ui="verify-screen.36"><div data-ui="verify-screen.37" style={{ fontSize: 13, fontWeight: 800, color: C.g800 }}>집행 현황 모니터링</div><div data-ui="verify-screen.38" style={{ fontSize: 11, color: C.g400, marginTop: 3 }}>항목별 집행액 대비 정산 가능액 현황</div></div><div data-ui="verify-screen.39" style={{ fontSize: 12, fontWeight: 700, color: C.primary, background: C.soft, padding: '6px 10px', borderRadius: 99 }}>총 {REPORT_DATA.length}개 항목</div></div>
-                  <div data-ui="verify-screen.40" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {REPORT_DATA.map((item) => {
-                    const ratio = Math.max(8, Math.round((item.settled / item.used) * 100)) || 0;
-                    return <div data-ui="verify-screen.41" key={item.id} style={{ display: 'grid', gridTemplateColumns: '132px 1fr 74px', gap: 12, alignItems: 'center' }}><div data-ui="verify-screen.42" style={{ fontSize: 12, fontWeight: 700, color: C.g800 }}>{item.cat}</div><div data-ui="verify-screen.43" style={{ height: 10, borderRadius: 99, background: C.g100, overflow: 'hidden' }}><div data-ui="verify-screen.44" style={{ height: '100%', width: `${Math.min(ratio, 100)}%`, background: item.status === 'error' ? C.danger : item.status === 'warn' ? C.warn : C.primary, borderRadius: 99 }}/></div><div data-ui="verify-screen.45" style={{ fontSize: 12, fontWeight: 800, color: item.status === 'error' ? C.danger : item.status === 'warn' ? C.warn : C.ok, textAlign: 'right' }}>{item.status === 'error' ? '불가' : `${ratio}%`}</div></div>;
-                })}
-                  </div>
-                </Card>
-                <Card style={{ padding: '18px 20px' }}>
-                  <div data-ui="verify-screen.46" style={{ fontSize: 13, fontWeight: 800, color: C.g800, marginBottom: 12 }}>감사 지적 가능성 예측</div>
-                  <div data-ui="verify-screen.47" style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}><div data-ui="verify-screen.48" style={{ width: 90, height: 90, borderRadius: '50%', background: `conic-gradient(${C.warn} 0 ${riskScore}%, ${C.g100} ${riskScore}% 100%)`, display: 'grid', placeItems: 'center' }}><div data-ui="verify-screen.49" style={{ width: 62, height: 62, borderRadius: '50%', background: C.white, display: 'grid', placeItems: 'center', fontSize: 19, fontWeight: 900, color: C.warn }}>{riskScore}%</div></div><div data-ui="verify-screen.50"><div data-ui="verify-screen.51" style={{ fontSize: 14, fontWeight: 800, color: C.g800 }}>중간 이상</div><div data-ui="verify-screen.52" style={{ fontSize: 12, color: C.g400, marginTop: 4, lineHeight: 1.6 }}>보완 전 제출 시 감사 지적 가능성이 상대적으로 높습니다.</div></div></div>
-                  <div data-ui="verify-screen.53" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{auditSignals.map((signal, i) => <div data-ui="verify-screen.54" key={i} style={{ padding: '10px 12px', borderRadius: 12, background: signal.tone === 'error' ? C.dangerBg : C.warnBg, border: `1px solid ${signal.tone === 'error' ? '#FFCDD2' : '#FFE082'}` }}><div data-ui="verify-screen.55" style={{ fontSize: 12, fontWeight: 800, color: C.g800 }}>{signal.title}</div><div data-ui="verify-screen.56" style={{ fontSize: 11, color: C.g600, marginTop: 4, lineHeight: 1.6 }}>{signal.detail}</div></div>)}</div>
-                </Card>
-              </div>
-              <div data-ui="verify-screen.57" style={{ display: 'grid', gridTemplateColumns: '.95fr 1.05fr', gap: 12, marginBottom: 20 }}>
-                <Card style={{ padding: '18px 20px' }}><div data-ui="verify-screen.58" style={{ fontSize: 13, fontWeight: 800, color: C.g800, marginBottom: 12 }}>부적정 항목 유형 분석</div><div data-ui="verify-screen.59" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{issueTypeData.map((item) => <div data-ui="verify-screen.60" key={item.label} style={{ display: 'grid', gridTemplateColumns: '104px 1fr 34px', gap: 10, alignItems: 'center' }}><div data-ui="verify-screen.61" style={{ fontSize: 12, fontWeight: 700, color: C.g600 }}>{item.label}</div><div data-ui="verify-screen.62" style={{ height: 12, borderRadius: 99, background: C.g100, overflow: 'hidden' }}><div data-ui="verify-screen.63" style={{ height: '100%', width: `${item.count * 25}%`, background: item.color, borderRadius: 99 }}/></div><div data-ui="verify-screen.64" style={{ fontSize: 12, fontWeight: 800, color: item.color, textAlign: 'right' }}>{item.count}</div></div>)}</div></Card>
-                <Card style={{ padding: '18px 20px' }}><div data-ui="verify-screen.65" style={{ fontSize: 13, fontWeight: 800, color: C.g800, marginBottom: 12 }}>운영자 확인 포인트</div><div data-ui="verify-screen.66" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>{[{ label: '부적정', count: errorItems.length, color: C.danger, bg: C.dangerBg, border: '#FFCDD2' }, { label: '조건부 인정', count: warnItems.length, color: C.warn, bg: C.warnBg, border: '#FFE082' }, { label: '적정', count: okItems.length, color: C.ok, bg: C.soft, border: C.light }, { label: '보완 필요 금액', count: fmt(errorItems.reduce((a, r) => a + r.used, 0)), color: C.primary, bg: C.g100, border: C.g200 }].map((c, i) => <div data-ui="verify-screen.67" key={i} style={{ padding: '12px 14px', borderRadius: 12, background: c.bg, border: `1px solid ${c.border}` }}><div data-ui="verify-screen.68" style={{ fontSize: 11, color: c.color, fontWeight: 700 }}>{c.label}</div><div data-ui="verify-screen.69" style={{ fontSize: 22, fontWeight: 900, color: c.color, marginTop: 4 }}>{c.count}</div></div>)}</div></Card>
-              </div>
-            </>}
-            {activeTab === 'report' && <>
-              {reportStatus === 'done' && <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
-                <div data-ui="verify-screen.70" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
-                  <div data-ui="verify-screen.71" style={{ minWidth: 0 }}>
-                    <div data-ui="verify-screen.72" style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 편집/확정</div>
-                    <div data-ui="verify-screen.73" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 8, padding: '6px 10px', borderRadius: 999, background: reportWorkflowMeta.bg, color: reportWorkflowMeta.color, fontSize: 11, fontWeight: 900 }}>
-                      {reportWorkflowMeta.label}
-                    </div>
-                    <div data-ui="verify-screen.74" style={{ fontSize: 12, color: C.g400, marginTop: 8, lineHeight: 1.55 }}>{reportWorkflowMeta.description}</div>
-                  </div>
-                  <div data-ui="verify-screen.75" style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                    {canEditReport && <Button size="sm" variant="outline" onClick={handleSaveDraft}>저장</Button>}
-                  </div>
-                </div>
-                <textarea data-ui="verify-screen.76" value={reportDraft} onChange={(e) => setReportDraft(e.target.value)} readOnly={!canEditReport} style={{ width: '100%', minHeight: 156, resize: 'vertical', border: `1px solid ${canEditReport ? C.light : C.g200}`, borderRadius: 12, padding: '12px 14px', fontFamily: 'inherit', fontSize: 13, color: C.g800, lineHeight: 1.7, background: canEditReport ? C.white : C.g100, outline: 'none' }}/>
-              </Card>}
-              <div data-ui="verify-screen.77" style={{ display: 'flex', gap: 12, marginBottom: 20 }}>{[{ label: '부적정', count: errorItems.length, color: C.danger, bg: C.dangerBg, border: '#FFCDD2' }, { label: '조건부 인정', count: warnItems.length, color: C.warn, bg: C.warnBg, border: '#FFE082' }, { label: '적정', count: okItems.length, color: C.ok, bg: C.soft, border: C.light }].map((c, i) => <div data-ui="verify-screen.78" key={i} style={{ padding: '12px 18px', borderRadius: 12, background: c.bg, border: `1px solid ${c.border}` }}><div data-ui="verify-screen.79" style={{ fontSize: 11, color: c.color, fontWeight: 700 }}>{c.label}</div><div data-ui="verify-screen.80" style={{ fontSize: 24, fontWeight: 900, color: c.color }}>{c.count}<span data-ui="verify-screen.81" style={{ fontSize: 12, fontWeight: 400, color: C.g400, marginLeft: 3 }}>항목</span></div></div>)}<div data-ui="verify-screen.82" style={{ marginLeft: 'auto', padding: '12px 22px', borderRadius: 12, background: C.primary }}><div data-ui="verify-screen.83" style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', fontWeight: 700 }}>총 정산 가능 금액</div><div data-ui="verify-screen.84" style={{ fontSize: 20, fontWeight: 900, color: 'white' }}>{fmt(totalSettled)}</div></div></div>
-              <Card style={{ padding: 0 }}>
-                <div data-ui="verify-screen.85" style={{ padding: '18px 24px', borderBottom: `1px solid ${C.g100}` }}><div data-ui="verify-screen.86" style={{ fontSize: 15, fontWeight: 800, color: C.g800, marginBottom: 1 }}>적정성 검토 결과 리포트</div><div data-ui="verify-screen.87" style={{ fontSize: 11, color: C.g400 }}>계약명: {contractName} · 검증일: 2025년 4월 22일 · 기준: 산업안전보건법, 산업안전보건관리비 고시</div></div>
-                <div data-ui="verify-screen.88" style={{ overflowX: 'auto' }}><table data-ui="verify-screen.89"><thead data-ui="verify-screen.90"><tr data-ui="verify-screen.91"><th data-ui="verify-screen.92">항목</th><th data-ui="verify-screen.93" style={{ textAlign: 'right' }}>사용액</th><th data-ui="verify-screen.94" style={{ textAlign: 'right' }}>공제 세액</th><th data-ui="verify-screen.95" style={{ textAlign: 'right' }}>정산 가능액</th><th data-ui="verify-screen.96" style={{ textAlign: 'center' }}>결과</th></tr></thead><tbody data-ui="verify-screen.97">{REPORT_DATA.map((r) => <tr data-ui="verify-screen.98" key={r.id}><td data-ui="verify-screen.99" style={{ fontWeight: 600, color: C.g800 }}>{r.cat}</td><td data-ui="verify-screen.100" style={{ textAlign: 'right' }}>{fmt(r.used)}</td><td data-ui="verify-screen.101" style={{ textAlign: 'right', color: C.g400 }}>{r.tax > 0 ? `-${fmt(r.tax)}` : '—'}</td><td data-ui="verify-screen.102" style={{ textAlign: 'right', fontWeight: 700, color: r.status === 'error' ? C.danger : r.status === 'warn' ? C.warn : C.ok }}>{r.settled > 0 ? fmt(r.settled) : '인정 불가'}</td><td data-ui="verify-screen.103" style={{ textAlign: 'center' }}><span data-ui="verify-screen.104" style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: r.status === 'error' ? C.dangerBg : r.status === 'warn' ? C.warnBg : C.bg, color: r.status === 'error' ? C.danger : r.status === 'warn' ? C.warn : C.ok }}>{r.status === 'error' ? '부적정' : r.status === 'warn' ? '조건부' : '적정'}</span></td></tr>)}<tr data-ui="verify-screen.105" style={{ borderTop: `2px solid ${C.g200}` }}><td data-ui="verify-screen.106" style={{ fontWeight: 800, color: C.g800 }}>합계</td><td data-ui="verify-screen.107" style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(REPORT_DATA.reduce((a, r) => a + r.used, 0))}</td><td data-ui="verify-screen.108" style={{ textAlign: 'right', fontWeight: 700, color: C.g400 }}>-{fmt(REPORT_DATA.reduce((a, r) => a + r.tax, 0))}</td><td data-ui="verify-screen.109" style={{ textAlign: 'right', fontWeight: 900, color: C.primary, fontSize: 14 }}>{fmt(totalSettled)}</td><td /></tr></tbody></table></div>
-                <div data-ui="verify-screen.110" style={{ padding: '20px 24px', borderTop: `1px solid ${C.g100}` }}><div data-ui="verify-screen.111" style={{ fontSize: 13, fontWeight: 800, color: C.g800, marginBottom: 12 }}>부적정 · 주의 항목 세부 사유</div>{[...errorItems, ...warnItems].map((r, i) => <div data-ui="verify-screen.112" key={i} style={{ marginBottom: 10, padding: '14px 16px', borderRadius: 12, background: r.status === 'error' ? C.dangerBg : C.warnBg, border: `1px solid ${r.status === 'error' ? '#FFCDD2' : '#FFE082'}` }}><div data-ui="verify-screen.113" style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}><span data-ui="verify-screen.114" style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: r.status === 'error' ? C.danger : C.warn, color: 'white' }}>{r.status === 'error' ? '부적정' : '주의'}</span><span data-ui="verify-screen.115" style={{ fontSize: 13, fontWeight: 700, color: C.g800 }}>{r.cat}</span></div><div data-ui="verify-screen.116" style={{ fontSize: 12, color: C.g800, lineHeight: 1.7 }}>{r.note}</div></div>)}</div>
-              </Card>
-            </>}
+          </div>
+          {amountTooltip && <div style={{ position: 'absolute', ...tooltipPosition, zIndex: 1000, width: 238, padding: '10px 12px', borderRadius: 4, background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 8px 20px rgba(0,0,0,.12)', pointerEvents: 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 99, background: amountTooltip.color, flexShrink: 0 }} />
+              <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{amountTooltip.label}</div>
+            </div>
+            <div style={{ fontSize: 17, fontWeight: 900, color: amountTooltip.color }}>{fmt(amountTooltip.value)}</div>
+            <div style={{ fontSize: 11, color: C.g600, marginTop: 4, lineHeight: 1.55 }}>비율 {amountTooltip.rate}%</div>
+            <div style={{ fontSize: 11, color: C.g600, marginTop: 4, lineHeight: 1.55 }}>{amountTooltip.detail}</div>
           </div>}
         </div>
-    </>);
-    return <div data-ui="verify-screen.117" style={{ background: C.soft }}>{content}</div>;
+      </Card>
+
+      <div onMouseEnter={() => setSummaryWidgetTooltip({ source: 'highRisk', title: '고위험 항목 세부', accent: C.danger, rows: highRiskRows.length ? highRiskRows : [{ label: '고위험 항목 없음', detail: '현재 높은 리스크로 분류된 항목이 없습니다.' }] })} onMouseLeave={() => setSummaryWidgetTooltip(null)} style={{ position: 'relative', minWidth: 0 }}>
+        <Card style={{ width: '100%', boxSizing: 'border-box', height: 160, borderRadius: 12, padding: '16px 16px', background: C.dangerBg, border: '1px solid #FFCDD2', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={{ fontSize: 12, fontWeight: 900, color: C.danger }}>고위험 항목</div>
+          <div style={{ fontSize: 34, fontWeight: 900, color: C.danger, marginTop: 6, lineHeight: 1 }}>{counts.highRisk}건</div>
+          <div style={{ fontSize: 11, color: C.g600, marginTop: 9, lineHeight: 1.45 }}>부적정 판정 우선 검토</div>
+        </Card>
+        {renderWidgetTooltip('highRisk')}
+      </div>
+
+      <div onMouseEnter={() => setSummaryWidgetTooltip({ source: 'decision', title: '판정 분포 세부', accent: C.primary, rows: decisionRows })} onMouseLeave={() => setSummaryWidgetTooltip(null)} style={{ position: 'relative', minWidth: 0 }}>
+        <Card style={{ width: '100%', boxSizing: 'border-box', minWidth: 0, height: 160, padding: '15px 16px' }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 12 }}>판정 분포</div>
+          <div style={{ height: 13, borderRadius: 999, overflow: 'hidden', display: 'flex', background: C.g100, marginBottom: 12 }}>
+            {decisionBars.map((bar) => <div key={bar.label} style={{ width: `${(bar.count / categories.length) * 100}%`, background: bar.color }} />)}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            {decisionBars.map((bar) => <div key={bar.label}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                <span style={{ width: 7, height: 7, borderRadius: 99, background: bar.color }} />
+                <span style={{ fontSize: 10, fontWeight: 900, color: C.g600 }}>{bar.label}</span>
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: bar.color, lineHeight: 1 }}>{bar.count}</div>
+            </div>)}
+          </div>
+        </Card>
+        {renderWidgetTooltip('decision')}
+      </div>
+
+      <div onMouseEnter={() => setSummaryWidgetTooltip({ source: 'evidence', title: '증빙 이슈 세부', accent: C.warn, rows: evidenceRows, placement: 'left' })} onMouseLeave={() => setSummaryWidgetTooltip(null)} style={{ position: 'relative', minWidth: 0 }}>
+        <Card style={{ width: '100%', boxSizing: 'border-box', minWidth: 0, height: 160, padding: '15px 16px' }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 11 }}>증빙 이슈</div>
+          <div style={{ display: 'grid', gap: 9 }}>
+            {evidenceIssueBars.map((item) => <div key={item.label}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 900, color: C.g600 }}>{item.label}</span>
+                <span style={{ fontSize: 11, fontWeight: 900, color: item.color }}>{item.count}건</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 999, background: C.g100, overflow: 'hidden' }}>
+                <div style={{ width: `${(item.count / maxEvidenceIssueCount) * 100}%`, height: '100%', borderRadius: 999, background: item.color }} />
+              </div>
+            </div>)}
+          </div>
+        </Card>
+        {renderWidgetTooltip('evidence')}
+      </div>
+    </div>;
+  };
+
+  const renderCategoryTable = () => {
+    const thStyle: CSSProperties = { padding: '7px 8px', fontSize: 12, lineHeight: 1.25 };
+    const tdStyle: CSSProperties = { padding: '7px 8px', fontSize: 12, lineHeight: 1.3 };
+
+    return <Card style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ padding: '11px 14px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 900, color: C.g800 }}>9개 항목 판정</div>
+          <div style={{ fontSize: 11, color: C.g400, marginTop: 2 }}>부적정 항목 우선 정렬</div>
+        </div>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          {[
+            { id: 'all', label: '전체' },
+            { id: 'inappropriate', label: '부적정' },
+            { id: 'conditional', label: '조건부' },
+            { id: 'appropriate', label: '적정' },
+          ].map((item) => {
+            const active = filter === item.id;
+            return <button key={item.id} type="button" onClick={() => setFilter(item.id as ResultFilter)} style={{ border: `1px solid ${active ? C.primary : C.g200}`, background: active ? C.primary : C.white, color: active ? C.white : C.g600, borderRadius: 999, padding: '5px 9px', fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>{item.label}</button>;
+          })}
+        </div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table>
+          <thead>
+            <tr>
+              <th style={thStyle}>항목</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>사용내역서</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>인정 가능</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>쟁점 금액</th>
+              <th style={{ ...thStyle, textAlign: 'center' }}>판정</th>
+              <th style={{ ...thStyle, textAlign: 'center' }}>리스크</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredCategories.map((item) => {
+              const selected = item.categoryId === selectedCategory.categoryId;
+              const meta = decisionMeta[item.decision];
+              const risk = riskMeta[item.riskLevel];
+              return <tr key={item.categoryId} onClick={() => setSelectedCategoryId(item.categoryId)} style={{ cursor: 'pointer' }}>
+                <td style={{ ...tdStyle, background: selected ? C.bg : undefined, fontWeight: 800, color: selected ? C.primary : C.g800 }}>{renderCategoryTableName(item)}</td>
+                <td style={{ ...tdStyle, background: selected ? C.bg : undefined, textAlign: 'right', fontWeight: 600 }}>{fmt(item.usageAmount)}</td>
+                <td style={{ ...tdStyle, background: selected ? C.bg : undefined, textAlign: 'right', fontWeight: 700, color: item.recognizedAmount === item.usageAmount ? C.ok : C.warn }}>{fmt(item.recognizedAmount)}</td>
+                <td style={{ ...tdStyle, background: selected ? C.bg : undefined, textAlign: 'right', fontWeight: 900, color: item.disputedAmount > 0 ? C.danger : C.g400 }}>{item.disputedAmount > 0 ? fmt(item.disputedAmount) : '-'}</td>
+                <td style={{ ...tdStyle, background: selected ? C.bg : undefined, textAlign: 'center' }}><span style={compactChipStyle(meta.color, meta.bg, meta.border)}>{meta.label}</span></td>
+                <td style={{ ...tdStyle, background: selected ? C.bg : undefined, textAlign: 'center' }}><span style={compactChipStyle(risk.color, risk.bg)}>{risk.label}</span></td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>;
+  };
+
+  const renderEvidenceBlock = (item: CategoryValidationResult) => {
+    const meta = decisionMeta[item.decision];
+    return <Card style={{ padding: '18px 20px', border: `1px solid ${meta.border}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>{item.categoryId}. {item.categoryName}</div>
+          <div style={{ fontSize: 12, color: C.g400, marginTop: 5 }}>선택 항목 상세 판단</div>
+        </div>
+        <span style={chipStyle(meta.color, meta.bg, meta.border)}>{meta.label}</span>
+      </div>
+
+      <section style={{ marginBottom: 14 }}>
+        <button type="button" onClick={() => setSubmittedEvidenceOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g100}`, background: C.white, borderRadius: 10, padding: '9px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
+          <span style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>제출 증빙</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 900, color: C.g400 }}>
+            {item.evidenceSummary.submittedFiles.length}건
+            <span style={{ color: C.g600 }}>{submittedEvidenceOpen ? '접기' : '펼치기'}</span>
+          </span>
+        </button>
+        {submittedEvidenceOpen && <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8 }}>
+          {item.evidenceSummary.submittedFiles.map((file) => <div key={`${file.kind}-${file.name}`} style={{ display: 'grid', gridTemplateColumns: '74px minmax(0,1fr)', gap: 8, alignItems: 'center', padding: '8px 10px', borderRadius: 10, border: `1px solid ${C.g100}`, background: C.white }}>
+            <span style={chipStyle(C.g600, C.g100)}>{fileKindLabel[file.kind]}</span>
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 800, color: C.g800 }}>{file.name}</span>
+          </div>)}
+        </div>}
+      </section>
+
+      {(item.evidenceSummary.problematicFiles.length > 0 || item.evidenceSummary.missingTypes.length > 0) && <section style={{ marginBottom: 14 }}>
+        <div style={{ padding: '12px 13px', borderRadius: 12, background: '#ffffff', border: `1px solid ${meta.border}` }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {item.evidenceSummary.problematicFiles.length > 0 && <div>
+              <div style={{ fontSize: 11, fontWeight: 900, color: C.g800, marginBottom: 5 }}>문제 파일</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {item.evidenceSummary.problematicFiles.map((file) => <div key={file.fileName} style={{ padding: '8px 9px', borderRadius: 8, background: C.white, border: `1px solid ${C.g100}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{file.fileName}</div>
+                  <div style={{ fontSize: 11, color: C.g600, lineHeight: 1.2, marginTop: 3 }}>{file.reason}</div>
+                </div>)}
+              </div>
+            </div>}
+            {item.evidenceSummary.missingTypes.length > 0 && <div>
+              <div style={{ fontSize: 11, fontWeight: 900, color: C.g800, marginBottom: 5 }}>누락 자료</div>
+              <div style={{ padding: '8px 9px', borderRadius: 8, background: C.white, border: `1px solid ${C.g100}`, fontSize: 12, color: C.g800, lineHeight: 1.2 }}>
+                {item.evidenceSummary.missingTypes.join(', ')}
+              </div>
+            </div>}
+          </div>
+        </div>
+      </section>}
+
+      <section>
+        <div style={{ fontSize: 12, fontWeight: 900, color: C.g800, marginBottom: 8 }}>법령 agent 판단 근거</div>
+        {item.legalBasis.map((basis) => <div key={`${basis.lawName}-${basis.article || ''}`} style={{ padding: '11px 12px', borderRadius: 10, background: '#F7F8FA', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{basis.lawName} {basis.article || ''} {basis.clause || ''}</div>
+          <div style={{ fontSize: 11, color: C.g600, lineHeight: 1.65, marginTop: 5 }}>{basis.summary}</div>
+          <div style={{ fontSize: 11, color: C.g800, lineHeight: 1.65, marginTop: 5 }}>{basis.agentReasoning}</div>
+        </div>)}
+      </section>
+    </Card>;
+  };
+
+  const renderActionList = (list: (ValidationIssue & { categoryName: string; decision: ValidationDecision; riskLevel: ValidationRiskLevel })[]) => (
+    <Card style={{ padding: '18px 20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>담당자 조치 목록</div>
+          <div style={{ fontSize: 12, color: C.g400, marginTop: 4 }}>현장에 바로 요청할 수 있는 보완 작업입니다.</div>
+        </div>
+        <span style={chipStyle(C.danger, C.dangerBg, '#FFCDD2')}>{list.length}건</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {list.map((issue) => {
+          const meta = decisionMeta[issue.decision];
+          const notificationKey = `${issue.categoryName}-${issue.title}`;
+          const sent = sentActionKeys.includes(notificationKey);
+          return <div key={`${issue.categoryName}-${issue.title}`} style={{ padding: '13px 14px', borderRadius: 12, border: `1px solid ${meta.border}`, background: meta.bg }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 7 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>{issue.categoryName}</div>
+              <span style={chipStyle(meta.color, C.white, meta.border)}>{meta.label}</span>
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 900, color: C.g800, marginBottom: 5 }}>{issue.title}</div>
+            <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.65, marginBottom: 7 }}>{issue.description}</div>
+            <div style={{ fontSize: 11, color: C.g800, lineHeight: 1.65 }}><strong>요청:</strong> {issue.requiredAction}</div>
+            <div style={{ fontSize: 11, color: C.g600, lineHeight: 1.65, marginTop: 3 }}><strong>추가 자료:</strong> {issue.recommendedFiles.join(', ')}</div>
+            {can(user, 'requestAction') && <button type="button" onClick={() => handleSendActionNotification(issue)} disabled={sent} style={{ marginTop: 10, border: `1px solid ${sent ? C.g200 : C.primary}`, borderRadius: 999, padding: '7px 12px', background: sent ? C.g100 : C.white, color: sent ? C.g400 : C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: sent ? 'default' : 'pointer' }}>
+              {sent ? '알림 전송됨' : '프로젝트 담당자에게 알림 보내기'}
+            </button>}
+          </div>;
+        })}
+      </div>
+    </Card>
+  );
+
+  const renderDashboard = () => (
+    <div className="screen-enter">
+      <Card style={{ padding: '1px 5px', marginBottom: 8, background: C.soft, boxShadow: 'none' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 14, color: C.g600 }}>검증일 {result.checkedAt}</div>
+          </div>
+          <Button size="sm" onClick={handleVerify} disabled={status === 'loading'}>{status === 'loading' ? '분석 중...' : '재검증하기'}</Button>
+        </div>
+      </Card>
+
+      {renderSummary()}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(300px, 1.0fr)', gap: 12, alignItems: 'start', marginBottom: 12 }}>
+        {renderCategoryTable()}
+        {renderEvidenceBlock(selectedCategory)}
+      </div>
+      {renderActionList(issues)}
+    </div>
+  );
+
+  const renderReport = () => {
+    const canGenerateReport = status === 'done';
+    const reportWorkflowMeta = {
+      editing: { label: '초안 편집 가능', color: C.warn, bg: C.warnBg, description: '검증 결과를 기반으로 생성된 초안입니다. 담당자 검토 후 저장해 주세요.' },
+      saved: { label: '저장됨', color: C.ok, bg: '#F4FBF6', description: savedAt ? `마지막 저장: ${savedAt}` : '저장된 초안입니다.' },
+    }[reportWorkflowStatus];
+
+    return <div className="screen-enter">
+      <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 16, alignItems: 'center' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 생성</div>
+            <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{canGenerateReport ? '검증 대시보드의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '유효성 검증을 먼저 완료해야 보고서를 생성할 수 있습니다.'}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <Button size="lg" onClick={handleReportGenerate} disabled={!canGenerateReport || reportStatus === 'generating'}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
+            <Button size="lg" variant="outline" onClick={() => alert('PDF 보고서 추출 중입니다...')} disabled={reportStatus !== 'done'}>PDF 추출</Button>
+          </div>
+        </div>
+        {reportStatus === 'generating' && <div style={{ marginTop: 16 }}>
+          <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}><div style={{ height: '100%', width: `${reportProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} /></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{REPORT_STEPS.map((step, index) => <span key={step} style={{ fontSize: 11, fontWeight: 800, color: reportProgress >= ((index + 1) * 100) / REPORT_STEPS.length ? C.primary : C.g400, background: C.g100, borderRadius: 999, padding: '5px 9px' }}>{step}</span>)}</div>
+        </div>}
+      </Card>
+
+      {canGenerateReport && reportStatus === 'idle' && <Card style={{ padding: '22px 24px', marginBottom: 18, background: '#F7F8FA', boxShadow: 'none', border: `1px solid ${C.g200}` }}>
+        <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>보고서가 아직 생성되지 않았습니다</div>
+        <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6, marginTop: 5 }}>보고서 생성하기를 눌러야 초안과 항목별 검토 결과가 생성됩니다.</div>
+      </Card>}
+
+      {reportStatus === 'done' && <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 편집/확정</div>
+            <div style={{ display: 'inline-flex', marginTop: 8, ...chipStyle(reportWorkflowMeta.color, reportWorkflowMeta.bg) }}>{reportWorkflowMeta.label}</div>
+            <div style={{ fontSize: 12, color: C.g400, marginTop: 8 }}>{reportWorkflowMeta.description}</div>
+          </div>
+          <Button size="sm" variant="outline" onClick={handleSaveDraft}>저장</Button>
+        </div>
+        <textarea value={reportDraft} onChange={(e) => setReportDraft(e.target.value)} style={{ width: '100%', minHeight: 210, resize: 'vertical', border: `1px solid ${C.light}`, borderRadius: 12, padding: '12px 14px', fontFamily: 'inherit', fontSize: 13, color: C.g800, lineHeight: 1.7, background: C.white, outline: 'none' }} />
+      </Card>}
+
+      {reportStatus === 'done' && <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '18px 24px', borderBottom: `1px solid ${C.g100}` }}>
+          <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>항목별 적정성 검토 결과</div>
+          <div style={{ fontSize: 11, color: C.g400, marginTop: 4 }}>계약명: {contractName} · 기준: {result.lawAgent.basis}</div>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>항목</th>
+                <th style={{ textAlign: 'right' }}>사용내역서</th>
+                <th style={{ textAlign: 'right' }}>인정 가능</th>
+                <th style={{ textAlign: 'right' }}>쟁점 금액</th>
+                <th style={{ textAlign: 'center' }}>결과</th>
+                <th>보완 요청</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedCategories.map((item) => {
+                const meta = decisionMeta[item.decision];
+                return <tr key={item.categoryId}>
+                  <td style={{ fontWeight: 800, color: C.g800 }}>{item.categoryName}</td>
+                  <td style={{ textAlign: 'right' }}>{fmt(item.usageAmount)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 800, color: C.ok }}>{fmt(item.recognizedAmount)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 900, color: item.disputedAmount ? C.danger : C.g400 }}>{item.disputedAmount ? fmt(item.disputedAmount) : '-'}</td>
+                  <td style={{ textAlign: 'center' }}><span style={chipStyle(meta.color, meta.bg, meta.border)}>{meta.label}</span></td>
+                  <td style={{ fontSize: 12, lineHeight: 1.55 }}>{item.issues[0]?.requiredAction || '추가 조치 없음'}</td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>}
+    </div>;
+  };
+
+  return <div style={{ background: C.soft }}>
+    {activeTab === 'dashboard' && status !== 'done' && !hideValidationIntro && renderIntro()}
+    {activeTab === 'dashboard' && status === 'loading' && renderProgress()}
+    {activeTab === 'dashboard' && status === 'idle' && renderEmpty()}
+    {activeTab === 'dashboard' && status === 'done' && renderDashboard()}
+    {activeTab === 'report' && renderReport()}
+  </div>;
 };
+
 export default VerifyScreen;
