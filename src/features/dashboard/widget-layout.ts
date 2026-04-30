@@ -9,6 +9,7 @@ export type DashboardWidgetId =
   | 'openActionRequests'
   | 'risk'
   | 'missingUpload'
+  | 'unreadNotifications'
   | 'settlementProgress'
   | 'workload'
   | 'myProjects';
@@ -25,6 +26,7 @@ export const DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; label: string }> 
   { id: 'openActionRequests', label: '조치 요청 미처리 건' },
   { id: 'risk', label: '검증 리스크 요약' },
   { id: 'missingUpload', label: '업로드 누락 체크' },
+  { id: 'unreadNotifications', label: '미확인 알림' },
   { id: 'settlementProgress', label: '정산 진행률' },
   { id: 'workload', label: '담당자별 업무량' },
   { id: 'myProjects', label: '내 프로젝트 현황' },
@@ -47,6 +49,7 @@ export const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
   openActionRequests: { colSpan: 1, rowSpan: 1 },
   risk: { colSpan: 2, rowSpan: 1 },
   missingUpload: { colSpan: 1, rowSpan: 1 },
+  unreadNotifications: { colSpan: 1, rowSpan: 1 },
   settlementProgress: { colSpan: 2, rowSpan: 1 },
   workload: { colSpan: 2, rowSpan: 1 },
   myProjects: { colSpan: 8, rowSpan: 5 },
@@ -60,6 +63,7 @@ export const DEFAULT_WIDGET_LAYOUT: Record<DashboardWidgetId, WidgetPosition> = 
   openActionRequests: { col: 10, row: 1 },
   workload: { col: 7, row: 2 },
   settlementProgress: { col: 9, row: 2 },
+  unreadNotifications: { col: 7, row: 3 },
   recentActivity: { col: 9, row: 3 },
   sla: { col: 1, row: 3 },
   myProjects: { col: 1, row: 4 },
