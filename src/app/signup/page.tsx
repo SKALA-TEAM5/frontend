@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import { C } from '../../lib/theme';
-import { type DevUserRole, useCurrentUser } from '../../lib/dev-user';
+import { type DevUserRole } from '../../lib/dev-user';
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -24,7 +24,6 @@ const inputStyle: React.CSSProperties = {
 
 export default function SignupPage() {
   const router = useRouter();
-  const { setCurrentRole } = useCurrentUser();
   const [employeeNumber, setEmployeeNumber] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -38,8 +37,7 @@ export default function SignupPage() {
       return;
     }
     setError('');
-    setCurrentRole(role);
-    router.replace(role === 'she_manager' ? '/dashboard' : '/projects');
+    router.replace('/');
   };
 
   return (

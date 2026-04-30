@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
 import { C } from '../../lib/theme';
@@ -17,10 +17,12 @@ interface ArchiveScreenProps {
     onRunValidation: () => void;
     contractName: string;
     contractMeta: ContractInfo | null;
+    onArchiveSeedChange?: (seed: ArchiveSeed) => void;
 }
 type DragContext = {
     file: EvidenceFile;
     fromCat: number;
+    fromUsageItemId?: string;
     kind: FolderEvidenceCategory;
 } | null;
 const uniqueFiles = (files: EvidenceFile[]) => {
@@ -34,83 +36,95 @@ const uniqueFiles = (files: EvidenceFile[]) => {
     });
 };
 const FOLDER_EVIDENCE_KINDS: FolderEvidenceCategory[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
-const HIERARCHY_EVIDENCE_KINDS: HierarchyEvidenceKind[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
 const PROBLEM_CATEGORY_IDS = new Set([4, 5, 8]);
 const PROBLEM_KEYWORDS = ['개인보호구', '보호구', '안전시설물', '안전난간', '본사'];
-export default function ArchiveScreen({ matchReady, onDismissMatchReady, archiveSeed, validationStatus, onRunValidation, contractName, contractMeta }: ArchiveScreenProps) {
+export default function ArchiveScreen({ matchReady, onDismissMatchReady, archiveSeed, validationStatus, onRunValidation, contractName, contractMeta, onArchiveSeedChange }: ArchiveScreenProps) {
     const [viewMode, setViewMode] = useState<ArchiveViewMode>('hierarchy');
     const [dragFile, setDragFile] = useState<DragContext>(null);
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(archiveSeed || createDefaultArchiveData()));
     const [uploadModalOpen, setUploadModalOpen] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
     const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(USAGE_LINE_ITEMS[0]?.categoryId || 1);
     const [selectedUsageItemId, setSelectedUsageItemId] = useState(USAGE_LINE_ITEMS[0]?.id || '');
-    const [selectedHierarchyKind, setSelectedHierarchyKind] = useState<HierarchyEvidenceKind>('receipt');
-    const [selectedHierarchyFile, setSelectedHierarchyFile] = useState<EvidenceFile | null>(null);
     const [hoverPreview, setHoverPreview] = useState<{
         entry: EvidenceFile;
         x: number;
         y: number;
     } | null>(null);
+    const pendingArchiveSeedRef = useRef<ArchiveSeed | null>(null);
     useEffect(() => {
         if (archiveSeed)
             setFileData(normalizeArchiveData(archiveSeed));
     }, [archiveSeed]);
-    const getFilesForCategory = (kind: FolderEvidenceCategory, catId: number) => fileData[kind]?.[catId] || [];
-    const getHierarchyFilesForCategory = (kind: HierarchyEvidenceKind, catId: number) => kind === 'misc' ? [] : getFilesForCategory(kind, catId);
-    const selectedUsageItem = USAGE_LINE_ITEMS.find((item) => item.id === selectedUsageItemId) || USAGE_LINE_ITEMS[0];
+    useEffect(() => {
+        if (!pendingArchiveSeedRef.current)
+            return;
+        const nextSeed = pendingArchiveSeedRef.current;
+        pendingArchiveSeedRef.current = null;
+        onArchiveSeedChange?.(nextSeed);
+    }, [fileData, onArchiveSeedChange]);
+    const commitFileData = (updater: (prev: ArchiveSeed) => ArchiveSeed) => {
+        setFileData((prev) => {
+            const next = updater(prev);
+            pendingArchiveSeedRef.current = next;
+            return next;
+        });
+    };
+    const getFilesForCategory = (kind: FolderEvidenceCategory, catId: number, usageItemId?: string) => {
+        const lineMap = fileData.categories?.[catId] || {};
+        if (usageItemId)
+            return lineMap[usageItemId]?.[kind] || [];
+        return Object.values(lineMap).flatMap((kindMap) => kindMap[kind] || []);
+    };
+    const getHierarchyFilesForCategory = (kind: HierarchyEvidenceKind, catId: number, usageItemId?: string) => kind === 'misc' ? [] : getFilesForCategory(kind, catId, usageItemId);
     const getAllFilesForCategory = (catId: number) => {
         const merged = FOLDER_EVIDENCE_KINDS.flatMap((kind) => getFilesForCategory(kind, catId).map((file) => ({ ...file, kind })));
         return uniqueFiles(merged);
     };
-    useEffect(() => {
-        if (viewMode !== 'hierarchy')
-            return;
-        const files = HIERARCHY_EVIDENCE_KINDS.flatMap((kind) => getHierarchyFilesForCategory(kind, selectedHierarchyCatId));
-        if (selectedHierarchyFile && files.some((file) => file.id === selectedHierarchyFile.id))
-            return;
-        setSelectedHierarchyFile(files[0] || null);
-    }, [fileData, selectedHierarchyCatId, selectedHierarchyFile, viewMode]);
-    const moveFile = (kind: FolderEvidenceCategory, fromCat: number, toCat: number, fileEntry: EvidenceFile) => {
-        setFileData((prev) => {
-            const next = { ...prev, [kind]: { ...prev[kind] } };
-            next[kind][fromCat] = (next[kind][fromCat] || []).filter((file) => file.id !== fileEntry.id);
-            next[kind][toCat] = [...(next[kind][toCat] || []), { ...fileEntry, categoryIds: [toCat] }];
+    const moveFile = (kind: FolderEvidenceCategory, fromCat: number, toCat: number, fileEntry: EvidenceFile, fromUsageItemId?: string, toUsageItemId?: string) => {
+        commitFileData((prev) => {
+            const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
+            const fromLineMap = { ...(next.categories[fromCat] || {}) };
+            const sourceUsageIds = fromUsageItemId ? [fromUsageItemId] : Object.keys(fromLineMap);
+            sourceUsageIds.forEach((usageItemId) => {
+                fromLineMap[usageItemId] = {
+                    ...(fromLineMap[usageItemId] || {}),
+                    [kind]: (fromLineMap[usageItemId]?.[kind] || []).filter((file) => file.id !== fileEntry.id),
+                };
+            });
+            next.categories[fromCat] = fromLineMap;
+            const targetUsageItemId = toUsageItemId || USAGE_LINE_ITEMS.find((item) => item.categoryId === toCat)?.id || `cat-${toCat}`;
+            next.categories[toCat] = {
+                ...(next.categories[toCat] || {}),
+                [targetUsageItemId]: {
+                    ...(next.categories[toCat]?.[targetUsageItemId] || {}),
+                    [kind]: [...(next.categories[toCat]?.[targetUsageItemId]?.[kind] || []), { ...fileEntry, categoryIds: [toCat], usageItemIds: [targetUsageItemId] }],
+                },
+            };
             return next;
         });
     };
-    const removeArchiveFile = (kind: FolderEvidenceCategory, catId: number, fileId: string) => {
-        if (!confirm('이 파일을 삭제하시겠습니까?'))
+    const removeArchiveFile = (kind: FolderEvidenceCategory, catId: number, fileId: string, usageItemId?: string) => {
+        setDeleteTarget({ kind, catId, fileId, usageItemId });
+    };
+    const confirmRemoveArchiveFile = () => {
+        if (!deleteTarget)
             return;
-        setFileData((prev) => {
-            const next = { ...prev, [kind]: { ...prev[kind] } };
-            next[kind][catId] = (next[kind][catId] || []).filter((file) => file.id !== fileId);
+        const { kind, catId, fileId, usageItemId } = deleteTarget;
+        commitFileData((prev) => {
+            const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
+            const lineMap = { ...(next.categories[catId] || {}) };
+            const usageItemIds = usageItemId ? [usageItemId] : Object.keys(lineMap);
+            usageItemIds.forEach((lineId) => {
+                lineMap[lineId] = {
+                    ...(lineMap[lineId] || {}),
+                    [kind]: (lineMap[lineId]?.[kind] || []).filter((file) => file.id !== fileId),
+                };
+            });
+            next.categories[catId] = lineMap;
             return next;
         });
-    };
-    const removeUsageStatement = (fileId: string) => {
-        if (!confirm('이 파일을 삭제하시겠습니까?'))
-            return;
-        setFileData((prev) => ({
-            ...prev,
-            usage_statement: prev.usage_statement.filter((file) => file.id !== fileId),
-        }));
-    };
-    const openUsageStatementAdd = () => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.multiple = true;
-        input.accept = 'image/*,.pdf,.xlsx';
-        input.onchange = (e) => {
-            const pickedFiles = Array.from((e.target as HTMLInputElement).files || []);
-            setFileData((prev) => ({
-                ...prev,
-                usage_statement: [
-                    ...prev.usage_statement,
-                    ...pickedFiles.map((file) => createEntryFromFile(file, 'usage_statement', { categoryIds: [] })),
-                ],
-            }));
-        };
-        input.click();
+        setDeleteTarget(null);
     };
     const uploadMissingEvidence = (kind: FolderEvidenceCategory, catId: number) => {
         const input = document.createElement('input');
@@ -121,45 +135,57 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
             const pickedFiles = Array.from((e.target as HTMLInputElement).files || []);
             if (pickedFiles.length === 0)
                 return;
-            setFileData((prev) => ({
+            commitFileData((prev) => ({
                 ...prev,
-                [kind]: {
-                    ...prev[kind],
-                    [catId]: [
-                        ...(prev[kind][catId] || []),
-                        ...pickedFiles.map((file) => createEntryFromFile(file, kind, { categoryIds: [catId] })),
-                    ],
+                categories: {
+                    ...prev.categories,
+                    [catId]: {
+                        ...(prev.categories[catId] || {}),
+                        [selectedUsageItemId]: {
+                            ...(prev.categories[catId]?.[selectedUsageItemId] || {}),
+                            [kind]: [
+                                ...((prev.categories[catId]?.[selectedUsageItemId]?.[kind]) || []),
+                                ...pickedFiles.map((file) => createEntryFromFile(file, kind, { categoryIds: [catId], usageItemIds: [selectedUsageItemId] })),
+                            ],
+                        },
+                    },
                 },
             }));
-            setSelectedHierarchyKind(kind);
         };
         input.click();
     };
-    const removeHierarchyFile = (kind: HierarchyEvidenceKind, catId: number, fileId: string) => {
+    const removeHierarchyFile = (kind: HierarchyEvidenceKind, catId: number, usageItemId: string, fileId: string) => {
         if (kind !== 'misc') {
-            removeArchiveFile(kind, catId, fileId);
+            removeArchiveFile(kind, catId, fileId, usageItemId);
             return;
         }
     };
-    const moveHierarchyFile = (fromKind: HierarchyEvidenceKind, fromCatId: number, toKind: HierarchyEvidenceKind, toCatId: number, fileEntry: EvidenceFile) => {
-        if (fromKind === toKind && fromCatId === toCatId)
+    const moveHierarchyFile = (fromKind: HierarchyEvidenceKind, fromCatId: number, fromUsageItemId: string, toKind: HierarchyEvidenceKind, toCatId: number, fileEntry: EvidenceFile, toUsageItemId?: string) => {
+        if (fromKind === toKind && fromCatId === toCatId && fromUsageItemId === toUsageItemId)
             return;
         if (fromKind === 'misc' || toKind === 'misc')
             return;
         const nextKind: EvidenceCategory = toKind;
         const movedFile: EvidenceFile = { ...fileEntry, kind: nextKind, categoryIds: [toCatId] };
-        setFileData((prev) => {
-            const next = { ...prev, [fromKind]: { ...prev[fromKind] }, [toKind]: { ...prev[toKind] } };
-            next[fromKind][fromCatId] = (next[fromKind][fromCatId] || []).filter((file) => file.id !== fileEntry.id);
-            next[toKind][toCatId] = [...(next[toKind][toCatId] || []), movedFile];
+        commitFileData((prev) => {
+            const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
+            next.categories[fromCatId] = { ...(next.categories[fromCatId] || {}) };
+            next.categories[toCatId] = { ...(next.categories[toCatId] || {}) };
+            next.categories[fromCatId][fromUsageItemId] = {
+                ...(next.categories[fromCatId][fromUsageItemId] || {}),
+                [fromKind]: (next.categories[fromCatId][fromUsageItemId]?.[fromKind] || []).filter((file) => file.id !== fileEntry.id),
+            };
+            const targetUsageItemId = toUsageItemId || USAGE_LINE_ITEMS.find((item) => item.categoryId === toCatId)?.id || `cat-${toCatId}`;
+            next.categories[toCatId][targetUsageItemId] = {
+                ...(next.categories[toCatId][targetUsageItemId] || {}),
+                [toKind]: [...(next.categories[toCatId][targetUsageItemId]?.[toKind] || []), { ...movedFile, usageItemIds: [targetUsageItemId] }],
+            };
             return next;
         });
-        const nextUsageItem = USAGE_LINE_ITEMS.find((item) => item.categoryId === toCatId);
+        const nextUsageItem = USAGE_LINE_ITEMS.find((item) => item.id === toUsageItemId) || USAGE_LINE_ITEMS.find((item) => item.categoryId === toCatId);
         if (nextUsageItem)
             setSelectedUsageItemId(nextUsageItem.id);
         setSelectedHierarchyCatId(toCatId);
-        setSelectedHierarchyKind(toKind);
-        setSelectedHierarchyFile(movedFile);
     };
     const isProblemFile = (file: EvidenceFile) => {
         if (validationStatus !== 'done')
@@ -181,21 +207,30 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
           {viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} usageItems={USAGE_LINE_ITEMS} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} onSelectCat={(catId) => {
                 setSelectedHierarchyCatId(catId);
                 setSelectedUsageItemId(USAGE_LINE_ITEMS.find((item) => item.categoryId === catId)?.id || '');
-                setSelectedHierarchyFile(null);
             }} onSelectUsageItem={(item) => {
                 setSelectedUsageItemId(item.id);
                 setSelectedHierarchyCatId(item.categoryId);
-                setSelectedHierarchyFile(null);
-            }} onSelectFile={setSelectedHierarchyFile} onRemove={removeHierarchyFile} onMove={moveHierarchyFile} onUploadMissing={uploadMissingEvidence}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
+            }} onRemove={removeHierarchyFile} onMove={moveHierarchyFile} onUploadMissing={uploadMissingEvidence}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
             if (!dragFile)
                 return;
-            moveFile(dragFile.kind, dragFile.fromCat, toCat, dragFile.file);
+            moveFile(dragFile.kind, dragFile.fromCat, toCat, dragFile.file, dragFile.fromUsageItemId);
             setDragFile(null);
         }} onSetDragFile={setDragFile} onRemove={removeArchiveFile} onPreview={(entry, x, y) => setHoverPreview({ entry, x, y })} onPreviewEnd={() => setHoverPreview(null)}/>)}
         </div>
       </div>
 
       <ArchivePreview hoverPreview={hoverPreview}/>
+
+      <Modal open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} zIndex={940} maxWidth={420}>
+        <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: '24px 24px 20px' }}>
+          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>파일 삭제</div>
+          <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginBottom: 18 }}>이 파일을 아카이브에서 삭제하시겠습니까?</div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button type="button" onClick={() => setDeleteTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+            <button type="button" onClick={confirmRemoveArchiveFile} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>삭제</button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={uploadModalOpen} onClose={() => setUploadModalOpen(false)} zIndex={920} maxWidth={720}>
         <div style={{ background: C.soft, borderRadius: 22, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
@@ -206,7 +241,6 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
             <UploadScreen contractName={contractName} contractMeta={contractMeta} requireUsageStatementFirst={false} onMatchComplete={(payload) => {
                 const nextSeed = buildArchiveDataFromUploads(payload.files);
                 setFileData(normalizeArchiveData(nextSeed));
-                setSelectedHierarchyFile(null);
                 setSelectedHierarchyCatId(USAGE_LINE_ITEMS[0]?.categoryId || 1);
                 setSelectedUsageItemId(USAGE_LINE_ITEMS[0]?.id || '');
                 setViewMode('hierarchy');

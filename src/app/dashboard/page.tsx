@@ -12,7 +12,7 @@ import { getPrimaryProjectAction } from '../../lib/project-actions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { REPORT_DATA, fmt } from '../../lib/mock-data';
 import { getVisibleProjects, SORT_LABELS, type PeriodMode, type SortOption } from '../../lib/project-list';
-import { ACTION_NOTIFICATION_EVENT, getActionNotifications, type ActionNotification } from '../../lib/action-notifications';
+import { useActionNotifications } from '../../lib/use-action-notifications';
 import {
   DASHBOARD_WIDGETS,
   DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY,
@@ -142,6 +142,7 @@ export default function DashboardPage() {
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
   const [sortBy, setSortBy] = useState<SortOption>('name');
   const [riskTooltip, setRiskTooltip] = useState<'error' | 'warn' | null>(null);
+  const [slaTooltip, setSlaTooltip] = useState<'overdue' | 'dueSoon' | 'open' | null>(null);
   const [missingUploadTooltip, setMissingUploadTooltip] = useState(false);
   const [openActionTooltip, setOpenActionTooltip] = useState(false);
   const [unreadNotificationTooltip, setUnreadNotificationTooltip] = useState(false);
@@ -150,7 +151,7 @@ export default function DashboardPage() {
   const [visibleWidgetIds, setVisibleWidgetIds] = useState<DashboardWidgetId[]>(DEFAULT_WIDGET_IDS);
   const [draggedWidgetId, setDraggedWidgetId] = useState<DashboardWidgetId | null>(null);
   const [widgetLayout, setWidgetLayout] = useState<Record<DashboardWidgetId, WidgetPosition>>(DEFAULT_WIDGET_LAYOUT);
-  const [notifications, setNotifications] = useState<ActionNotification[]>([]);
+  const { unreadNotifications: unreadSheNotifications } = useActionNotifications(user);
   const dashboardGridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -177,17 +178,6 @@ export default function DashboardPage() {
     } catch {
       window.localStorage.removeItem(DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY);
     }
-  }, []);
-
-  useEffect(() => {
-    const syncNotifications = () => setNotifications(getActionNotifications());
-    syncNotifications();
-    window.addEventListener(ACTION_NOTIFICATION_EVENT, syncNotifications);
-    window.addEventListener('storage', syncNotifications);
-    return () => {
-      window.removeEventListener(ACTION_NOTIFICATION_EVENT, syncNotifications);
-      window.removeEventListener('storage', syncNotifications);
-    };
   }, []);
 
   useEffect(() => {
@@ -289,6 +279,22 @@ export default function DashboardPage() {
     },
     { overdue: 0, dueSoon: 0, open: 0 },
   );
+  const slaRows = {
+    overdue: actionProjects.filter((project) => {
+      const dueTime = project.actionRequestDetails?.dueDate ? new Date(project.actionRequestDetails.dueDate).getTime() : 0;
+      return dueTime > 0 && Math.ceil((dueTime - todayTime) / 86400000) < 0;
+    }),
+    dueSoon: actionProjects.filter((project) => {
+      const dueTime = project.actionRequestDetails?.dueDate ? new Date(project.actionRequestDetails.dueDate).getTime() : 0;
+      const diffDays = dueTime ? Math.ceil((dueTime - todayTime) / 86400000) : 999;
+      return dueTime > 0 && diffDays >= 0 && diffDays <= 3;
+    }),
+    open: actionProjects.filter((project) => {
+      const dueTime = project.actionRequestDetails?.dueDate ? new Date(project.actionRequestDetails.dueDate).getTime() : 0;
+      if (!dueTime) return true;
+      return Math.ceil((dueTime - todayTime) / 86400000) > 3;
+    }),
+  };
   const errorRows = REPORT_DATA.filter((row) => row.status === 'error');
   const warnRows = REPORT_DATA.filter((row) => row.status === 'warn');
   const riskCards = [
@@ -310,7 +316,6 @@ export default function DashboardPage() {
     },
   ];
   const missingUploadProjects = projects.filter((project) => !project.hasUploads || project.status === 'upload_pending');
-  const unreadSheNotifications = notifications.filter((notification) => notification.recipientRole === 'she_manager' && !notification.read);
   const progressPercent = projects.length
     ? Math.round((projects.reduce((sum, project) => sum + project.stageIndex, 0) / (projects.length * Math.max(PROJECT_STAGES.length - 1, 1))) * 100)
     : 0;
@@ -324,6 +329,21 @@ export default function DashboardPage() {
       return map;
     }, new Map<string, { total: number; actionRequired: number }>()),
   ).sort((a, b) => b[1].total - a[1].total);
+  const widgetTooltipStyle = (id: DashboardWidgetId, width = 200): CSSProperties => {
+    const position = widgetLayout[id] || DEFAULT_WIDGET_LAYOUT[id];
+    const size = WIDGET_SIZES[id];
+    const colEnd = position.col + size.colSpan - 1;
+    const alignRight = colEnd >= GRID_COLUMN_COUNT - 1;
+    const alignLeft = position.col <= 2;
+    return {
+      ...tooltipStyle,
+      width,
+      maxWidth: 'min(260px, calc(100vw - 32px))',
+      left: alignRight ? 'auto' : alignLeft ? 0 : '50%',
+      right: alignRight ? 0 : 'auto',
+      transform: alignRight || alignLeft ? undefined : 'translateX(-50%)',
+    };
+  };
   const renderWidgetTitle = (label: string, id: WidgetHelpId, style: CSSProperties = widgetTitleStyle, align: 'left' | 'right' = 'left') => (
     <div
       style={{ position: 'relative', display: 'block', width: 'fit-content', ...style }}
@@ -332,7 +352,7 @@ export default function DashboardPage() {
     >
       {label}
       {titleTooltip === id && (
-        <div style={{ ...titleTooltipStyle, left: align === 'left' ? 0 : 'auto', right: align === 'right' ? 0 : 'auto' }}>
+        <div style={{ ...widgetTooltipStyle(id, 250), ...titleTooltipStyle, left: align === 'right' ? 'auto' : widgetTooltipStyle(id, 250).left, right: align === 'right' ? 0 : widgetTooltipStyle(id, 250).right, transform: align === 'right' ? undefined : widgetTooltipStyle(id, 250).transform }}>
           <div style={tooltipListStyle}>
             <div style={tooltipItemStyle}>{widgetHelpText[id]}</div>
           </div>
@@ -522,18 +542,33 @@ export default function DashboardPage() {
         </Card>
         )}
         {visibleWidgetSet.has('sla') && (
-        <Card {...widgetFrameProps('sla', { padding: '18px 18px' })}>
+        <Card {...widgetFrameProps('sla', { padding: '16px 14px' })}>
           {renderWidgetRemoveButton('sla')}
           {renderWidgetTitle('보완 요청 기한', 'sla')}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
             {[
-              ['기한 초과', slaSummary.overdue, C.danger],
-              ['3일 이내', slaSummary.dueSoon, C.warn],
-              ['진행 중', slaSummary.open, C.primary],
-            ].map(([label, value, color], index) => (
-              <div key={String(label)} style={{ borderRadius: 12, background: ['#FFF5F5', '#FFF8F0', C.bg][index], padding: '10px 8px' }}>
-                <div style={widgetLabelStyle}>{label}</div>
-                <div style={{ ...widgetValueStyle, color: String(color), marginTop: 5 }}>{value}</div>
+              { id: 'overdue' as const, label: '기한 초과', value: slaSummary.overdue, color: C.danger, bg: '#FFF5F5' },
+              { id: 'dueSoon' as const, label: '3일 이내', value: slaSummary.dueSoon, color: C.warn, bg: '#FFF8F0' },
+              { id: 'open' as const, label: '진행 중', value: slaSummary.open, color: C.primary, bg: C.bg },
+            ].map((item) => (
+              <div key={item.id} onMouseEnter={() => item.value > 0 && setSlaTooltip(item.id)} onMouseLeave={() => setSlaTooltip(null)} style={{ position: 'relative', borderRadius: 10, background: item.bg, padding: '9px 5px', textAlign: 'center', minWidth: 0, cursor: item.value > 0 ? 'default' : 'auto' }}>
+                <div style={{ ...widgetLabelStyle, fontSize: 11, whiteSpace: 'nowrap' }}>{item.label}</div>
+                <div style={{ ...widgetValueStyle, fontSize: 22, color: item.color, marginTop: 4 }}>{item.value}</div>
+                {slaTooltip === item.id && (
+                  <div style={widgetTooltipStyle('sla', 230)}>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: item.color, marginBottom: 8 }}>{item.label} 프로젝트</div>
+                    <div style={tooltipListStyle}>
+                      {slaRows[item.id].slice(0, 4).map((project) => (
+                        <div key={project.id} style={tooltipItemStyle}>
+                          <div style={{ fontWeight: 900, color: C.g800 }}>{project.actionRequestDetails?.title || '보완 조치 요청'}</div>
+                          <div style={{ color: C.g800 }}>{project.constructionName}</div>
+                          <div>{project.actionRequestDetails?.reason || '보완 자료 제출이 필요합니다.'}</div>
+                          <div style={{ fontWeight: 900 }}>{project.actionRequestDetails?.assignee || project.manager} · 기한 {project.actionRequestDetails?.dueDate || '미정'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -553,7 +588,7 @@ export default function DashboardPage() {
               <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1, color: actionProjects.length ? C.danger : C.ok }}>{actionProjects.length}</div>
               <div style={{ fontSize: 24, fontWeight: 900, color: actionProjects.length ? C.danger : C.ok, marginLeft: 4 }}>건</div>
               {openActionTooltip && (
-                <div style={tooltipStyle}>
+                <div style={widgetTooltipStyle('openActionRequests')}>
                   <div style={{ fontSize: 13, fontWeight: 900, color: actionProjects.length ? C.danger : C.ok, marginBottom: 8 }}>미처리 조치 요청 프로젝트</div>
                   <div style={tooltipListStyle}>
                     {actionProjects.length === 0 ? (
@@ -587,7 +622,7 @@ export default function DashboardPage() {
                 <div style={widgetLabelStyle}>{item.label}</div>
                 <div style={{ ...widgetValueStyle, color: item.color }}>{item.count}건</div>
                 {riskTooltip === item.id && (
-                  <div style={tooltipStyle}>
+                  <div style={widgetTooltipStyle('risk')}>
                     <div style={{ fontSize: 13, fontWeight: 900, color: item.color, marginBottom: 8 }}>{item.label} 세부 내용</div>
                     <div style={tooltipListStyle}>
                       {item.rows.length === 0 ? (
@@ -620,7 +655,7 @@ export default function DashboardPage() {
               <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1, color: missingUploadProjects.length ? C.warn : C.ok }}>{missingUploadProjects.length}</div>
               <div style={{ fontSize: 24, fontWeight: 900, color: missingUploadProjects.length ? C.warn : C.ok, marginLeft: 4 }}>개</div>
               {missingUploadTooltip && (
-                <div style={tooltipStyle}>
+                <div style={widgetTooltipStyle('missingUpload')}>
                   <div style={{ fontSize: 13, fontWeight: 900, color: missingUploadProjects.length ? C.warn : C.ok, marginBottom: 8 }}>업로드 누락 세부 내용</div>
                   <div style={tooltipListStyle}>
                     {missingUploadProjects.length === 0 ? (
@@ -652,7 +687,7 @@ export default function DashboardPage() {
               <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1, color: unreadSheNotifications.length ? C.primary : C.ok }}>{unreadSheNotifications.length}</div>
               <div style={{ fontSize: 24, fontWeight: 900, color: unreadSheNotifications.length ? C.primary : C.ok, marginLeft: 4 }}>건</div>
               {unreadNotificationTooltip && (
-                <div style={tooltipStyle}>
+                <div style={widgetTooltipStyle('unreadNotifications')}>
                   <div style={{ fontSize: 13, fontWeight: 900, color: unreadSheNotifications.length ? C.primary : C.ok, marginBottom: 8 }}>미확인 알림</div>
                   <div style={tooltipListStyle}>
                     {unreadSheNotifications.length === 0 ? (

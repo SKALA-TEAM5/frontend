@@ -360,7 +360,12 @@ export const classifyEvidenceToCategoryIds = (name: string, description = ''): n
   return matches.length > 0 ? matches.slice(0, 3) : [((name.length % CATS.length) || CATS.length)];
 };
 export const getCategoryLabels = (categoryIds: number[]) => categoryIds.map((id) => CATS.find((cat) => cat.id === id)?.short || `${id}번 항목`);
-export const makeEntry = (name: string, kind: EvidenceCategory, extra: Partial<EvidenceFile> = {}): EvidenceFile => ({
+const getDefaultUsageItemIds = (categoryIds: number[]) => categoryIds
+  .map((categoryId) => USAGE_LINE_ITEMS.find((item) => item.categoryId === categoryId)?.id)
+  .filter(Boolean) as string[];
+export const makeEntry = (name: string, kind: EvidenceCategory, extra: Partial<EvidenceFile> = {}): EvidenceFile => {
+  const categoryIds = extra.categoryIds || classifyEvidenceToCategoryIds(name, extra.description || '');
+  return ({
   id: extra.id || nextFileId(),
   name,
   kind,
@@ -369,44 +374,93 @@ export const makeEntry = (name: string, kind: EvidenceCategory, extra: Partial<E
   previewUrl: extra.previewUrl || '',
   uploadedAt: extra.uploadedAt || makeMockUploadedDate(),
   uploadedBy: extra.uploadedBy || makeMockUploader(kind),
-  categoryIds: extra.categoryIds || classifyEvidenceToCategoryIds(name, extra.description || ''),
-});
+  categoryIds,
+  usageItemIds: extra.usageItemIds || getDefaultUsageItemIds(categoryIds),
+  });
+};
 export const createEntryFromFile = (file: File, kind: EvidenceCategory, extra: Partial<EvidenceFile> = {}): EvidenceFile => makeEntry(file.name, kind, {
   ...extra,
   previewUrl: isImageFile(file.name) ? URL.createObjectURL(file) : '',
   uploadedAt: extra.uploadedAt || new Date().toISOString().slice(0, 10),
   uploadedBy: extra.uploadedBy || '현재 사용자',
 });
-export const seedArchiveEntries = (source: MockFileBuckets, kind: EvidenceCategory): ArchiveCategoryMap =>
-  Object.fromEntries(Object.entries(source).map(([catId, list]) => [catId, list.map((name) => makeEntry(name, kind))]));
+const putArchiveFile = (categories: ArchiveCategoryMap, catId: number | string, usageItemId: string, kind: FolderEvidenceCategory, file: EvidenceFile) => {
+  const categoryKey = String(catId);
+  categories[categoryKey] = {
+    ...(categories[categoryKey] || {}),
+    [usageItemId]: {
+      ...(categories[categoryKey]?.[usageItemId] || {}),
+      [kind]: [...(categories[categoryKey]?.[usageItemId]?.[kind] || []), file],
+    },
+  };
+};
+const seedArchiveEntries = (categories: ArchiveCategoryMap, source: MockFileBuckets, kind: FolderEvidenceCategory) => {
+  Object.entries(source).forEach(([catId, list]) => {
+    const usageItems = USAGE_LINE_ITEMS.filter((item) => item.categoryId === Number(catId));
+    const fallbackUsageId = usageItems[0]?.id || `cat-${catId}`;
+    list.forEach((name, index) => {
+      const usageItemId = usageItems[index % Math.max(usageItems.length, 1)]?.id || fallbackUsageId;
+      putArchiveFile(categories, catId, usageItemId, kind, makeEntry(name, kind, { categoryIds: [Number(catId)], usageItemIds: [usageItemId] }));
+    });
+  });
+};
 const seedProjectUsageStatements = (source: MockFileBuckets): EvidenceFile[] =>
   Object.values(source).flatMap((list) => list.map((name) => makeEntry(name, 'usage_statement', { categoryIds: [] })));
 export const normalizeArchiveData = (seed: ArchiveSeed | null): ArchiveSeed => {
   const base = createDefaultArchiveData();
   if (!seed) return base;
-  const rawUsageStatement = seed.usage_statement as EvidenceFile[] | ArchiveCategoryMap;
+  const legacySeed = seed as unknown as Partial<Record<FolderEvidenceCategory, unknown>> & { usage_statement?: EvidenceFile[] | ArchiveCategoryMap; categories?: ArchiveCategoryMap };
+  const rawUsageStatement = legacySeed.usage_statement as EvidenceFile[] | ArchiveCategoryMap;
   const usageStatement = Array.isArray(rawUsageStatement)
     ? rawUsageStatement
-    : Object.values(rawUsageStatement || {}).flat();
+    : Object.values(rawUsageStatement || {}).flatMap((value) => Array.isArray(value) ? value : Object.values(value).flat());
   const withUploader = (kind: EvidenceCategory, files: EvidenceFile[]) =>
     files.map((file) => ({ ...file, uploadedBy: file.uploadedBy || makeMockUploader(kind), uploadedAt: file.uploadedAt || makeMockUploadedDate() }));
-  const normalizeFolderMap = (kind: FolderEvidenceCategory, source: ArchiveCategoryMap) =>
-    Object.fromEntries(Object.entries(source || {}).map(([catId, files]) => [catId, withUploader(kind, files)]));
+  const normalizeCategories = (source: ArchiveCategoryMap) => {
+    const next: ArchiveCategoryMap = {};
+    Object.entries(source || {}).forEach(([catId, lineMap]) => {
+      Object.entries(lineMap || {}).forEach(([usageItemId, kindMap]) => {
+        (Object.keys(kindMap || {}) as FolderEvidenceCategory[]).forEach((kind) => {
+          withUploader(kind, kindMap[kind] || []).forEach((file) => {
+            putArchiveFile(next, catId, usageItemId, kind, { ...file, kind, categoryIds: file.categoryIds?.length ? file.categoryIds : [Number(catId)], usageItemIds: file.usageItemIds?.length ? file.usageItemIds : [usageItemId] });
+          });
+        });
+      });
+    });
+    return next;
+  };
+  const migrateLegacyKind = (categories: ArchiveCategoryMap, kind: FolderEvidenceCategory, source: unknown) => {
+    Object.entries((source || {}) as Record<string, unknown>).forEach(([catId, lineMapOrFiles]) => {
+      if (Array.isArray(lineMapOrFiles)) {
+        const fallbackUsageId = USAGE_LINE_ITEMS.find((item) => item.categoryId === Number(catId))?.id || `cat-${catId}`;
+        withUploader(kind, lineMapOrFiles as EvidenceFile[]).forEach((file) => putArchiveFile(categories, catId, fallbackUsageId, kind, { ...file, kind, categoryIds: file.categoryIds?.length ? file.categoryIds : [Number(catId)], usageItemIds: file.usageItemIds?.length ? file.usageItemIds : [fallbackUsageId] }));
+        return;
+      }
+      Object.entries((lineMapOrFiles || {}) as Record<string, EvidenceFile[]>).forEach(([usageItemId, files]) => {
+        withUploader(kind, files).forEach((file) => putArchiveFile(categories, catId, usageItemId, kind, { ...file, kind, categoryIds: file.categoryIds?.length ? file.categoryIds : [Number(catId)], usageItemIds: file.usageItemIds?.length ? file.usageItemIds : [usageItemId] }));
+      });
+    });
+  };
+  const categories = legacySeed.categories ? normalizeCategories(legacySeed.categories) : {};
+  if (!legacySeed.categories) {
+    (['receipt', 'site_photo', 'tax_invoice', 'other_document'] as const).forEach((kind) => migrateLegacyKind(categories, kind, legacySeed[kind]));
+  }
   return {
-    receipt: normalizeFolderMap('receipt', seed.receipt || base.receipt),
-    site_photo: normalizeFolderMap('site_photo', seed.site_photo || base.site_photo),
     usage_statement: withUploader('usage_statement', usageStatement).map((file) => ({ ...file, kind: 'usage_statement', categoryIds: [] })),
-    tax_invoice: normalizeFolderMap('tax_invoice', seed.tax_invoice || base.tax_invoice),
-    other_document: normalizeFolderMap('other_document', seed.other_document || base.other_document),
+    categories: Object.keys(categories).length ? categories : base.categories,
   };
 };
-export const createDefaultArchiveData = (): ArchiveSeed => ({
-  receipt: seedArchiveEntries(MOCK_FILES.receipt, 'receipt'),
-  site_photo: seedArchiveEntries(MOCK_FILES.site_photo, 'site_photo'),
-  usage_statement: seedProjectUsageStatements(MOCK_FILES.usage_statement),
-  tax_invoice: seedArchiveEntries(MOCK_FILES.tax_invoice, 'tax_invoice'),
-  other_document: seedArchiveEntries(MOCK_FILES.other_document, 'other_document'),
-});
+export const createDefaultArchiveData = (): ArchiveSeed => {
+  const categories: ArchiveCategoryMap = {};
+  seedArchiveEntries(categories, MOCK_FILES.receipt, 'receipt');
+  seedArchiveEntries(categories, MOCK_FILES.site_photo, 'site_photo');
+  seedArchiveEntries(categories, MOCK_FILES.tax_invoice, 'tax_invoice');
+  seedArchiveEntries(categories, MOCK_FILES.other_document, 'other_document');
+  return {
+    usage_statement: seedProjectUsageStatements(MOCK_FILES.usage_statement),
+    categories,
+  };
+};
 export const buildArchiveDataFromUploads = (files?: UploadedEvidenceMap | null): ArchiveSeed => {
   const base = createDefaultArchiveData();
   if (!files) return base;
@@ -416,7 +470,11 @@ export const buildArchiveDataFromUploads = (files?: UploadedEvidenceMap | null):
       const categoryIds = entry.categoryIds?.length ? entry.categoryIds : [((index % CATS.length) + 1)];
       categoryIds.forEach((categoryId) => {
         const catId = String(categoryId);
-        base[kind][catId] = [...(base[kind][catId] || []), { ...entry, id: entry.id || nextFileId(), kind, categoryIds }];
+        const usageItemIds = entry.usageItemIds?.length ? entry.usageItemIds : getDefaultUsageItemIds([categoryId]);
+        const targetUsageIds = usageItemIds.length ? usageItemIds : [`cat-${catId}`];
+        targetUsageIds.forEach((usageItemId) => {
+          putArchiveFile(base.categories, catId, usageItemId, kind, { ...entry, id: entry.id || nextFileId(), kind, categoryIds, usageItemIds: [usageItemId] });
+        });
       });
     });
   });
