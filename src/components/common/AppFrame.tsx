@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { ACTION_NOTIFICATION_EVENT, addActionNotification, getActionNotifications, markActionNotificationRead, type ActionNotification } from '../../lib/action-notifications';
 import { C } from '../../lib/theme';
 import { ChevronIcon } from '../ui';
 import { ROLE_LABELS } from '../../lib/permissions';
@@ -18,17 +19,79 @@ interface AppFrameProps {
 export default function AppFrame({ title, description, actions, mainClassName, children }: AppFrameProps) {
     const { user, role, setCurrentRole } = useCurrentUser();
     const [projectsOpen, setProjectsOpen] = useState(true);
+    const [activeUtilityView, setActiveUtilityView] = useState<'notifications' | null>(null);
+    const [notifications, setNotifications] = useState<ActionNotification[]>([]);
+    const [notificationQuery, setNotificationQuery] = useState('');
+    const [notificationProjectFilter, setNotificationProjectFilter] = useState('all');
+    const [notificationPeriodFilter, setNotificationPeriodFilter] = useState('all');
+    const [toastVisible, setToastVisible] = useState(true);
     const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
     const router = useRouter();
     const pathname = usePathname();
     const sidebarProjects = getAccessibleProjects(user);
     const handleRoleChange = (nextRole: DevUserRole) => {
         setCurrentRole(nextRole);
+        setActiveUtilityView(null);
         router.push(nextRole === 'project_manager' ? '/projects' : '/dashboard');
     };
     const navItems = user.role === 'she_manager'
         ? [{ href: '/dashboard', label: '대시보드' }, { href: '/projects', label: '전체 프로젝트' }]
         : [{ href: '/projects', label: '담당 프로젝트' }];
+    const roleNotifications = notifications.filter((notification) => notification.recipientRole === user.role);
+    const unreadNotifications = roleNotifications.filter((notification) => !notification.read);
+    const latestUnreadNotification = unreadNotifications[0];
+    const notificationProjectOptions = Array.from(new Set(roleNotifications.map((notification) => notification.projectName))).filter(Boolean);
+    const notificationPeriodStart = (() => {
+        const now = Date.now();
+        if (notificationPeriodFilter === 'today') return now - 24 * 60 * 60 * 1000;
+        if (notificationPeriodFilter === '7d') return now - 7 * 24 * 60 * 60 * 1000;
+        if (notificationPeriodFilter === '30d') return now - 30 * 24 * 60 * 60 * 1000;
+        return 0;
+    })();
+    const filteredNotifications = roleNotifications.filter((notification) => {
+        const query = notificationQuery.trim().toLowerCase();
+        const matchesQuery = !query || [notification.projectName, notification.categoryName, notification.title, notification.message, notification.senderName].some((value) => value.toLowerCase().includes(query));
+        const matchesProject = notificationProjectFilter === 'all' || notification.projectName === notificationProjectFilter;
+        const matchesPeriod = notificationPeriodFilter === 'all' || (notification.createdAtMs || 0) >= notificationPeriodStart;
+        return matchesQuery && matchesProject && matchesPeriod;
+    });
+    const openProject = (notification: ActionNotification, tab?: 'upload' | 'validation') => {
+        if (!notification.projectId) return;
+        markActionNotificationRead(notification.id);
+        setActiveUtilityView(null);
+        router.push(`/projects/${notification.projectId}${tab ? `?tab=${tab}` : ''}`);
+    };
+    const sendCompletionNotification = (notification: ActionNotification) => {
+        if (!notification.projectId) return;
+        addActionNotification({
+            projectId: notification.projectId,
+            projectName: notification.projectName,
+            categoryName: notification.categoryName,
+            title: `${notification.categoryName} 조치 완료`,
+            message: `${notification.projectName} 담당자가 ${notification.categoryName} 조치를 완료했습니다. 보완 자료를 확인한 뒤 유효성 검증을 다시 수행해 주세요.`,
+            requestedFiles: [],
+            senderName: user.name,
+            recipientRole: 'she_manager',
+        });
+        markActionNotificationRead(notification.id);
+    };
+    const hasCompletionNotification = (notification: ActionNotification) => notifications.some((item) => item.recipientRole === 'she_manager' && item.projectId === notification.projectId && item.categoryName === notification.categoryName && item.title === `${notification.categoryName} 조치 완료`);
+    useEffect(() => {
+        const syncNotifications = () => {
+            setNotifications(getActionNotifications());
+            setToastVisible(true);
+        };
+        syncNotifications();
+        window.addEventListener(ACTION_NOTIFICATION_EVENT, syncNotifications);
+        window.addEventListener('storage', syncNotifications);
+        return () => {
+            window.removeEventListener(ACTION_NOTIFICATION_EVENT, syncNotifications);
+            window.removeEventListener('storage', syncNotifications);
+        };
+    }, []);
+    useEffect(() => {
+        setToastVisible(true);
+    }, [role]);
     const goBack = () => {
         if (window.history.length > 1) {
             router.back();
@@ -45,6 +108,64 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         background: C.soft,
         '--app-left-offset': leftSidebarOpen ? '220px' : '28px',
     } as React.CSSProperties;
+    const renderNotificationCenter = () => (
+        <div className="screen-enter">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 900, color: C.g800 }}>알림 내역</div>
+              <div style={{ fontSize: 13, color: C.g400, marginTop: 5 }}>{user.role === 'she_manager' ? '프로젝트 담당자가 보낸 조치 완료 알림을 확인하고 재검증할 수 있습니다.' : 'SHE 담당자가 보낸 조치 요청 알림을 확인하고 조치할 수 있습니다.'}</div>
+            </div>
+            <button type="button" onClick={() => setActiveUtilityView(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '8px 12px', background: C.white, color: C.g600, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>이전 화면으로 돌아가기</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 180px 150px', gap: 8, marginBottom: 12 }}>
+            <input value={notificationQuery} onChange={(event) => setNotificationQuery(event.target.value)} placeholder="알림 내용, 항목, 담당자 검색" style={{ border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, background: C.white, outline: 'none' }} />
+            <select value={notificationProjectFilter} onChange={(event) => setNotificationProjectFilter(event.target.value)} style={{ border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, background: C.white }}>
+              <option value="all">전체 프로젝트</option>
+              {notificationProjectOptions.map((projectName) => <option key={projectName} value={projectName}>{projectName}</option>)}
+            </select>
+            <select value={notificationPeriodFilter} onChange={(event) => setNotificationPeriodFilter(event.target.value)} style={{ border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, background: C.white }}>
+              <option value="all">전체 기간</option>
+              <option value="today">최근 24시간</option>
+              <option value="7d">최근 7일</option>
+              <option value="30d">최근 30일</option>
+            </select>
+          </div>
+          <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 16, overflow: 'hidden' }}>
+            <div style={{ padding: '13px 16px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 900, color: C.g800 }}>검색 결과</div>
+              <div style={{ fontSize: 12, fontWeight: 900, color: C.g400 }}>{filteredNotifications.length}건</div>
+            </div>
+            {filteredNotifications.length === 0 && <div style={{ padding: 28, textAlign: 'center', color: C.g400, fontSize: 13, fontWeight: 800 }}>조건에 맞는 알림이 없습니다.</div>}
+            {filteredNotifications.map((notification) => {
+              const completionSent = hasCompletionNotification(notification);
+              return <div key={notification.id} style={{ padding: '15px 16px', borderBottom: `1px solid ${C.g100}`, background: notification.read ? C.white : '#FCFEFD' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 8 }}>
+                <button type="button" onClick={() => openProject(notification)} disabled={!notification.projectId} style={{ minWidth: 0, border: 'none', padding: 0, background: 'transparent', textAlign: 'left', fontFamily: 'inherit', cursor: notification.projectId ? 'pointer' : 'default' }}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>{notification.categoryName}</div>
+                  <div style={{ fontSize: 12, color: C.g400, marginTop: 3 }}>{notification.projectName} · {notification.senderName} · {notification.createdAt}</div>
+                </button>
+                <span style={{ borderRadius: 999, padding: '4px 8px', background: notification.read ? C.g100 : C.bg, color: notification.read ? C.g400 : C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }}>{notification.read ? '확인됨' : '미확인'}</span>
+              </div>
+              <button type="button" onClick={() => openProject(notification)} disabled={!notification.projectId} style={{ display: 'block', width: '100%', border: 'none', padding: 0, background: 'transparent', textAlign: 'left', fontFamily: 'inherit', cursor: notification.projectId ? 'pointer' : 'default' }}>
+                <div style={{ fontSize: 13, color: C.g800, lineHeight: 1.6 }}>{notification.message}</div>
+              </button>
+              {notification.requestedFiles.length > 0 && <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.5, marginTop: 6 }}>요청 자료: {notification.requestedFiles.join(', ')}</div>}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 7, marginTop: 11 }}>
+                <button type="button" onClick={() => markActionNotificationRead(notification.id)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '7px 10px', background: C.white, color: C.g600, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>확인</button>
+                {user.role === 'she_manager' ? (
+                  <button type="button" onClick={() => openProject(notification, 'validation')} disabled={!notification.projectId} style={{ border: 'none', borderRadius: 999, padding: '7px 10px', background: C.primary, color: C.white, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: notification.projectId ? 'pointer' : 'not-allowed', opacity: notification.projectId ? 1 : 0.45 }}>유효성 검증</button>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => openProject(notification, 'upload')} disabled={!notification.projectId} style={{ border: `1px solid ${C.primary}`, borderRadius: 999, padding: '7px 10px', background: C.white, color: C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: notification.projectId ? 'pointer' : 'not-allowed', opacity: notification.projectId ? 1 : 0.45 }}>조치하기</button>
+                    <button type="button" onClick={() => sendCompletionNotification(notification)} disabled={!notification.projectId || completionSent} style={{ border: 'none', borderRadius: 999, padding: '7px 10px', background: completionSent ? C.g200 : C.primary, color: completionSent ? C.g400 : C.white, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: !notification.projectId || completionSent ? 'not-allowed' : 'pointer', opacity: notification.projectId ? 1 : 0.45 }}>{completionSent ? '완료 알림 전송됨' : '조치 완료 알림'}</button>
+                  </>
+                )}
+              </div>
+            </div>;
+            })}
+          </div>
+        </div>
+    );
     return (<div data-ui="app-frame.1" style={frameStyle}>
       <button type="button" aria-label={leftSidebarOpen ? '좌측 사이드바 닫기' : '좌측 사이드바 열기'} onClick={() => setLeftSidebarOpen((open) => !open)} className="app-sidebar-toggle" style={{ left: leftSidebarOpen ? 205 : 10 }}>
         <ChevronIcon direction={leftSidebarOpen ? 'left' : 'right'} size={17} color={C.primary}/>
@@ -61,12 +182,19 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         <nav data-ui="app-frame.8" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 30 }}>
           {navItems.map((item) => {
             const active = pathname === item.href;
-            return (<Link key={item.href} href={item.href} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 12px', borderRadius: 12, textDecoration: 'none', color: active ? C.primary : C.g600, background: active ? C.bg : 'transparent', fontSize: 15, fontWeight: 900 }}>
+            return (<Link key={item.href} href={item.href} onClick={() => setActiveUtilityView(null)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 12px', borderRadius: 12, textDecoration: 'none', color: active ? C.primary : C.g600, background: active ? C.bg : 'transparent', fontSize: 15, fontWeight: 900 }}>
               <span data-ui="app-frame.9" style={{ width: 7, height: 7, borderRadius: 99, background: active ? C.primary : C.g200, flexShrink: 0 }}/>
               {item.label}
             </Link>);
         })}
         </nav>
+
+        <div data-ui="side-notifications" style={{ marginTop: 12 }}>
+          <button type="button" onClick={() => setActiveUtilityView('notifications')} style={{ width: '100%', border: 'none', borderRadius: 12, background: activeUtilityView === 'notifications' ? C.bg : 'transparent', color: activeUtilityView === 'notifications' ? C.primary : C.g800, cursor: 'pointer', fontFamily: 'inherit', padding: '10px 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ fontSize: 15, fontWeight: 900 }}>알림</span>
+            <span style={{ minWidth: 22, height: 22, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: unreadNotifications.length ? C.primary : C.g100, color: unreadNotifications.length ? C.white : C.g400, fontSize: 11, fontWeight: 900 }}>{unreadNotifications.length}</span>
+          </button>
+        </div>
 
         <div data-ui="side-projects" style={{ marginTop: 18 }}>
           <button type="button" onClick={() => setProjectsOpen((open) => !open)} style={{ width: '100%', border: 'none', background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', padding: '8px 4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4 }}>
@@ -79,7 +207,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
             {sidebarProjects.map((project) => {
               const href = `/projects/${project.id}`;
               const active = pathname === href;
-              return (<Link key={project.id} href={href} title={project.name} style={{ display: 'block', textDecoration: 'none', borderRadius: 10, padding: '8px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, fontSize: 14, fontWeight: active ? 900 : 800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              return (<Link key={project.id} href={href} title={project.name} onClick={() => setActiveUtilityView(null)} style={{ display: 'block', textDecoration: 'none', borderRadius: 10, padding: '8px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, fontSize: 14, fontWeight: active ? 900 : 800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {project.constructionName}
               </Link>);
             })}
@@ -104,13 +232,28 @@ export default function AppFrame({ title, description, actions, mainClassName, c
       </aside>
 
       <main data-ui="app-frame.18" className={mainClassName ? `app-main ${mainClassName}` : 'app-main'}>
-        {hasHeaderContent && <div data-ui="app-frame.19" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 16 }}>
+        {activeUtilityView === null && hasHeaderContent && <div data-ui="app-frame.19" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 16 }}>
           <div data-ui="app-frame.20" style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           {description && <div data-ui="app-frame.21" style={{ fontSize: 14, color: C.g400, fontWeight: 700 }}>{description}</div>}
           </div>
           {actions && <div data-ui="app-frame.22" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions}</div>}
         </div>}
-        {children}
+        {activeUtilityView === 'notifications' ? renderNotificationCenter() : children}
       </main>
+      {latestUnreadNotification && toastVisible && <div style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 1200, width: 440, maxWidth: 'calc(100vw - 48px)', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 16, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: '20px 22px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
+          <div style={{ fontSize: 16, fontWeight: 900, color: C.g800 }}>{user.role === 'she_manager' ? '프로젝트 조치 완료' : 'SHE 담당자 조치 요청'}</div>
+          <button type="button" onClick={() => setToastVisible(false)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ fontSize: 14, color: C.g600, lineHeight: 1.65 }}>{latestUnreadNotification.message}</div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+          <button type="button" onClick={() => setActiveUtilityView('notifications')} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 13px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>알림 탭 보기</button>
+          <button type="button" onClick={() => {
+              markActionNotificationRead(latestUnreadNotification.id);
+              if (latestUnreadNotification.projectId) router.push(`/projects/${latestUnreadNotification.projectId}?tab=${user.role === 'she_manager' ? 'validation' : 'upload'}`);
+          }} style={{ border: `1px solid ${C.primary}`, borderRadius: 999, padding: '9px 13px', background: C.white, color: C.primary, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: latestUnreadNotification.projectId ? 'pointer' : 'not-allowed', opacity: latestUnreadNotification.projectId ? 1 : 0.45 }}>{user.role === 'she_manager' ? '유효성 검증' : '조치하기'}</button>
+          <button type="button" onClick={() => markActionNotificationRead(latestUnreadNotification.id)} style={{ border: 'none', borderRadius: 999, padding: '9px 13px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>확인</button>
+        </div>
+      </div>}
     </div>);
 }
