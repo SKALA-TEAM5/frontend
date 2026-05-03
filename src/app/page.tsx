@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, KeyboardEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Button from '../components/ui/Button';
@@ -41,6 +41,14 @@ export default function LoginPage() {
     router.replace(role === 'she_manager' ? '/dashboard' : '/projects');
   };
 
+  const submitLoginOnEnter = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+    const target = event.target as HTMLElement;
+    if (target.tagName === 'TEXTAREA' || target.tagName === 'BUTTON') return;
+    event.preventDefault();
+    event.currentTarget.requestSubmit();
+  };
+
   return (
     <main data-ui="login.1" style={{ minHeight: '100vh', background: C.soft, display: 'grid', placeItems: 'center', padding: 24 }}>
       <Card style={{ width: 'min(420px, 100%)', padding: '34px 32px' }}>
@@ -52,7 +60,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <form data-ui="login.3" onSubmit={submitLogin} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <form data-ui="login.3" onSubmit={submitLogin} onKeyDown={submitLoginOnEnter} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <input
             aria-label="사번"
             value={employeeNumber}

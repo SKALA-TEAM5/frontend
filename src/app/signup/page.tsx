@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, KeyboardEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Button from '../../components/ui/Button';
@@ -40,6 +40,14 @@ export default function SignupPage() {
     router.replace('/');
   };
 
+  const submitSignupOnEnter = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+    const target = event.target as HTMLElement;
+    if (target.tagName === 'TEXTAREA' || target.tagName === 'BUTTON') return;
+    event.preventDefault();
+    event.currentTarget.requestSubmit();
+  };
+
   return (
     <main data-ui="signup.1" style={{ minHeight: '100vh', background: C.soft, display: 'grid', placeItems: 'center', padding: 24 }}>
       <Card style={{ width: 'min(440px, 100%)', padding: '34px 32px' }}>
@@ -51,7 +59,7 @@ export default function SignupPage() {
           </div>
         </div>
 
-        <form data-ui="signup.3" onSubmit={submitSignup} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <form data-ui="signup.3" onSubmit={submitSignup} onKeyDown={submitSignupOnEnter} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <input aria-label="사번" value={employeeNumber} onChange={(event) => setEmployeeNumber(event.target.value)} placeholder="사번" autoComplete="username" style={inputStyle} />
           <input aria-label="이름" value={name} onChange={(event) => setName(event.target.value)} placeholder="이름" autoComplete="name" style={inputStyle} />
           <input aria-label="비밀번호" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="비밀번호" type="password" autoComplete="new-password" style={inputStyle} />

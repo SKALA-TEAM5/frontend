@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { addActionNotification, markActionNotificationRead, type ActionNotification } from '../../lib/action-notifications';
 import { useActionNotifications } from '../../lib/use-action-notifications';
-import { C } from '../../lib/theme';
+import { APP_THEMES, C, type AppThemeId, useAppTheme } from '../../lib/theme';
 import { ChevronIcon } from '../ui';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { type DevUserRole, useCurrentUser } from '../../lib/dev-user';
@@ -26,6 +26,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const [notificationPeriodFilter, setNotificationPeriodFilter] = useState('all');
     const [toastVisible, setToastVisible] = useState(true);
     const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+    const { themeId, setThemeId } = useAppTheme();
     const router = useRouter();
     const pathname = usePathname();
     const sidebarProjects = getAccessibleProjects(user);
@@ -212,6 +213,34 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         </div>
 
         <div data-ui="app-frame.13" style={{ marginTop: 'auto', borderTop: `1px solid ${C.g200}`, paddingTop: 16 }}>
+          <div data-ui="side-theme" style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {(Object.keys(APP_THEMES) as AppThemeId[]).map((item) => {
+                const active = themeId === item;
+                const palette = APP_THEMES[item];
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    aria-label={`${palette.label} 테마`}
+                    title={`${palette.label} 테마`}
+                    onClick={() => setThemeId(item)}
+                    style={{
+                      width: 24,
+                      height: 24,
+                      border: `2px solid ${active ? C.primary : C.g200}`,
+                      borderRadius: 999,
+                      background: palette.primary,
+                      boxShadow: active ? `0 0 0 3px ${C.bg}` : 'none',
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
           <select data-ui="app-frame.14" value={role} onChange={(event) => handleRoleChange(event.target.value as DevUserRole)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 10, padding: '9px 10px', fontFamily: 'inherit', fontSize: 14, fontWeight: 800, color: C.g600, background: C.white, cursor: 'pointer', marginBottom: 12 }}>
             <option value="project_manager">프로젝트 담당자</option>
             <option value="she_manager">SHE 관리자</option>

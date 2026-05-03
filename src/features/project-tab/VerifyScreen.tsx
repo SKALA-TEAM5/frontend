@@ -286,7 +286,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
     <div style={{ padding: '48px 32px', borderRadius: 18, border: `2px dashed ${C.g200}`, textAlign: 'center', background: C.white }}>
       <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, marginBottom: 6 }}>{hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료'}</div>
       <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.</div>
-      <button type="button" onClick={handleVerify} disabled={status === 'loading'} style={{ border: 'none', borderRadius: 999, padding: '9px 14px', background: C.primary, color: C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 700, cursor: status === 'loading' ? 'wait' : 'pointer', boxShadow: `0 6px 14px ${C.primary}26` }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
+      <button type="button" onClick={handleVerify} disabled={status === 'loading'} style={{ border: 'none', borderRadius: 999, padding: '9px 14px', background: C.primary, color: C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 700, cursor: status === 'loading' ? 'wait' : 'pointer', boxShadow: `0 6px 14px ${C.primaryShadow}` }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
     </div>
   );
 

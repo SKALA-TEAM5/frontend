@@ -26,10 +26,10 @@ export default function ArchiveToolbar({ viewMode, onViewModeChange, validationS
             </button>
             {index < viewOptions.length - 1 && <span style={{ color: C.g200, fontSize: 14, fontWeight: 800 }}>|</span>}
           </span>))}
-        {onUpload && <button data-ui="archive-toolbar.4" type="button" onClick={onUpload} style={{ marginLeft: 'auto', border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer', boxShadow: `0 6px 14px ${C.primary}26` }}>
+        {onUpload && <button data-ui="archive-toolbar.4" type="button" onClick={onUpload} style={{ marginLeft: 'auto', border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer', boxShadow: `0 6px 14px ${C.primaryShadow}` }}>
           증빙 업로드
         </button>}
-        <button data-ui="archive-toolbar.5" type="button" onClick={onRunValidation} disabled={validationStatus === 'running'} style={{ marginLeft: onUpload ? 0 : 'auto', border: 'none', borderRadius: 999, padding: '9px 14px', background: validationStatus === 'done' ? C.bg : C.primary, color: validationStatus === 'done' ? C.primary : C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: validationStatus === 'running' ? 'wait' : 'pointer', boxShadow: validationStatus === 'done' ? 'none' : `0 6px 14px ${C.primary}26` }}>
+        <button data-ui="archive-toolbar.5" type="button" onClick={onRunValidation} disabled={validationStatus === 'running'} style={{ marginLeft: onUpload ? 0 : 'auto', border: 'none', borderRadius: 999, padding: '9px 14px', background: validationStatus === 'done' ? C.bg : C.primary, color: validationStatus === 'done' ? C.primary : C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: validationStatus === 'running' ? 'wait' : 'pointer', boxShadow: validationStatus === 'done' ? 'none' : `0 6px 14px ${C.primaryShadow}` }}>
           {validationLabel}
         </button>
       </div>);
