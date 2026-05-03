@@ -332,8 +332,8 @@ export default function ProjectDetailPage() {
         <div data-ui="project-detail.19" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div data-ui="project-detail.20" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
             <h2 data-ui="project-detail.21" style={{ fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>{project.constructionName} 계약 정산</h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 245px', maxWidth: '100%', minWidth: 0 }}>
-              <div data-ui="project-detail.22" ref={monthMenuRef} style={{ position: 'relative', flex: '0 0 170px', maxWidth: '100%', minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 300px', maxWidth: '100%', minWidth: 0 }}>
+              <div data-ui="project-detail.22" ref={monthMenuRef} style={{ position: 'relative', flex: '0 0 220px', maxWidth: '100%', minWidth: 0 }}>
                 <button data-ui="project-detail.23" type="button" onClick={() => setMonthMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '9px 11px', background: C.white, color: C.g800, fontFamily: 'inherit', cursor: 'pointer', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 16px', alignItems: 'center', gap: 8, textAlign: 'left' }}>
                   <span style={{ minWidth: 0, fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedStatement.label}</span>
                   <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>{selectedStageLabel}</span>
@@ -341,14 +341,14 @@ export default function ProjectDetailPage() {
                     <ChevronIcon direction={monthMenuOpen ? 'up' : 'down'} size={16} />
                   </span>
                 </button>
-                {monthMenuOpen && (<div data-ui="project-detail.24" style={{ position: 'absolute', top: 'calc(100% + 7px)', right: 0, zIndex: 80, width: 250, maxWidth: 'calc(100vw - 40px)', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 12, padding: 6, boxShadow: '0 8px 20px rgba(27,94,59,.14)' }}>
+                {monthMenuOpen && (<div data-ui="project-detail.24" style={{ position: 'absolute', top: 'calc(100% + 7px)', right: 0, zIndex: 80, width: 300, maxWidth: 'calc(100vw - 40px)', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 12, padding: 6, boxShadow: '0 8px 20px rgba(27,94,59,.14)' }}>
                   {monthlyStatements.map((statement) => {
                       const active = selectedStatement.month === statement.month;
                       const stageLabel = PROJECT_STAGES[statement.stageIndex] || '등록';
                       return (<button data-ui="project-detail.25" key={statement.month} type="button" onClick={() => {
                               setSelectedMonth(statement.month);
                               setMonthMenuOpen(false);
-                          }} style={{ width: '100%', border: 'none', borderRadius: 9, padding: '9px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', gridTemplateColumns: '78px minmax(0,1fr)', gap: 8, alignItems: 'center', textAlign: 'left' }}>
+                          }} style={{ width: '100%', border: 'none', borderRadius: 9, padding: '9px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', gridTemplateColumns: '88px minmax(0,1fr)', gap: 8, alignItems: 'center', textAlign: 'left' }}>
                         <span style={{ fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap' }}>{statement.label.replace(/^2026년 /, '')}</span>
                         <span style={{ minWidth: 0, fontSize: 12, fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stageLabel}</span>
                       </button>);
