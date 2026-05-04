@@ -1,7 +1,6 @@
 import { CONTRACT_DB } from './mock-data';
 import { C } from './theme';
 import { canAccessProject, type AppUser } from './permissions';
-import { PROJECT_STAGES, type ProjectStageId } from './project-stages';
 
 export type ProjectStatus =
   | 'upload_pending'
@@ -10,6 +9,9 @@ export type ProjectStatus =
   | 'supplement_uploaded'
   | 'drafting_report'
   | 'completed';
+
+export type ActionRequestStatusCode = 'open' | 'in_progress' | 'resolved' | 'closed';
+export type ProjectStatusCode = 'active' | 'completed' | 'suspended';
 
 export interface ProjectSummary {
   id: string;
@@ -28,8 +30,7 @@ export interface ProjectSummary {
   plannedAmount: string;
   accumulatedAmount: string;
   usageRate: string;
-  stageId: ProjectStageId;
-  stageIndex: number;
+  projectStatusCode: ProjectStatusCode;
   status: ProjectStatus;
   hasUploads: boolean;
   hasActionRequest: boolean;
@@ -37,6 +38,7 @@ export interface ProjectSummary {
     title: string;
     reason: string;
     assignee: string;
+    statusCode: ActionRequestStatusCode;
     dueDate: string;
     requestedAt: string;
   };
@@ -44,8 +46,6 @@ export interface ProjectSummary {
   recentActivity: string;
   participants: string[];
 }
-
-export { PROJECT_STAGES };
 
 export interface MonthlyUsageStatementSummary {
   month: string;
@@ -55,7 +55,6 @@ export interface MonthlyUsageStatementSummary {
   documentWrittenDate: string;
   uploadedAt: string;
   uploadedBy: string;
-  stageIndex: number;
   parseStatus: string;
   validationStatus: string;
   currentAmount: string;
@@ -88,8 +87,7 @@ export const PROJECTS: ProjectSummary[] = [
     plannedAmount: CONTRACT_DB[0].planned || '12,000,000,000',
     accumulatedAmount: CONTRACT_DB[0].accumulated || '48,614,045',
     usageRate: '64%',
-    stageId: 'action_request',
-    stageIndex: 5,
+    projectStatusCode: 'active',
     status: 'action_required',
     hasUploads: true,
     hasActionRequest: true,
@@ -97,6 +95,7 @@ export const PROJECTS: ProjectSummary[] = [
       title: '개인보호구 증빙 보완 요청',
       reason: '안전모 지급 영수증과 현장 착용 사진의 대상 인원이 일치하지 않습니다. 지급 대상자 명단과 착용 확인 사진을 추가 제출해야 합니다.',
       assignee: '김현장',
+      statusCode: 'open',
       dueDate: '2026-04-26',
       requestedAt: '2026-04-23 11:02',
     },
@@ -121,8 +120,7 @@ export const PROJECTS: ProjectSummary[] = [
     plannedAmount: CONTRACT_DB[1].planned || '8,500,000,000',
     accumulatedAmount: CONTRACT_DB[1].accumulated || '31,120,000',
     usageRate: '72%',
-    stageId: 'report_generation',
-    stageIndex: 7,
+    projectStatusCode: 'active',
     status: 'drafting_report',
     hasUploads: true,
     hasActionRequest: false,
@@ -147,8 +145,7 @@ export const PROJECTS: ProjectSummary[] = [
     plannedAmount: CONTRACT_DB[2].planned || '15,700,000,000',
     accumulatedAmount: CONTRACT_DB[2].accumulated || '9,820,000',
     usageRate: '21%',
-    stageId: 'upload',
-    stageIndex: 1,
+    projectStatusCode: 'active',
     status: 'upload_pending',
     hasUploads: false,
     hasActionRequest: false,
@@ -167,6 +164,21 @@ export const STATUS_META: Record<ProjectStatus, { label: string; color: string; 
   completed: { label: '최종 완료', color: C.ok, bg: '#EEF9F1' },
 };
 
+export const PROJECT_STATUS_META: Record<ProjectStatusCode, { label: string; color: string; bg: string }> = {
+  active: { label: '진행 중', color: C.primary, bg: C.bg },
+  completed: { label: '완료', color: C.ok, bg: '#F4FBF6' },
+  suspended: { label: '중단', color: C.g600, bg: C.g100 },
+};
+
+export const ACTION_REQUEST_STATUS_META: Record<ActionRequestStatusCode, { label: string; color: string; bg: string }> = {
+  open: { label: '미착수', color: C.danger, bg: C.dangerBg },
+  in_progress: { label: '조치 중', color: C.warn, bg: C.warnBg },
+  resolved: { label: '조치 완료', color: C.ok, bg: '#F4FBF6' },
+  closed: { label: '종결', color: C.g600, bg: C.g100 },
+};
+
+export const ACTION_REQUEST_STATUS_STEPS: ActionRequestStatusCode[] = ['open', 'in_progress', 'resolved', 'closed'];
+
 export const getAccessibleProjects = (user: AppUser = CURRENT_USER) => PROJECTS.filter((project) => canAccessProject(user, project));
 
 export const getDashboardCounts = (user: AppUser = CURRENT_USER) => {
@@ -183,7 +195,7 @@ export const getSheFilterOptions = (user: AppUser = CURRENT_USER) => {
   const projects = getAccessibleProjects(user);
   return {
     managers: ['전체', ...Array.from(new Set(projects.map((project) => project.manager)))],
-    statuses: ['전체', ...Array.from(new Set(projects.map((project) => STATUS_META[project.status].label)))],
+    statuses: ['전체', ...Array.from(new Set(projects.map((project) => PROJECT_STATUS_META[project.projectStatusCode].label)))],
   };
 };
 
@@ -195,17 +207,17 @@ export const getProjectByContractNumber = (contractNumber?: string | null) =>
 
 const MONTHLY_USAGE_STATEMENTS: Record<string, MonthlyUsageStatementSummary[]> = {
   'dt-logistics-2024': [
-    { month: '2026-04', label: '2026년 4월', sourceFileName: '동탄_산안비_사용내역서_2026-04.xlsx', revisionNo: 2, documentWrittenDate: '2026-04-22', uploadedAt: '2026-04-23', uploadedBy: '김현장', stageIndex: 5, parseStatus: '파싱 완료', validationStatus: '조치 요청', currentAmount: '7,840,000', cumulativeAmount: '48,614,045', evidenceCount: 34, issueCount: 3 },
-    { month: '2026-03', label: '2026년 3월', sourceFileName: '동탄_산안비_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-24', uploadedAt: '2026-03-25', uploadedBy: '김현장', stageIndex: 7, parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '6,120,000', cumulativeAmount: '40,774,045', evidenceCount: 29, issueCount: 0 },
-    { month: '2026-02', label: '2026년 2월', sourceFileName: '동탄_산안비_사용내역서_2026-02.xlsx', revisionNo: 1, documentWrittenDate: '2026-02-21', uploadedAt: '2026-02-22', uploadedBy: '김현장', stageIndex: 7, parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '5,430,000', cumulativeAmount: '34,654,045', evidenceCount: 26, issueCount: 0 },
+    { month: '2026-04', label: '2026년 4월', sourceFileName: '동탄_산안비_사용내역서_2026-04.xlsx', revisionNo: 2, documentWrittenDate: '2026-04-22', uploadedAt: '2026-04-23', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '조치 요청', currentAmount: '7,840,000', cumulativeAmount: '48,614,045', evidenceCount: 34, issueCount: 3 },
+    { month: '2026-03', label: '2026년 3월', sourceFileName: '동탄_산안비_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-24', uploadedAt: '2026-03-25', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '6,120,000', cumulativeAmount: '40,774,045', evidenceCount: 29, issueCount: 0 },
+    { month: '2026-02', label: '2026년 2월', sourceFileName: '동탄_산안비_사용내역서_2026-02.xlsx', revisionNo: 1, documentWrittenDate: '2026-02-21', uploadedAt: '2026-02-22', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '5,430,000', cumulativeAmount: '34,654,045', evidenceCount: 26, issueCount: 0 },
   ],
   'pt-manufacturing-2024': [
-    { month: '2026-04', label: '2026년 4월', sourceFileName: '평택_사용내역서_2026-04.xlsx', revisionNo: 1, documentWrittenDate: '2026-04-20', uploadedAt: '2026-04-21', uploadedBy: '박공무', stageIndex: 7, parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,920,000', cumulativeAmount: '31,120,000', evidenceCount: 22, issueCount: 0 },
-    { month: '2026-03', label: '2026년 3월', sourceFileName: '평택_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-19', uploadedAt: '2026-03-20', uploadedBy: '박공무', stageIndex: 7, parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,300,000', cumulativeAmount: '26,200,000', evidenceCount: 20, issueCount: 0 },
+    { month: '2026-04', label: '2026년 4월', sourceFileName: '평택_사용내역서_2026-04.xlsx', revisionNo: 1, documentWrittenDate: '2026-04-20', uploadedAt: '2026-04-21', uploadedBy: '박공무', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,920,000', cumulativeAmount: '31,120,000', evidenceCount: 22, issueCount: 0 },
+    { month: '2026-03', label: '2026년 3월', sourceFileName: '평택_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-19', uploadedAt: '2026-03-20', uploadedBy: '박공무', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,300,000', cumulativeAmount: '26,200,000', evidenceCount: 20, issueCount: 0 },
   ],
   'gm-datacenter-2025': [
-    { month: '2026-04', label: '2026년 4월', sourceFileName: '광명_사용내역서_2026-04.xlsx', revisionNo: 1, documentWrittenDate: '2026-04-18', uploadedAt: '2026-04-19', uploadedBy: '이프로', stageIndex: 1, parseStatus: '업로드 대기', validationStatus: '미검증', currentAmount: '0', cumulativeAmount: '9,820,000', evidenceCount: 0, issueCount: 0 },
-    { month: '2026-03', label: '2026년 3월', sourceFileName: '광명_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-20', uploadedAt: '2026-03-21', uploadedBy: '이프로', stageIndex: 3, parseStatus: '파싱 완료', validationStatus: '검증 중', currentAmount: '3,120,000', cumulativeAmount: '9,820,000', evidenceCount: 12, issueCount: 1 },
+    { month: '2026-04', label: '2026년 4월', sourceFileName: '광명_사용내역서_2026-04.xlsx', revisionNo: 1, documentWrittenDate: '2026-04-18', uploadedAt: '2026-04-19', uploadedBy: '이프로', parseStatus: '업로드 대기', validationStatus: '미검증', currentAmount: '0', cumulativeAmount: '9,820,000', evidenceCount: 0, issueCount: 0 },
+    { month: '2026-03', label: '2026년 3월', sourceFileName: '광명_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-20', uploadedAt: '2026-03-21', uploadedBy: '이프로', parseStatus: '파싱 완료', validationStatus: '검증 중', currentAmount: '3,120,000', cumulativeAmount: '9,820,000', evidenceCount: 12, issueCount: 1 },
   ],
 };
 

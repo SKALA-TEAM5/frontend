@@ -3,10 +3,10 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Card from '../../components/ui/Card';
-import { AppFrame, ProjectStageStepper } from '../../components/common';
+import { AppFrame } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { C } from '../../lib/theme';
-import { getAccessibleProjects, getMonthlyUsageStatements, getSheFilterOptions, STATUS_META } from '../../lib/project-data';
+import { getAccessibleProjects, getSheFilterOptions, PROJECT_STATUS_META } from '../../lib/project-data';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getVisibleProjects, SORT_LABELS, type PeriodMode, type SortOption } from '../../lib/project-list';
@@ -67,10 +67,6 @@ export default function ProjectsPage() {
       includeManagerStatus: true,
     }, sortBy);
   }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, status]);
-  const getLatestMonthLabel = (projectId: string) => {
-    const statements = getMonthlyUsageStatements(projectId);
-    return statements[statements.length - 1]?.label || '';
-  };
 
   return (
     <AppFrame
@@ -140,11 +136,8 @@ export default function ProjectsPage() {
               <div data-ui="projects.5" style={{ minWidth: 0 }}>
                 <div data-ui="projects.6" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
                   <div data-ui="projects.7" style={{ color: C.g800, fontSize: 20, fontWeight: 900 }}>{project.constructionName}</div>
-                  <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, background: C.bg, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '4px 9px', whiteSpace: 'nowrap' }}>
-                    {getLatestMonthLabel(project.id)}
-                  </span>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '4px 10px' }}>
-                    {STATUS_META[project.status].label}
+                  <span style={{ fontSize: 12, fontWeight: 800, color: PROJECT_STATUS_META[project.projectStatusCode].color, background: PROJECT_STATUS_META[project.projectStatusCode].bg, borderRadius: 999, padding: '4px 10px' }}>
+                    {PROJECT_STATUS_META[project.projectStatusCode].label}
                   </span>
                 </div>
                 <div data-ui="projects.8" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 10, marginBottom: 14 }}>
@@ -160,7 +153,6 @@ export default function ProjectsPage() {
                     </div>
                   ))}
                 </div>
-                <ProjectStageStepper currentStage={project.stageIndex} compact />
               </div>
             </div>
           </Card>

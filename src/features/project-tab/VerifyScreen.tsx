@@ -251,6 +251,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
       requestedFiles: issue.recommendedFiles,
       senderName: user.name,
       recipientUserName: targetProject?.manager,
+      statusCode: 'open',
     });
     setSentActionKeys((prev) => prev.includes(notificationKey) ? prev : [...prev, notificationKey]);
   };
@@ -629,7 +630,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
 
     const decisionMetaByStatus: Record<SheReviewDecision, { label: string; color: string; bg: string; description: string }> = {
       pending: { label: '검토 대기', color: C.g600, bg: C.g100, description: 'AI 판단 결과와 근거를 확인한 뒤 승인, 반려, 보완 요청 중 하나를 선택하세요.' },
-      approved: { label: '승인', color: C.ok, bg: '#F4FBF6', description: 'SHE 담당자가 검증 결과를 승인했습니다. 보고서 생성 단계로 진행할 수 있습니다.' },
+      approved: { label: '승인', color: C.ok, bg: '#F4FBF6', description: 'SHE 담당자가 검증 결과를 승인했습니다. 보고서 생성을 진행할 수 있습니다.' },
       rejected: { label: '반려', color: C.danger, bg: C.dangerBg, description: '검증 결과가 반려되었습니다. 사용내역서 또는 증빙 재검토가 필요합니다.' },
       supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 부족한 서류 보완을 요청한 상태입니다.' },
     };

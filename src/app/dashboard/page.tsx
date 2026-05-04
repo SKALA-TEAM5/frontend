@@ -4,10 +4,10 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
-import { AppFrame, ProjectStageStepper } from '../../components/common';
+import { AppFrame } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { C } from '../../lib/theme';
-import { getAccessibleProjects, getDashboardCounts, getMonthlyUsageStatements, getSheFilterOptions, PROJECT_STAGES, STATUS_META } from '../../lib/project-data';
+import { getAccessibleProjects, getDashboardCounts, getMonthlyUsageStatements, getSheFilterOptions, STATUS_META } from '../../lib/project-data';
 import { getPrimaryProjectAction } from '../../lib/project-actions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { REPORT_DATA, fmt } from '../../lib/mock-data';
@@ -317,7 +317,7 @@ export default function DashboardPage() {
   ];
   const missingUploadProjects = projects.filter((project) => !project.hasUploads || project.status === 'upload_pending');
   const progressPercent = projects.length
-    ? Math.round((projects.reduce((sum, project) => sum + project.stageIndex, 0) / (projects.length * Math.max(PROJECT_STAGES.length - 1, 1))) * 100)
+    ? Math.round(projects.reduce((sum, project) => sum + (Number.parseInt(project.progressRate, 10) || 0), 0) / projects.length)
     : 0;
   const managerWorkloads = Array.from(
     projects.reduce((map, project) => {
@@ -801,7 +801,6 @@ export default function DashboardPage() {
                       {STATUS_META[project.status].label}
                     </span>
                   </div>
-                  <ProjectStageStepper currentStage={project.stageIndex} compact />
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.g400 }}>최근 현황</div>

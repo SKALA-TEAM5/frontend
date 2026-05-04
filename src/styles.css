@@ -185,11 +185,6 @@
     overflow-x: hidden;
     padding-bottom: 0;
   }
-  .project-detail-info-sticky {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-  }
   .project-detail-main-with-history {
     box-sizing: border-box;
     --project-right-space: 240px;

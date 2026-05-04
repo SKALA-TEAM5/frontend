@@ -1,6 +1,5 @@
 import type { UserRole } from '../lib/permissions';
 import type { ProjectStatus } from '../lib/project-data';
-import type { ProjectStageId } from '../lib/project-stages';
 
 export type EvidenceCategory = 'receipt' | 'site_photo' | 'usage_statement' | 'tax_invoice' | 'other_document';
 export type FolderEvidenceCategory = Exclude<EvidenceCategory, 'usage_statement'>;
@@ -116,14 +115,7 @@ export type ActionRequestStatus = 'open' | 'supplement_uploaded' | 'resolved';
 
 export type ReportStatus = 'not_requested' | 'drafting' | 'reviewing' | 'finalized';
 
-export type ActivityTargetType = 'project' | 'stage' | 'evidence' | 'validation' | 'action_request' | 'report';
-
-export interface ProjectStageState {
-  id: ProjectStageId;
-  label: string;
-  status: 'pending' | 'active' | 'completed' | 'blocked';
-  changedAt?: string;
-}
+export type ActivityTargetType = 'project' | 'evidence' | 'validation' | 'action_request' | 'report';
 
 export interface ProjectEvidenceState {
   projectId: string;

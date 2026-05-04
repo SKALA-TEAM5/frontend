@@ -1,3 +1,5 @@
+import type { ActionRequestStatusCode } from './project-data';
+
 export interface ActionNotification {
   id: string;
   projectId?: string;
@@ -9,6 +11,7 @@ export interface ActionNotification {
   senderName: string;
   recipientRole: 'project_manager' | 'she_manager';
   recipientUserName?: string;
+  statusCode?: ActionRequestStatusCode;
   createdAt: string;
   createdAtMs: number;
   read: boolean;
@@ -53,4 +56,8 @@ export const addActionNotification = (notification: Omit<ActionNotification, 'id
 
 export const markActionNotificationRead = (notificationId: string) => {
   writeRaw(readRaw().map((notification) => notification.id === notificationId ? { ...notification, read: true } : notification));
+};
+
+export const updateActionNotificationStatus = (notificationId: string, statusCode: ActionRequestStatusCode) => {
+  writeRaw(readRaw().map((notification) => notification.id === notificationId ? { ...notification, statusCode } : notification));
 };

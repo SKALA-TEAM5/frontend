@@ -1,4 +1,4 @@
-import { STATUS_META, type ProjectSummary } from './project-data';
+import { PROJECT_STATUS_META, type ProjectSummary } from './project-data';
 
 export type SortOption = 'name' | 'recent' | 'progress';
 export type PeriodMode = 'all' | '1m' | '3m' | '6m' | 'custom';
@@ -70,7 +70,7 @@ export const sortProjects = (projects: ProjectSummary[], sortBy: SortOption) => 
   if (sortBy === 'recent') {
     return nextProjects.sort((a, b) => parsePeriodDate(b.period) - parsePeriodDate(a.period));
   }
-  return nextProjects.sort((a, b) => b.stageIndex - a.stageIndex || progressValue(b) - progressValue(a));
+  return nextProjects.sort((a, b) => progressValue(b) - progressValue(a));
 };
 
 export const filterProjects = (projects: ProjectSummary[], options: ProjectFilterOptions) => {
@@ -103,7 +103,7 @@ export const filterProjects = (projects: ProjectSummary[], options: ProjectFilte
       !includeManagerStatus ||
       !options.status ||
       options.status === allStatusLabel ||
-      STATUS_META[project.status].label === options.status;
+      PROJECT_STATUS_META[project.projectStatusCode].label === options.status;
 
     return matchesKeyword && matchesProjectName && matchesContractNumber && matchesPeriod && matchesManager && matchesStatus;
   });
