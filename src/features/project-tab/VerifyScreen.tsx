@@ -23,6 +23,7 @@ type VerifyStatus = 'idle' | 'loading' | 'done';
 type VerifyTab = 'dashboard' | 'report';
 type ReportGenerationStatus = 'idle' | 'generating' | 'done';
 type ReportWorkflowStatus = 'editing' | 'saved';
+type SheReviewDecision = 'pending' | 'approved' | 'rejected' | 'supplement_requested';
 type ResultFilter = 'all' | ValidationDecision;
 type AmountTooltip = {
   label: string;
@@ -113,6 +114,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
   const [reportStatus, setReportStatus] = useState<ReportGenerationStatus>('idle');
   const [reportProgress, setReportProgress] = useState(0);
   const [reportWorkflowStatus, setReportWorkflowStatus] = useState<ReportWorkflowStatus>('editing');
+  const [sheReviewDecision, setSheReviewDecision] = useState<SheReviewDecision>('pending');
   const [reportDraft, setReportDraft] = useState('');
   const [savedAt, setSavedAt] = useState('');
   const [exportNoticeOpen, setExportNoticeOpen] = useState(false);
@@ -120,6 +122,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
   const [summaryWidgetTooltip, setSummaryWidgetTooltip] = useState<SummaryWidgetTooltip>(null);
   const [submittedEvidenceOpen, setSubmittedEvidenceOpen] = useState(false);
   const [sentActionKeys, setSentActionKeys] = useState<string[]>([]);
+  const [openActionKeys, setOpenActionKeys] = useState<string[]>([]);
   const verifyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reportTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeTab: VerifyTab = initialTab;
@@ -189,6 +192,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
     setReportStatus('idle');
     setReportDraft('');
     setReportWorkflowStatus('editing');
+    setSheReviewDecision('pending');
     setSavedAt('');
     let p = 0;
     let stepIndex = 0;
@@ -435,11 +439,18 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
   const renderCategoryTable = () => {
     const thStyle: CSSProperties = { padding: '7px 8px', fontSize: 12, lineHeight: 1.25 };
     const tdStyle: CSSProperties = { padding: '7px 8px', fontSize: 12, lineHeight: 1.3 };
+    const totalTdStyle: CSSProperties = { ...tdStyle, padding: '10px 8px' };
+    const tableUsageTotal = sumBy(filteredCategories, 'usageAmount');
+    const tableRecognizedTotal = sumBy(filteredCategories, 'recognizedAmount');
+    const tableDisputedTotal = sumBy(filteredCategories, 'disputedAmount');
 
     return <Card style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ padding: '11px 14px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 900, color: C.g800 }}>9개 항목 판정</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 14, fontWeight: 900, color: C.g800 }}>9개 항목 판정</span>
+            <span style={{ fontSize: 11, fontWeight: 900, color: C.ok, background: '#F4FBF6', border: '1px solid #D6EEDB', borderRadius: 999, padding: '4px 8px' }}>인정률 {recognizedRate}%</span>
+          </div>
           <div style={{ fontSize: 11, color: C.g400, marginTop: 2 }}>부적정 항목 우선 정렬</div>
         </div>
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
@@ -481,6 +492,16 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
               </tr>;
             })}
           </tbody>
+          <tfoot>
+            <tr>
+              <td style={{ ...totalTdStyle, background: C.g100, fontWeight: 900, color: C.g800 }}>합계</td>
+              <td style={{ ...totalTdStyle, background: C.g100, textAlign: 'right', fontWeight: 900, color: C.g800 }}>{fmt(tableUsageTotal)}</td>
+              <td style={{ ...totalTdStyle, background: C.g100, textAlign: 'right', fontWeight: 900, color: C.ok }}>{fmt(tableRecognizedTotal)}</td>
+              <td style={{ ...totalTdStyle, background: C.g100, textAlign: 'right', fontWeight: 900, color: tableDisputedTotal > 0 ? C.danger : C.g400 }}>{tableDisputedTotal > 0 ? fmt(tableDisputedTotal) : '-'}</td>
+              <td style={{ ...totalTdStyle, background: C.g100 }} />
+              <td style={{ ...totalTdStyle, background: C.g100 }} />
+            </tr>
+          </tfoot>
         </table>
       </div>
     </Card>;
@@ -560,23 +581,92 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
           const meta = decisionMeta[issue.decision];
           const notificationKey = `${issue.categoryName}-${issue.title}`;
           const sent = sentActionKeys.includes(notificationKey);
-          return <div key={`${issue.categoryName}-${issue.title}`} style={{ padding: '13px 14px', borderRadius: 12, border: `1px solid ${meta.border}`, background: meta.bg }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 7 }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>{issue.categoryName}</div>
-              <span style={chipStyle(meta.color, C.white, meta.border)}>{meta.label}</span>
+          const open = openActionKeys.includes(notificationKey);
+          const toggleOpen = () => {
+            setOpenActionKeys((prev) => prev.includes(notificationKey) ? prev.filter((key) => key !== notificationKey) : [...prev, notificationKey]);
+          };
+          const renderNotifyButton = () => (
+            <button type="button" onClick={(event) => {
+              event.stopPropagation();
+              handleSendActionNotification(issue);
+            }} disabled={sent} style={{ border: `1px solid ${sent ? C.g200 : C.primary}`, borderRadius: 999, padding: '7px 12px', background: sent ? C.g100 : C.white, color: sent ? C.g400 : C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: sent ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+              {sent ? '알림 전송됨' : '알림 보내기'}
+            </button>
+          );
+          return <div key={`${issue.categoryName}-${issue.title}`} style={{ borderRadius: 12, border: `1px solid ${open ? meta.border : C.g200}`, background: open ? meta.bg : C.white, overflow: 'hidden' }}>
+            <div role="button" tabIndex={0} onClick={toggleOpen} onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                toggleOpen();
+              }
+            }} style={{ width: '100%', border: 'none', background: 'transparent', padding: '12px 14px', cursor: 'pointer', fontFamily: 'inherit', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 12, alignItems: 'center', textAlign: 'left' }}>
+              <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ width: 18, color: C.g400, fontSize: 13, fontWeight: 900, flexShrink: 0 }}>{open ? '-' : '+'}</span>
+                <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <div title={issue.title} style={{ fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{issue.title}</div>
+                  {can(user, 'requestAction') && <span style={{ flexShrink: 0 }}>{renderNotifyButton()}</span>}
+                </div>
+              </div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                <span style={chipStyle(meta.color, meta.bg, meta.border)}>{meta.label}</span>
+              </div>
             </div>
-            <div style={{ fontSize: 12, fontWeight: 900, color: C.g800, marginBottom: 5 }}>{issue.title}</div>
-            <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.65, marginBottom: 7 }}>{issue.description}</div>
-            <div style={{ fontSize: 11, color: C.g800, lineHeight: 1.65 }}><strong>요청:</strong> {issue.requiredAction}</div>
-            <div style={{ fontSize: 11, color: C.g600, lineHeight: 1.65, marginTop: 3 }}><strong>추가 자료:</strong> {issue.recommendedFiles.join(', ')}</div>
-            {can(user, 'requestAction') && <button type="button" onClick={() => handleSendActionNotification(issue)} disabled={sent} style={{ marginTop: 10, border: `1px solid ${sent ? C.g200 : C.primary}`, borderRadius: 999, padding: '7px 12px', background: sent ? C.g100 : C.white, color: sent ? C.g400 : C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: sent ? 'default' : 'pointer' }}>
-              {sent ? '알림 전송됨' : '프로젝트 담당자에게 알림 보내기'}
-            </button>}
+            {open && <div style={{ padding: '0 14px 14px 42px' }}>
+              <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${meta.border}`, paddingTop: 12 }}>
+                <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.65 }}><strong style={{ color: C.g800 }}>사유:</strong> {issue.description}</div>
+                <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.65 }}><strong style={{ color: C.g800 }}>요청 사항:</strong> {issue.requiredAction}</div>
+                <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.65 }}><strong style={{ color: C.g800 }}>추가해야 할 자료:</strong> {issue.recommendedFiles.join(', ')}</div>
+              </div>
+            </div>}
           </div>;
         })}
       </div>
     </Card>
   );
+
+  const renderSheReviewPanel = () => {
+    if (!can(user, 'confirmFinalReport')) return null;
+
+    const decisionMetaByStatus: Record<SheReviewDecision, { label: string; color: string; bg: string; description: string }> = {
+      pending: { label: '검토 대기', color: C.g600, bg: C.g100, description: 'AI 판단 결과와 근거를 확인한 뒤 승인, 반려, 보완 요청 중 하나를 선택하세요.' },
+      approved: { label: '승인', color: C.ok, bg: '#F4FBF6', description: 'SHE 담당자가 검증 결과를 승인했습니다. 보고서 생성 단계로 진행할 수 있습니다.' },
+      rejected: { label: '반려', color: C.danger, bg: C.dangerBg, description: '검증 결과가 반려되었습니다. 사용내역서 또는 증빙 재검토가 필요합니다.' },
+      supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 부족한 서류 보완을 요청한 상태입니다.' },
+    };
+    const current = decisionMetaByStatus[sheReviewDecision];
+    const reviewButtonStyle = (color: string, active: boolean): CSSProperties => ({
+      border: `1px solid ${color}`,
+      borderRadius: 999,
+      padding: '8px 13px',
+      minWidth: 82,
+      background: active ? color : C.white,
+      color: active ? C.white : color,
+      fontFamily: 'inherit',
+      fontSize: 13,
+      fontWeight: 900,
+      cursor: 'pointer',
+      textAlign: 'center',
+    });
+
+    return (
+      <Card style={{ padding: '18px 20px', marginBottom: 12, border: `1px solid ${current.color}` }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 14, alignItems: 'center' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 7 }}>
+              <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>SHE 최종 판단</div>
+              <span style={chipStyle(current.color, current.bg)}>{current.label}</span>
+            </div>
+            <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6 }}>{current.description}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={() => setSheReviewDecision('approved')} style={reviewButtonStyle(C.ok, sheReviewDecision === 'approved')}>승인</button>
+            <button type="button" onClick={() => setSheReviewDecision('supplement_requested')} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested')}>보완 요청</button>
+            <button type="button" onClick={() => setSheReviewDecision('rejected')} style={reviewButtonStyle(C.danger, sheReviewDecision === 'rejected')}>반려</button>
+          </div>
+        </div>
+      </Card>
+    );
+  };
 
   const renderDashboard = () => (
     <div className="screen-enter">
@@ -589,7 +679,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
         </div>
       </Card>
 
-      {renderSummary()}
+      {renderSheReviewPanel()}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(300px, 1.0fr)', gap: 12, alignItems: 'start', marginBottom: 12 }}>
         {renderCategoryTable()}
         {renderEvidenceBlock(selectedCategory)}

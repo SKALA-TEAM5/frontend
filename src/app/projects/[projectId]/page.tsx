@@ -2,10 +2,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Card from '../../../components/ui/Card';
+import Modal from '../../../components/ui/Modal';
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame, ProjectStageStepper } from '../../../components/common';
 import { C } from '../../../lib/theme';
 import { getMonthlyUsageStatements, getProjectById, PROJECT_STAGES, STATUS_META } from '../../../lib/project-data';
+import { addActionNotification } from '../../../lib/action-notifications';
 import { can } from '../../../lib/permissions';
 import { workflowStorage } from '../../../lib/workflow-storage';
 import { useCurrentUser } from '../../../lib/dev-user';
@@ -26,6 +28,7 @@ const TABS: Array<{
     { id: 'report', label: '보고서' },
 ];
 const DETAIL_TABS = new Set<DetailTab>(['overview', 'upload', 'validation', 'report', 'archive']);
+const SUPPLEMENT_REQUESTED_FILES = ['영수증', '현장사진', '지급대장', '선임확인서'];
 export default function ProjectDetailPage() {
     const router = useRouter();
     const params = useParams<{
@@ -83,6 +86,8 @@ export default function ProjectDetailPage() {
     const [historyDateMenuOpen, setHistoryDateMenuOpen] = useState(false);
     const [monthMenuOpen, setMonthMenuOpen] = useState(false);
     const [projectHeaderOpen, setProjectHeaderOpen] = useState(true);
+    const [actionGuideOpen, setActionGuideOpen] = useState(false);
+    const [actionCompletionSent, setActionCompletionSent] = useState(false);
     const [historyOpen, setHistoryOpen] = useState(true);
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
     const historyDateMenuRef = useRef<HTMLDivElement | null>(null);
@@ -93,10 +98,14 @@ export default function ProjectDetailPage() {
     const selectedStatement = monthlyStatements.find((statement) => statement.month === selectedMonth) || latestStatement;
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
     const selectedStageLabel = PROJECT_STAGES[selectedStatement.stageIndex] || '등록';
+    const canViewActionGuide = user.role === 'project_manager' && project.hasActionRequest;
+    const shouldPulseActionBadge = canViewActionGuide && !actionCompletionSent;
     useEffect(() => {
         setArchiveSeed(workflowStorage.getArchiveSeed(project.id));
         setMatchReady(workflowStorage.getMatchReady(project.id));
-    }, [project.id]);
+        setActionGuideOpen(user.role === 'project_manager' && project.hasActionRequest);
+        setActionCompletionSent(false);
+    }, [project.id, project.hasActionRequest, user.role]);
     useEffect(() => {
         setSelectedMonth(latestStatement.month);
     }, [latestStatement.month]);
@@ -160,6 +169,53 @@ export default function ProjectDetailPage() {
             updateTab('validation');
         }, 900);
     };
+    const sendActionCompletionNotification = () => {
+        if (!canViewActionGuide || actionCompletionSent)
+            return;
+        addActionNotification({
+            projectId: project.id,
+            projectName: project.name,
+            categoryName: project.actionRequestDetails?.title || '보완 자료',
+            title: `${project.actionRequestDetails?.title || '보완 자료'} 조치 완료`,
+            message: `${project.name} 담당자가 요청된 보완 자료 조치를 완료했습니다. 제출 자료를 확인한 뒤 유효성 검증을 다시 수행해 주세요.`,
+            requestedFiles: [],
+            senderName: user.name,
+            recipientRole: 'she_manager',
+        });
+        setActionCompletionSent(true);
+    };
+    const actionGuideModal = canViewActionGuide && project.actionRequestDetails ? (
+        <Modal open={actionGuideOpen} onClose={() => setActionGuideOpen(false)} zIndex={960} maxWidth={680}>
+          <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
+            <div style={{ padding: '20px 22px 16px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 900, color: C.danger }}>부족한 서류 안내</span>
+                  <span style={{ fontSize: 11, fontWeight: 900, color: C.g600, background: C.g100, borderRadius: 999, padding: '4px 8px' }}>기한 {project.actionRequestDetails.dueDate}</span>
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, lineHeight: 1.35 }}>{project.actionRequestDetails.title}</div>
+                <div style={{ fontSize: 12, color: C.g400, fontWeight: 900, marginTop: 6 }}>요청 {project.actionRequestDetails.requestedAt} · 담당 {project.actionRequestDetails.assignee}</div>
+              </div>
+              <button type="button" aria-label="부족한 서류 안내 닫기" onClick={() => setActionGuideOpen(false)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: '18px 22px 20px' }}>
+              <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.7, marginBottom: 14 }}>{project.actionRequestDetails.reason}</div>
+              <div style={{ fontSize: 12, fontWeight: 900, color: C.g800, marginBottom: 8 }}>제출해야 할 서류</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                {SUPPLEMENT_REQUESTED_FILES.map((file) => (
+                  <span key={file} style={{ fontSize: 12, fontWeight: 900, color: C.primary, background: C.bg, border: `1px solid ${C.light}`, borderRadius: 999, padding: '5px 10px' }}>{file}</span>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+                <button type="button" onClick={() => setActionGuideOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>닫기</button>
+                <button type="button" onClick={sendActionCompletionNotification} disabled={actionCompletionSent} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: actionCompletionSent ? C.g100 : C.primary, color: actionCompletionSent ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: actionCompletionSent ? 'default' : 'pointer' }}>
+                  {actionCompletionSent ? '조치 완료 알림 전송됨' : '조치 완료'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+    ) : null;
     const historyCard = (<section data-ui="project-detail.40" style={{ borderTop: `1px solid ${C.g200}`, paddingTop: 12, flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <button type="button" onClick={() => setHistoryOpen((open) => !open)} style={{ width: '100%', border: 'none', background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', padding: '8px 4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4 }}>
         <span data-ui="project-detail.1" style={{ fontSize: 14, color: C.g800, fontWeight: 900 }}>최근 이력</span>
@@ -235,6 +291,10 @@ export default function ProjectDetailPage() {
     const usageDetailPages = Array.from({ length: Math.ceil(USAGE_LINE_ITEMS.length / usageDetailPageSize) }, (_, index) => USAGE_LINE_ITEMS.slice(index * usageDetailPageSize, (index + 1) * usageDetailPageSize));
     const usageStatementPageCount = 1 + usageDetailPages.length;
     const selectedUsageDetailPage = usageDetailPages[usageStatementPage - 1] || [];
+    const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '120px 260px 120px 260px', minWidth: 760 } as const;
+    const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 130px 130px', minWidth: 650 } as const;
+    const usageDetailGridStyle = { display: 'grid', gridTemplateColumns: '64px minmax(220px, 1fr) minmax(180px, .75fr) 130px', minWidth: 594 } as const;
+    const usageTableScrollStyle = { width: '100%', overflowX: 'auto', overflowY: 'hidden' } as const;
     const tabContent = {
         overview: (<Card style={{ padding: '22px 24px' }}>
         <div data-ui="project-detail.15" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -249,7 +309,8 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         {usageStatementPage === 0 ? <>
-        <div data-ui="project-detail.16" style={{ display: 'grid', gridTemplateColumns: '120px minmax(0,1fr) 120px minmax(0,1fr)', border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', fontSize: 13, marginBottom: 16 }}>
+        <div className="thin-x-scroll" style={{ ...usageTableScrollStyle, marginBottom: 16 }}>
+        <div data-ui="project-detail.16" style={{ ...usageInfoGridStyle, border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', fontSize: 13 }}>
           {[
                 ['건설업체명', project.constructionCompany, '공사명', project.constructionName],
                 ['소재지', project.location, '대표자', project.representative],
@@ -267,33 +328,38 @@ export default function ProjectDetailPage() {
               <div title={valueB} style={{ padding: '9px 11px', color: C.g800, fontWeight: 800, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueB}</div>
             </Fragment>))}
         </div>
-        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 130px 130px', background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
+        </div>
+        <div className="thin-x-scroll" style={usageTableScrollStyle}>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', minWidth: usageSummaryGridStyle.minWidth }}>
+          <div style={{ ...usageSummaryGridStyle, background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
             {['항목', '전회', '금회', '누계'].map((head) => <div key={head} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 900, textAlign: head === '항목' ? 'left' : 'right', borderRight: head === '누계' ? 'none' : `1px solid ${C.g200}` }}>{head}</div>)}
           </div>
           {overviewUsageRows.map(([item, previous, current, cumulative], index) => {
                 const isTotal = item === '계';
-                return (<div key={item} style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 130px 130px', background: isTotal ? C.g100 : C.white, borderBottom: index === overviewUsageRows.length - 1 ? 'none' : `1px solid ${C.g200}` }}>
+                return (<div key={item} style={{ ...usageSummaryGridStyle, background: isTotal ? C.g100 : C.white, borderBottom: index === overviewUsageRows.length - 1 ? 'none' : `1px solid ${C.g200}` }}>
                 <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, borderRight: `1px solid ${C.g200}` }}>{item}</div>
                 {[previous, current, cumulative].map((amount, amountIndex) => <div key={`${item}-${amountIndex}`} style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, textAlign: 'right', borderRight: amountIndex === 2 ? 'none' : `1px solid ${C.g200}` }}>{amount}</div>)}
               </div>);
             })}
         </div>
+        </div>
         </> : <>
-        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '64px minmax(220px, 1fr) minmax(180px, .75fr) 130px', background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
+        <div className="thin-x-scroll" style={usageTableScrollStyle}>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', minWidth: usageDetailGridStyle.minWidth }}>
+          <div style={{ ...usageDetailGridStyle, background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
             {['번호', '세부 항목', '9개 항목', '금액'].map((head) => <div key={head} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 900, textAlign: head === '금액' ? 'right' : 'left', borderRight: head === '금액' ? 'none' : `1px solid ${C.g200}` }}>{head}</div>)}
           </div>
           {selectedUsageDetailPage.map((line, index) => {
             const absoluteIndex = (usageStatementPage - 1) * usageDetailPageSize + index + 1;
             const category = CATS.find((cat) => cat.id === line.categoryId);
-            return <div key={line.id} style={{ display: 'grid', gridTemplateColumns: '64px minmax(220px, 1fr) minmax(180px, .75fr) 130px', borderBottom: index === selectedUsageDetailPage.length - 1 ? 'none' : `1px solid ${C.g200}` }}>
+            return <div key={line.id} style={{ ...usageDetailGridStyle, borderBottom: index === selectedUsageDetailPage.length - 1 ? 'none' : `1px solid ${C.g200}` }}>
               <div style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}` }}>{absoluteIndex}</div>
               <div title={line.name} style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: 900, borderRight: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{line.name}</div>
               <div title={category?.label || ''} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{category?.label || '-'}</div>
               <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: 900, textAlign: 'right' }}>{fmt(line.amount)}</div>
             </div>;
           })}
+        </div>
         </div>
         </>}
       </Card>),
@@ -320,7 +386,7 @@ export default function ProjectDetailPage() {
             }} archiveSeed={archiveSeed} validationStatus={selectedValidationStatus} onRunValidation={runArchiveValidation} onArchiveSeedChange={(nextSeed) => {
                 workflowStorage.setArchiveSeed(project.id, nextSeed);
                 setArchiveSeed(nextSeed);
-            }} contractName={project.name} contractMeta={{
+            }} canRunValidation={canRunValidation} contractName={project.name} contractMeta={{
                 name: project.name,
                 num: project.contractNumber,
                 period: project.period,
@@ -355,22 +421,23 @@ export default function ProjectDetailPage() {
                   })}
                 </div>)}
               </div>
-              <button type="button" onClick={() => setProjectHeaderOpen((open) => !open)} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, height: 40, padding: '0 11px', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>
-                <ChevronIcon direction={projectHeaderOpen ? 'up' : 'down'} size={16} />
+              <button type="button" onClick={() => setProjectHeaderOpen((open) => !open)} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, height: 32, padding: '0 9px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>
+                <ChevronIcon direction={projectHeaderOpen ? 'up' : 'down'} size={14} />
               </button>
             </div>
           </div>
           {projectHeaderOpen && <div data-ui="project-detail.26" style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 2, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, fontWeight: 900, color: C.g400 }}>{selectedStatement.label} 진행 단계</span>
-              <span data-ui="project-detail.27" style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '4px 10px' }}>
+              <button type="button" data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => canViewActionGuide && setActionGuideOpen(true)} disabled={!canViewActionGuide} style={{ border: 'none', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '4px 10px', cursor: canViewActionGuide ? 'pointer' : 'default' }}>
                 {STATUS_META[project.status].label}
-              </span>
+              </button>
             </div>
             <ProjectStageStepper currentStage={selectedStatement.stageIndex}/>
           </div>}
         </div>
       </Card>
+      {actionGuideModal}
 
       <div data-ui="project-detail.28" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

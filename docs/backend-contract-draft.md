@@ -1,284 +1,318 @@
-# Backend Contract Draft
+# Backend API Request List
 
-## Purpose
+현재 프론트엔드 코드 기준으로 필요한 API 요청 목록입니다. 사용자 역할은 `project_manager`(프로젝트 담당자), `she_manager`(SHE 담당자)만 사용합니다.
 
-백엔드 협의를 위한 프론트 기준 초안입니다. 아직 실제 API 구현은 보류 상태이며, 이 문서는 권한, 프로젝트 단계, 주요 엔티티, API 후보, 미확정 질문을 맞추기 위한 기준 자료입니다.
+<table>
+  <colgroup>
+    <col style="width: 150px;" />
+    <col style="width: 120px;" />
+    <col style="width: 76px;" />
+    <col style="min-width: 340px; width: 340px;" />
+    <col style="width: 300px;" />
+    <col style="width: 300px;" />
+    <col style="width: 240px;" />
+  </colgroup>
+  <thead>
+    <tr>
+      <th>기능명</th>
+      <th>담당자</th>
+      <th>Method</th>
+      <th>URI</th>
+      <th>Request 주요값<br>(예시 값 혹은 형식 표시)</th>
+      <th>Response 주요값<br>(예시 값 혹은 형식 표시)</th>
+      <th>설명</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>로그인</td>
+      <td>공통</td>
+      <td><code>POST</code></td>
+      <td><code>/auth/login</code></td>
+      <td><code>email: "pm@example.com"</code><br><code>password: "password"</code></td>
+      <td><code>accessToken</code><br><code>user: { id, name, role }</code></td>
+      <td>사용자 인증</td>
+    </tr>
+    <tr>
+      <td>회원가입</td>
+      <td>공통</td>
+      <td><code>POST</code></td>
+      <td><code>/auth/signup</code></td>
+      <td><code>name</code>, <code>email</code>, <code>password</code><br><code>role: "project_manager" | "she_manager"</code></td>
+      <td><code>user: { id, name, role }</code></td>
+      <td>신규 사용자 등록</td>
+    </tr>
+    <tr>
+      <td>현재 사용자 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/me</code></td>
+      <td>없음</td>
+      <td><code>user: { id, name, role }</code></td>
+      <td>사이드바 사용자 정보와 권한 분기</td>
+    </tr>
+    <tr>
+      <td>SHE 대시보드 조회</td>
+      <td>SHE 담당자</td>
+      <td><code>GET</code></td>
+      <td><code>/dashboard/she</code></td>
+      <td><code>status</code>, <code>managerId</code><br><code>periodFrom: "2024-01-01"</code><br><code>periodTo: "2024-12-31"</code></td>
+      <td><code>summary</code><br><code>todoItems</code><br><code>recentActivities</code><br><code>pendingActionRequests</code><br><code>projects</code></td>
+      <td>SHE 담당자 로그인 후 첫 화면 데이터</td>
+    </tr>
+    <tr>
+      <td>대시보드 위젯 설정 조회</td>
+      <td>SHE 담당자</td>
+      <td><code>GET</code></td>
+      <td><code>/users/me/dashboard-preferences</code></td>
+      <td>없음</td>
+      <td><code>visibleWidgetIds: string[]</code><br><code>widgetLayout: string[]</code></td>
+      <td>현재 localStorage 위젯 설정의 서버 저장용 조회</td>
+    </tr>
+    <tr>
+      <td>대시보드 위젯 설정 저장</td>
+      <td>SHE 담당자</td>
+      <td><code>PUT</code></td>
+      <td><code>/users/me/dashboard-preferences</code></td>
+      <td><code>visibleWidgetIds: string[]</code><br><code>widgetLayout: string[]</code></td>
+      <td><code>visibleWidgetIds</code><br><code>widgetLayout</code></td>
+      <td>대시보드 위젯 표시/배치 설정 저장</td>
+    </tr>
+    <tr>
+      <td>프로젝트 목록 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects</code></td>
+      <td><code>q</code>, <code>status</code>, <code>managerId</code><br><code>periodFrom</code>, <code>periodTo</code><br><code>uploadStatus</code>, <code>actionStatus</code>, <code>reportStatus</code><br><code>sort</code>, <code>page</code>, <code>pageSize</code></td>
+      <td><code>projects: ProjectSummary[]</code><br><code>total</code><br><code>filters</code></td>
+      <td>프로젝트 담당자는 본인 담당 프로젝트, SHE 담당자는 전체 프로젝트 조회</td>
+    </tr>
+    <tr>
+      <td>프로젝트 상세 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}</code></td>
+      <td><code>projectId: "2024-0042"</code></td>
+      <td><code>project</code><br><code>stages</code><br><code>permissions</code><br><code>actionRequestDetails</code></td>
+      <td>프로젝트 상단 단계, 상세 정보, 개요 탭 데이터 조회</td>
+    </tr>
+    <tr>
+      <td>프로젝트 단계 변경</td>
+      <td>공통</td>
+      <td><code>PATCH</code></td>
+      <td><code>/projects/{projectId}/stage</code></td>
+      <td><code>stageId: "validation"</code><br><code>reason</code></td>
+      <td><code>project</code><br><code>statusHistory</code></td>
+      <td>업로드/검증/보고서 흐름에 따른 단계 변경</td>
+    </tr>
+    <tr>
+      <td>월별 사용내역서 목록 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/usage-statements</code></td>
+      <td><code>projectId</code></td>
+      <td><code>statements: [{ id, month, sourceFileName, revisionNo, currentAmount, cumulativeAmount, evidenceCount, issueCount }]</code></td>
+      <td>프로젝트 기준 사용내역서 목록 조회</td>
+    </tr>
+    <tr>
+      <td>사용내역서 세부 항목 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/usage-statements/{statementId}/line-items</code></td>
+      <td><code>projectId</code><br><code>statementId</code></td>
+      <td><code>lineItems: [{ id, categoryId, name, amount }]</code></td>
+      <td>아카이브 계층 구조의 세부 집행 항목 조회</td>
+    </tr>
+    <tr>
+      <td>증빙 파일 목록 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/evidence</code></td>
+      <td><code>kind</code>, <code>categoryId</code>, <code>usageItemId</code></td>
+      <td><code>usageStatements</code><br><code>categories</code><br><code>files</code></td>
+      <td>증빙 업로드/아카이브 파일 목록 조회</td>
+    </tr>
+    <tr>
+      <td>증빙 파일 업로드</td>
+      <td>프로젝트 담당자</td>
+      <td><code>POST</code></td>
+      <td><code>/projects/{projectId}/evidence</code></td>
+      <td><code>files: File[]</code><br><code>kind: "usage_statement" | "receipt" | "site_photo" | "tax_invoice" | "other_document"</code><br><code>categoryIds: string[]</code><br><code>usageItemIds: string[]</code><br><code>description</code></td>
+      <td><code>uploadedFiles</code><br><code>archive</code><br><code>activityLog</code></td>
+      <td>사용내역서, 영수증, 현장사진, 세금내역서, 기타 서류 업로드</td>
+    </tr>
+    <tr>
+      <td>증빙 파일 수정</td>
+      <td>프로젝트 담당자</td>
+      <td><code>PATCH</code></td>
+      <td><code>/projects/{projectId}/evidence/{evidenceId}</code></td>
+      <td><code>kind</code>, <code>categoryIds</code>, <code>usageItemIds</code><br><code>description</code></td>
+      <td><code>file</code><br><code>archive</code></td>
+      <td>파일 분류 이동, 설명 수정, 세부 항목 연결 변경</td>
+    </tr>
+    <tr>
+      <td>증빙 파일 삭제</td>
+      <td>프로젝트 담당자</td>
+      <td><code>DELETE</code></td>
+      <td><code>/projects/{projectId}/evidence/{evidenceId}</code></td>
+      <td><code>projectId</code><br><code>evidenceId</code></td>
+      <td><code>deletedId</code><br><code>archive</code></td>
+      <td>업로드된 증빙 파일 삭제</td>
+    </tr>
+    <tr>
+      <td>증빙 미리보기 URL 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/evidence/{evidenceId}/preview</code></td>
+      <td><code>projectId</code><br><code>evidenceId</code></td>
+      <td><code>previewUrl</code><br><code>expiresAt</code></td>
+      <td>이미지/PDF 미리보기 URL 조회</td>
+    </tr>
+    <tr>
+      <td>유효성 검증 실행</td>
+      <td>프로젝트 담당자</td>
+      <td><code>POST</code></td>
+      <td><code>/projects/{projectId}/validations</code></td>
+      <td><code>usageStatementId</code><br><code>rerun: boolean</code></td>
+      <td><code>validationId</code><br><code>status: "running"</code></td>
+      <td>OCR/비전/법령 검증 실행</td>
+    </tr>
+    <tr>
+      <td>유효성 검증 진행 상태 조회</td>
+      <td>프로젝트 담당자</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/validations/{validationId}</code></td>
+      <td><code>projectId</code><br><code>validationId</code></td>
+      <td><code>validationId</code><br><code>status</code><br><code>progress</code><br><code>steps</code></td>
+      <td>검증 진행률과 단계 조회</td>
+    </tr>
+    <tr>
+      <td>최신 유효성 검증 결과 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/validations/latest</code></td>
+      <td><code>projectId</code></td>
+      <td><code>id</code><br><code>checkedAt</code><br><code>usageStatementFile</code><br><code>lawAgent</code><br><code>categories</code></td>
+      <td>유효성 검증 탭 대시보드 결과 조회</td>
+    </tr>
+    <tr>
+      <td>유효성 검증 결과 확정</td>
+      <td>SHE 담당자</td>
+      <td><code>POST</code></td>
+      <td><code>/projects/{projectId}/validations/{validationId}/confirm</code></td>
+      <td><code>decision: "confirm" | "request_action"</code><br><code>comment</code></td>
+      <td><code>validationId</code><br><code>project</code><br><code>statusHistory</code></td>
+      <td>검증 결과 확정 또는 조치 요청 단계 전환</td>
+    </tr>
+    <tr>
+      <td>조치 요청 목록 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/action-requests</code></td>
+      <td><code>projectId</code></td>
+      <td><code>actionRequests: [{ id, title, status, requestedBy, assignee, dueDate, reason }]</code></td>
+      <td>프로젝트별 조치 요청 목록 조회</td>
+    </tr>
+    <tr>
+      <td>조치 요청 등록</td>
+      <td>SHE 담당자</td>
+      <td><code>POST</code></td>
+      <td><code>/projects/{projectId}/action-requests</code></td>
+      <td><code>title</code><br><code>reason</code><br><code>assigneeId</code><br><code>dueDate</code><br><code>relatedValidationId</code><br><code>relatedEvidenceIds</code><br><code>recommendedFiles</code></td>
+      <td><code>actionRequest</code><br><code>project</code><br><code>notification</code></td>
+      <td>SHE 담당자가 보완 요청 등록</td>
+    </tr>
+    <tr>
+      <td>조치 요청 상태 변경</td>
+      <td>공통</td>
+      <td><code>PATCH</code></td>
+      <td><code>/projects/{projectId}/action-requests/{requestId}</code></td>
+      <td><code>status</code><br><code>assigneeId</code><br><code>dueDate</code><br><code>reason</code></td>
+      <td><code>actionRequest</code><br><code>project</code></td>
+      <td>조치 요청 완료/미완료/보완 업로드 상태 변경</td>
+    </tr>
+    <tr>
+      <td>내 알림 목록 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/users/me/notifications</code></td>
+      <td>없음</td>
+      <td><code>notifications: [{ id, projectId, title, message, createdAt, readAt }]</code></td>
+      <td>조치 요청 알림 조회</td>
+    </tr>
+    <tr>
+      <td>알림 읽음 처리</td>
+      <td>공통</td>
+      <td><code>PATCH</code></td>
+      <td><code>/users/me/notifications/{notificationId}/read</code></td>
+      <td><code>notificationId</code></td>
+      <td><code>notification</code></td>
+      <td>알림 읽음 처리</td>
+    </tr>
+    <tr>
+      <td>보고서 초안 생성</td>
+      <td>프로젝트 담당자</td>
+      <td><code>POST</code></td>
+      <td><code>/projects/{projectId}/reports</code></td>
+      <td><code>validationId</code></td>
+      <td><code>reportId</code><br><code>status: "drafting"</code></td>
+      <td>검증 결과 기반 AI 보고서 초안 생성</td>
+    </tr>
+    <tr>
+      <td>최신 보고서 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/reports/latest</code></td>
+      <td><code>projectId</code></td>
+      <td><code>report</code><br><code>draftText</code><br><code>reviewComments</code></td>
+      <td>보고서 탭에서 초안/저장본 조회</td>
+    </tr>
+    <tr>
+      <td>보고서 임시저장</td>
+      <td>프로젝트 담당자</td>
+      <td><code>PATCH</code></td>
+      <td><code>/projects/{projectId}/reports/{reportId}</code></td>
+      <td><code>draftText</code><br><code>status: "drafting" | "saved"</code></td>
+      <td><code>report</code><br><code>version</code></td>
+      <td>보고서 편집 후 저장</td>
+    </tr>
+    <tr>
+      <td>보고서 최종 확정</td>
+      <td>SHE 담당자</td>
+      <td><code>POST</code></td>
+      <td><code>/projects/{projectId}/reports/{reportId}/finalize</code></td>
+      <td><code>comment</code></td>
+      <td><code>report</code><br><code>project</code><br><code>statusHistory</code></td>
+      <td>SHE 담당자 최종 확정</td>
+    </tr>
+    <tr>
+      <td>보고서 PDF 다운로드</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/reports/{reportId}/pdf</code></td>
+      <td><code>projectId</code><br><code>reportId</code></td>
+      <td><code>application/pdf</code></td>
+      <td>보고서 PDF 추출</td>
+    </tr>
+    <tr>
+      <td>프로젝트 최근 이력 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/activity</code></td>
+      <td><code>date: "2026-05-04"</code><br><code>limit: 20</code></td>
+      <td><code>activities: [{ id, actorName, action, targetType, createdAt }]</code></td>
+      <td>우측 최근 이력 카드 데이터 조회</td>
+    </tr>
+    <tr>
+      <td>프로젝트 상태 변경 이력 조회</td>
+      <td>공통</td>
+      <td><code>GET</code></td>
+      <td><code>/projects/{projectId}/status-history</code></td>
+      <td><code>projectId</code></td>
+      <td><code>history: [{ id, fromStatus, toStatus, actorName, createdAt, reason }]</code></td>
+      <td>단계/상태 변경 이력 조회</td>
+    </tr>
+  </tbody>
+</table>
 
-## Current Frontend Assumptions
-
-- 프론트는 현재 mock 데이터와 localStorage를 사용합니다.
-- 서버 상태 전환, API route 추가, DB 스키마 확정은 아직 하지 않았습니다.
-- 권한과 단계 모델은 프론트 코드에 선반영되어 있습니다.
-  - `src/lib/permissions.ts`
-  - `src/lib/project-stages.ts`
-  - `src/lib/project-actions.ts`
-  - `src/types/domain.ts`
-
-## Roles
-
-역할은 포함 관계입니다.
-
-```text
-general < project_manager < she_manager
-```
-
-| Role                | Label           | Permissions                                                                      |
-| ------------------- | --------------- | -------------------------------------------------------------------------------- |
-| `general`         | 일반 사용자     | 본인이 participant인 프로젝트 조회, 증빙자료 업로드, 보완 증빙 업로드            |
-| `project_manager` | 프로젝트 담당자 | 일반 사용자 권한 포함, 프로젝트 상태 확인, 유효성 검증, 보고서 요청, 보고서 검토 |
-| `she_manager`     | SHE 담당자      | 프로젝트 담당자 권한 포함, 조치 요청, 최종 보고서 확정                           |
-
-## Project Access Rule
-
-현재 기준:
-
-- 일반 사용자는 `participants`에 포함된 프로젝트만 조회 및 업로드 가능
-- 프로젝트 담당자는 `manager`가 본인인 프로젝트만 조회 및 처리 가능
-- SHE 담당자는 모든 프로젝트 조회 및 처리 가능
-- 권한은 포함 관계이므로 상위 역할은 하위 역할 권한을 포함
-
-## Project Stages
-
-| Index | Stage ID | Label |
-| ----: | --- | --- |
-| 0 | `registered` | 등록 |
-| 1 | `upload` | 업로드 |
-| 2 | `photo_check` | 분류 후 필요한 현장사진 업로드 검증 |
-| 3 | `validation` | 유효성 검증 |
-| 4 | `she_review` | SHE 검토 |
-| 5 | `action_request` | 조치 요청 |
-| 6 | `supplement_validation` | 보완 업로드 및 유효성 검증 |
-| 7 | `report_generation` | 보고서 생성 |
-
-프론트는 `stageId`를 기준값으로 보고, `stageIndex`는 표시용 호환 필드로만 사용하려고 합니다.
-
-## Stage Actions
-
-| Stage                                     | Available Action | Minimum Role        |
-| ----------------------------------------- | ---------------- | ------------------- |
-| `registered`, `upload` | 증빙자료 업로드 | `project_manager` |
-| `photo_check` | 현장사진 검증 | `project_manager` |
-| `validation`, `supplement_validation` | 유효성 검증 | `project_manager` |
-| `she_review`, `action_request` | 조치 요청 등록 | `she_manager` |
-| `action_request`, `supplement_validation` | 보완 증빙 업로드 | `project_manager` |
-| `report_generation` | 보고서 생성/검토 | `project_manager` |
-
-## Core Entities
-
-### User
-
-```ts
-interface User {
-  id: string;
-  name: string;
-  role: 'general' | 'project_manager' | 'she_manager';
-}
-```
-
-### Project
-
-```ts
-interface Project {
-  id: string;
-  contractNumber: string;
-  name: string;
-  manager: string;
-  participants: string[];
-  period: string;
-  stageId: ProjectStageId;
-  status:
-    | 'upload_pending'
-    | 'under_review'
-    | 'action_required'
-    | 'supplement_uploaded'
-    | 'drafting_report'
-    | 'completed';
-  hasUploads: boolean;
-  hasActionRequest: boolean;
-  reportReady: boolean;
-  recentActivity: string;
-}
-```
-
-### Evidence
-
-`kind`는 증빙 파일의 대분류입니다.
-
-| Kind                | Label                            | Meaning                                                       |
-| ------------------- | -------------------------------- | ------------------------------------------------------------- |
-| `usage_statement` | 사용내역서                       | 최초 기준 문서. 9개 폴더로 분류하지 않고 프로젝트 단위로 관리 |
-| `receipt`         | 영수증                           | 지출 증빙. 사용내역서의 항목/금액과 매칭됨                    |
-| `site_photo`      | 현장사진                         | 필요한 항목에만 제출. 제출 시 설명 텍스트 필요                |
-| `tax_invoice`     | 세금내역서 + 제3자사실관계확인서 | 세금 관련 증빙과 제3자 확인 자료를 함께 관리하는 묶음         |
-
-```ts
-interface EvidenceFile {
-  id: string;
-  projectId: string;
-  name: string;
-  kind: 'receipt' | 'site_photo' | 'usage_statement' | 'tax_invoice';
-  description?: string;
-  amount?: string;
-  uploadedAt?: string;
-  uploadedBy?: string;
-  categoryIds?: number[]; // usage_statement는 사용하지 않음
-}
-```
-
-`usage_statement`는 프로젝트 기준 문서이므로 9개 비용 항목 폴더에 배치하지 않습니다. `receipt`, `site_photo`, `tax_invoice`만 `categoryIds`로 폴더 분류합니다.
-
-### Evidence Upload Flow
-
-초기 제출은 순서가 있습니다.
-
-1. `usage_statement`를 먼저 프로젝트에 업로드
-2. 이후 `receipt`, `site_photo`, `tax_invoice` 업로드 가능
-3. `site_photo`는 필요한 항목에만 제출
-4. `tax_invoice`는 세금내역서와 제3자사실관계확인서를 같은 제출 묶음으로 관리
-5. 모든 자료 유형은 최초 제출 이후에도 추가 제출 가능
-
-### Validation
-
-```ts
-interface ProjectValidationState {
-  projectId: string;
-  status: 'not_started' | 'running' | 'completed' | 'needs_action';
-  resultIds: string[];
-  confirmedAt?: string;
-  confirmedBy?: string;
-}
-```
-
-### Action Request
-
-```ts
-interface ProjectActionRequest {
-  id: string;
-  projectId: string;
-  title: string;
-  status: 'open' | 'supplement_uploaded' | 'resolved';
-  requestedBy: string;
-  assignee?: string;
-  dueDate?: string;
-  reason?: string;
-  createdAt: string;
-  resolvedAt?: string;
-}
-```
-
-### Report
-
-```ts
-interface ProjectReportState {
-  projectId: string;
-  status: 'not_requested' | 'drafting' | 'reviewing' | 'finalized';
-  version: number;
-  finalizedAt?: string;
-  finalizedBy?: string;
-}
-```
-
-## Audit And History
-
-상태 변경 이력과 행위 로그는 초반부터 공통 구조로 저장되어야 합니다.
-
-### Activity Log
-
-```ts
-interface ActivityLogEntry {
-  id: string;
-  projectId: string;
-  actorName: string;
-  actorRole: UserRole;
-  action: string;
-  targetType: 'project' | 'stage' | 'evidence' | 'validation' | 'action_request' | 'report';
-  targetId: string;
-  reason?: string;
-  createdAt: string;
-}
-```
-
-### Status History
-
-```ts
-interface StatusHistoryEntry {
-  id: string;
-  projectId: string;
-  actorName: string;
-  actorRole: UserRole;
-  targetType: 'project' | 'stage' | 'evidence' | 'validation' | 'action_request' | 'report';
-  targetId: string;
-  fromStatus?: string;
-  toStatus: string;
-  reason?: string;
-  createdAt: string;
-}
-```
-
-## API Candidates
-
-아래는 구현 요청이 아니라 협의용 후보입니다.
-
-### User
-
-| Method  | Path        | Purpose                 |
-| ------- | ----------- | ----------------------- |
-| `GET` | `/api/me` | 현재 사용자와 역할 조회 |
-
-### Projects
-
-| Method    | Path                                | Purpose                         |
-| --------- | ----------------------------------- | ------------------------------- |
-| `GET`   | `/api/projects`                   | 권한 범위 내 프로젝트 목록 조회 |
-| `GET`   | `/api/projects/:projectId`        | 프로젝트 상세 조회              |
-| `PATCH` | `/api/projects/:projectId/stage`  | 프로젝트 단계 변경              |
-| `PATCH` | `/api/projects/:projectId/status` | 프로젝트 업무 상태 변경         |
-
-### Evidence
-
-| Method   | Path                                          | Purpose                 |
-| -------- | --------------------------------------------- | ----------------------- |
-| `GET`  | `/api/projects/:projectId/evidence`         | 프로젝트 증빙 목록 조회 |
-| `POST` | `/api/projects/:projectId/evidence`         | 증빙 업로드             |
-| `GET`  | `/api/projects/:projectId/evidence/history` | 업로드 이력 조회        |
-
-### Validation
-
-| Method   | Path                                                           | Purpose                         |
-| -------- | -------------------------------------------------------------- | ------------------------------- |
-| `POST` | `/api/projects/:projectId/validations`                       | 유효성 검증 실행                |
-| `GET`  | `/api/projects/:projectId/validations/latest`                | 최근 검증 결과 조회             |
-| `POST` | `/api/projects/:projectId/validations/:validationId/confirm` | 검증 결과 확정 여부는 협의 필요 |
-
-### Action Requests
-
-| Method    | Path                                                                | Purpose                   |
-| --------- | ------------------------------------------------------------------- | ------------------------- |
-| `GET`   | `/api/projects/:projectId/action-requests`                        | 조치 요청 목록 조회       |
-| `POST`  | `/api/projects/:projectId/action-requests`                        | 조치 요청 등록            |
-| `PATCH` | `/api/projects/:projectId/action-requests/:requestId`             | 담당자, 상태, 마감일 변경 |
-| `POST`  | `/api/projects/:projectId/action-requests/:requestId/supplements` | 보완 자료 제출            |
-
-### Reports
-
-| Method    | Path                                                    | Purpose              |
-| --------- | ------------------------------------------------------- | -------------------- |
-| `POST`  | `/api/projects/:projectId/reports`                    | 보고서 초안 요청     |
-| `GET`   | `/api/projects/:projectId/reports/latest`             | 최신 보고서 조회     |
-| `PATCH` | `/api/projects/:projectId/reports/:reportId`          | 보고서 수정/임시저장 |
-| `POST`  | `/api/projects/:projectId/reports/:reportId/finalize` | 최종 확정            |
-| `GET`   | `/api/projects/:projectId/reports/:reportId/pdf`      | PDF 다운로드         |
-
-### History
-
-| Method  | Path                                        | Purpose             |
-| ------- | ------------------------------------------- | ------------------- |
-| `GET` | `/api/projects/:projectId/activity`       | 행위 로그 조회      |
-| `GET` | `/api/projects/:projectId/status-history` | 상태 변경 이력 조회 |
-
-## Open Questions
-
-1. 유효성 검증은 실행과 결과 확정을 분리할 것인가
-2. 조치 요청 상태는 `open`, `supplement_uploaded`, `resolved`만으로 충분한가?
-3. 증빙 파일 저장소, 미리보기 URL, 원본 파일 다운로드 권한은 어떻게 관리할 것인가? 모두 가능
-4. 프로젝트 단계 변경은 서버가 자동 계산할 것인가, 특정 역할이 수동 변경할 수 있는가?
+권한 기준은 프로젝트 담당자는 `manager`가 본인인 프로젝트만 조회/처리하고, SHE 담당자는 모든 프로젝트 조회와 조치 요청 및 최종 확정을 수행하는 방식입니다.

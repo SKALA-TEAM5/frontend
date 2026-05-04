@@ -8,10 +8,11 @@ interface ArchiveToolbarProps {
     onViewModeChange: (mode: ArchiveViewMode) => void;
     validationStatus: ArchiveValidationStatus;
     onRunValidation: () => void;
+    canRunValidation?: boolean;
     onUpload?: () => void;
 }
 
-export default function ArchiveToolbar({ viewMode, onViewModeChange, validationStatus, onRunValidation, onUpload }: ArchiveToolbarProps) {
+export default function ArchiveToolbar({ viewMode, onViewModeChange, validationStatus, onRunValidation, canRunValidation = true, onUpload }: ArchiveToolbarProps) {
     const viewOptions = [
         { id: 'hierarchy', label: '계층 보기' },
         { id: 'folder', label: '9개 폴더 통합 보기' },
@@ -29,8 +30,8 @@ export default function ArchiveToolbar({ viewMode, onViewModeChange, validationS
         {onUpload && <button data-ui="archive-toolbar.4" type="button" onClick={onUpload} style={{ marginLeft: 'auto', border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer', boxShadow: `0 6px 14px ${C.primaryShadow}` }}>
           증빙 업로드
         </button>}
-        <button data-ui="archive-toolbar.5" type="button" onClick={onRunValidation} disabled={validationStatus === 'running'} style={{ marginLeft: onUpload ? 0 : 'auto', border: 'none', borderRadius: 999, padding: '9px 14px', background: validationStatus === 'done' ? C.bg : C.primary, color: validationStatus === 'done' ? C.primary : C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: validationStatus === 'running' ? 'wait' : 'pointer', boxShadow: validationStatus === 'done' ? 'none' : `0 6px 14px ${C.primaryShadow}` }}>
+        {canRunValidation && <button data-ui="archive-toolbar.5" type="button" onClick={onRunValidation} disabled={validationStatus === 'running'} style={{ marginLeft: onUpload ? 0 : 'auto', border: 'none', borderRadius: 999, padding: '9px 14px', background: validationStatus === 'done' ? C.bg : C.primary, color: validationStatus === 'done' ? C.primary : C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: validationStatus === 'running' ? 'wait' : 'pointer', boxShadow: validationStatus === 'done' ? 'none' : `0 6px 14px ${C.primaryShadow}` }}>
           {validationLabel}
-        </button>
+        </button>}
       </div>);
 }

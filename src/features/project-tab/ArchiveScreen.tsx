@@ -15,6 +15,7 @@ interface ArchiveScreenProps {
     archiveSeed: ArchiveSeed | null;
     validationStatus: ArchiveValidationStatus;
     onRunValidation: () => void;
+    canRunValidation?: boolean;
     contractName: string;
     contractMeta: ContractInfo | null;
     onArchiveSeedChange?: (seed: ArchiveSeed) => void;
@@ -38,7 +39,7 @@ const uniqueFiles = (files: EvidenceFile[]) => {
 const FOLDER_EVIDENCE_KINDS: FolderEvidenceCategory[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
 const PROBLEM_CATEGORY_IDS = new Set([4, 5, 8]);
 const PROBLEM_KEYWORDS = ['개인보호구', '보호구', '안전시설물', '안전난간', '본사'];
-export default function ArchiveScreen({ matchReady, onDismissMatchReady, archiveSeed, validationStatus, onRunValidation, contractName, contractMeta, onArchiveSeedChange }: ArchiveScreenProps) {
+export default function ArchiveScreen({ matchReady, onDismissMatchReady, archiveSeed, validationStatus, onRunValidation, canRunValidation = true, contractName, contractMeta, onArchiveSeedChange }: ArchiveScreenProps) {
     const [viewMode, setViewMode] = useState<ArchiveViewMode>('hierarchy');
     const [dragFile, setDragFile] = useState<DragContext>(null);
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(archiveSeed || createDefaultArchiveData()));
@@ -201,7 +202,7 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
             </div>
           </Card>)}
 
-        <ArchiveToolbar viewMode={viewMode} validationStatus={validationStatus} onRunValidation={onRunValidation} onUpload={viewMode === 'hierarchy' ? () => setUploadModalOpen(true) : undefined} onViewModeChange={setViewMode}/>
+        <ArchiveToolbar viewMode={viewMode} validationStatus={validationStatus} onRunValidation={onRunValidation} canRunValidation={canRunValidation} onUpload={viewMode === 'hierarchy' ? () => setUploadModalOpen(true) : undefined} onViewModeChange={setViewMode}/>
 
         <div data-ui="archive-screen.6" key={viewMode} className="screen-enter" style={{ paddingTop: 0 }}>
           {viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} usageItems={USAGE_LINE_ITEMS} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} onSelectCat={(catId) => {

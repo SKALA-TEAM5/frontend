@@ -32,6 +32,24 @@ const REQUIRED_EVIDENCE_BY_CATEGORY: Record<number, FolderEvidenceCategory[]> = 
   9: ['receipt', 'site_photo', 'tax_invoice'],
 };
 
+const REQUIRED_OTHER_DOCUMENTS_BY_CATEGORY: Record<number, string[]> = {
+  1: ['안전관리자 선임계', '임금 지급대장'],
+  3: ['보호구 지급대장'],
+  4: ['진단 계약서', '진단 결과보고서'],
+  5: ['교육 이수증', '참석자 명단'],
+  7: ['기술지도 계약서', '기술지도 결과보고서'],
+  8: ['전담조직 업무분장표', '인건비 산정 근거'],
+};
+
+const getRequiredEvidenceLabel = (kind: FolderEvidenceCategory, catId: number) => {
+  if (kind !== 'other_document') {
+    return EVIDENCE_SECTIONS.find((section) => section.id === kind)?.requiredLabel || '증빙';
+  }
+
+  const requiredDocuments = REQUIRED_OTHER_DOCUMENTS_BY_CATEGORY[catId];
+  return requiredDocuments?.length ? requiredDocuments.join(', ') : '기타 서류명 확인 필요';
+};
+
 interface ArchiveHierarchyViewProps {
   cats: CategoryMeta[];
   usageItems: UsageLineItem[];
@@ -191,6 +209,7 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                 const files = getFiles(section.id, selectedCatId, activeItem?.id);
                 const required = requiredKinds.includes(section.id);
                 const missing = required && files.length === 0;
+                const requiredEvidenceLabel = getRequiredEvidenceLabel(section.id, selectedCatId);
                 return (
                   <div key={section.id} onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(section.id, selectedCatId)} style={{ border: `1px solid ${missing ? '#FFE082' : C.g100}`, borderRadius: 12, background: missing ? '#FFFDF0' : '#FCFEFD', padding: 9 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
@@ -201,7 +220,7 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                       {files.map((file) => renderFileRow(section.id, file))}
                       {missing && (
                         <button type="button" onClick={() => onUploadMissing(section.id, selectedCatId)} style={{ width: '100%', border: '1px dashed #F9C74F', borderRadius: 10, padding: '10px 8px', background: C.warnBg, color: C.warn, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, lineHeight: 1.45, textAlign: 'left' }}>
-                          {section.requiredLabel}가 없습니다. 업로드하세요
+                          {requiredEvidenceLabel}가 없습니다. 업로드하세요
                         </button>
                       )}
                       {!missing && files.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 10, padding: '12px 8px', color: C.g400, fontSize: 11, textAlign: 'center' }}>선택 자료 없음</div>}
