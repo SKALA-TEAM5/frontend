@@ -7,6 +7,7 @@ import { addActionNotification } from '../../lib/action-notifications';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
 import { getProjectById } from '../../lib/project-data';
+import { buildReportDraftJson, type ReportDraft } from '../../lib/report-draft';
 import { C } from '../../lib/theme';
 import { VALIDATION_DASHBOARD_RESULT, fmt } from '../../lib/mock-data';
 import type { CategoryValidationResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
@@ -115,7 +116,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
   const [reportProgress, setReportProgress] = useState(0);
   const [reportWorkflowStatus, setReportWorkflowStatus] = useState<ReportWorkflowStatus>('editing');
   const [sheReviewDecision, setSheReviewDecision] = useState<SheReviewDecision>('pending');
-  const [reportDraft, setReportDraft] = useState('');
+  const [reportDraft, setReportDraft] = useState<ReportDraft | null>(null);
   const [savedAt, setSavedAt] = useState('');
   const [exportNoticeOpen, setExportNoticeOpen] = useState(false);
   const [amountTooltip, setAmountTooltip] = useState<AmountTooltip>(null);
@@ -171,17 +172,20 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     if (initialStatus === 'done') setStatus('done');
   }, [initialStatus]);
 
-  const buildReportDraft = () => {
-    const issueText = issues.map((issue) => `- ${issue.categoryName}: ${issue.title}. ${issue.requiredAction}`).join('\n');
-    return `본 검토는 ${result.usageStatementFile} 및 제출 증빙을 기준으로 산업안전보건관리비 사용 적정성을 검토한 초안입니다.
-
-총 사용내역서 금액은 ${fmt(totalUsage)}이며, 현재 인정 가능 금액은 ${fmt(totalRecognized)}입니다. 부적정 또는 보완 필요 금액은 ${fmt(totalDisputed)}입니다.
-
-주요 보완 요청:
-${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
-
-법령 agent 검토 기준: ${result.lawAgent.basis}`;
-  };
+  useEffect(() => {
+    if (!reportDraft || reportDraft.report_sections.some((section) => section.section_id === 'tax_settlement')) return;
+    const templateDraft = buildReportDraftJson(projectId ? getProjectById(projectId, user) : null, result, contractName);
+    const taxSection = templateDraft.report_sections.find((section) => section.section_id === 'tax_settlement');
+    if (!taxSection) return;
+    setReportDraft((current) => {
+      if (!current || current.report_sections.some((section) => section.section_id === 'tax_settlement')) return current;
+      const evidenceIndex = current.report_sections.findIndex((section) => section.section_id === 'evidence_validation');
+      const insertIndex = evidenceIndex >= 0 ? evidenceIndex + 1 : Math.min(4, current.report_sections.length);
+      const report_sections = [...current.report_sections];
+      report_sections.splice(insertIndex, 0, taxSection);
+      return { ...current, report_sections };
+    });
+  }, [contractName, projectId, reportDraft, result, user]);
 
   const handleVerify = () => {
     clearVerifyTimer();
@@ -190,7 +194,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
     setStepsDone([]);
     setSelectedCategoryId(4);
     setReportStatus('idle');
-    setReportDraft('');
+    setReportDraft(null);
     setReportWorkflowStatus('editing');
     setSheReviewDecision('pending');
     setSavedAt('');
@@ -220,7 +224,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
       p += Math.random() * 17 + 10;
       if (p >= 100) {
         clearReportTimer();
-        setReportDraft(buildReportDraft());
+        setReportDraft(buildReportDraftJson(projectId ? getProjectById(projectId, user) : null, result, contractName));
         setReportStatus('done');
         setReportWorkflowStatus('editing');
         setSavedAt('');
@@ -232,6 +236,58 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
   const handleSaveDraft = () => {
     setReportWorkflowStatus('saved');
     setSavedAt(new Date().toLocaleString('ko-KR'));
+  };
+
+  const updateReportTopField = (key: keyof Pick<ReportDraft, 'title' | 'report_no' | 'site_name' | 'report_period_label' | 'written_date_label' | 'department_label' | 'reviewer_label' | 'conclusion'>, value: string) => {
+    setReportDraft((current) => current ? { ...current, [key]: value } : current);
+    setReportWorkflowStatus('editing');
+  };
+
+  const updateReportSectionTitle = (sectionIndex: number, value: string) => {
+    setReportDraft((current) => {
+      if (!current) return current;
+      const report_sections = current.report_sections.map((section, index) => index === sectionIndex ? { ...section, title: value } : section);
+      return { ...current, report_sections };
+    });
+    setReportWorkflowStatus('editing');
+  };
+
+  const updateReportParagraph = (sectionIndex: number, paragraphIndex: number, value: string) => {
+    setReportDraft((current) => {
+      if (!current) return current;
+      const report_sections = current.report_sections.map((section, index) => index === sectionIndex
+        ? { ...section, paragraphs: section.paragraphs.map((paragraph, pIndex) => pIndex === paragraphIndex ? value : paragraph) }
+        : section);
+      return { ...current, report_sections };
+    });
+    setReportWorkflowStatus('editing');
+  };
+
+  const updateReportTableTitle = (sectionIndex: number, tableIndex: number, value: string) => {
+    setReportDraft((current) => {
+      if (!current) return current;
+      const report_sections = current.report_sections.map((section, index) => index === sectionIndex
+        ? { ...section, tables: section.tables.map((table, tIndex) => tIndex === tableIndex ? { ...table, title: value || null } : table) }
+        : section);
+      return { ...current, report_sections };
+    });
+    setReportWorkflowStatus('editing');
+  };
+
+  const updateReportTableCell = (sectionIndex: number, tableIndex: number, rowIndex: number, cellIndex: number, value: string) => {
+    setReportDraft((current) => {
+      if (!current) return current;
+      const report_sections = current.report_sections.map((section, index) => index === sectionIndex
+        ? {
+          ...section,
+          tables: section.tables.map((table, tIndex) => tIndex === tableIndex
+            ? { ...table, rows: table.rows.map((row, rIndex) => rIndex === rowIndex ? row.map((cell, cIndex) => cIndex === cellIndex ? value : cell) : row) }
+            : table),
+        }
+        : section);
+      return { ...current, report_sections };
+    });
+    setReportWorkflowStatus('editing');
   };
 
   const handleSendActionNotification = (issue: ValidationIssue & { categoryName: string; decision: ValidationDecision; riskLevel: ValidationRiskLevel }) => {
@@ -689,6 +745,85 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
     </div>
   );
 
+  const reportInputStyle: CSSProperties = {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: `1px solid ${C.g200}`,
+    borderRadius: 10,
+    background: C.white,
+    color: C.g800,
+    fontFamily: 'inherit',
+    fontSize: 13,
+    fontWeight: 800,
+    lineHeight: 1.5,
+    outline: 'none',
+    padding: '8px 10px',
+  };
+
+  const renderReportEditor = () => {
+    if (!reportDraft) return null;
+    const isTemplateLabelCell = (sectionId: string, hasHeaders: boolean, cellIndex: number, rowIndex: number, value: string) => {
+      if (hasHeaders) return false;
+      if (sectionId === 'cover' || sectionId === 'basic_info' || sectionId === 'issue_details') return cellIndex % 2 === 0;
+      return rowIndex === 0 && cellIndex === 0 && Boolean(value);
+    };
+    const isLockedDataCell = (sectionId: string, tableIndex: number, cellIndex: number) => sectionId === 'execution_summary' && tableIndex === 1 && cellIndex === 0;
+    const getReportColumnTemplate = (sectionId: string, table: ReportDraft['report_sections'][number]['tables'][number]) => {
+      if (sectionId === 'supplement_actions' && table.headers[0] === 'No.') return '48px minmax(140px, 1fr) minmax(280px, 2.2fr) minmax(110px, .8fr) minmax(100px, .8fr)';
+      if (table.headers[0] === 'No.') return `48px repeat(${Math.max(0, table.headers.length - 1)}, minmax(120px, 1fr))`;
+      return `repeat(${Math.max(table.headers.length, 1)}, minmax(0, 1fr))`;
+    };
+    const renderTemplateTable = (sectionIndex: number, tableIndex: number) => {
+      const section = reportDraft.report_sections[sectionIndex];
+      const table = section.tables[tableIndex];
+      const columnCount = Math.max(table.headers.length, ...table.rows.map((row) => row.length));
+      const columnTemplate = getReportColumnTemplate(section.section_id, table);
+      const minWidth = section.section_id === 'supplement_actions' ? 760 : Math.max(620, columnCount * 112);
+      return <div key={tableIndex} style={{ marginTop: tableIndex === 0 ? 0 : 14 }}>
+        {table.title !== null && (
+          <div style={{ padding: '4px 0 8px', fontSize: 13, fontWeight: 900, color: C.g800 }}>{table.title}</div>
+        )}
+        <div className="thin-x-scroll" style={{ width: '100%', overflowX: 'auto' }}>
+          <div style={{ minWidth, border: `1px solid ${C.g200}`, borderBottom: 'none' }}>
+            {table.headers.length > 0 && <div style={{ display: 'grid', gridTemplateColumns: columnTemplate, background: '#EEF3F0', borderBottom: `1px solid ${C.g200}` }}>
+              {table.headers.map((header) => <div key={header} style={{ padding: '9px 10px', borderRight: `1px solid ${C.g200}`, fontSize: 12, fontWeight: 900, color: C.g800, textAlign: 'center' }}>{header}</div>)}
+            </div>}
+            {table.rows.map((row, rowIndex) => (
+              <div key={rowIndex} style={{ display: 'grid', gridTemplateColumns: table.headers.length ? columnTemplate : `repeat(${row.length}, minmax(0, 1fr))`, borderBottom: `1px solid ${C.g200}` }}>
+                {row.map((cell, cellIndex) => {
+                  const isLabel = isTemplateLabelCell(section.section_id, table.headers.length > 0, cellIndex, rowIndex, cell) || isLockedDataCell(section.section_id, tableIndex, cellIndex);
+                  const commonCellStyle: CSSProperties = { minHeight: 38, borderRight: cellIndex === row.length - 1 ? 'none' : `1px solid ${C.g200}`, background: isLabel ? '#EEF3F0' : C.white, color: isLabel ? C.g600 : C.g800, textAlign: table.headers.length > 0 && cellIndex > 0 ? 'center' : 'left', fontSize: 12, fontWeight: isLabel ? 900 : 800 };
+                  return isLabel
+                    ? <div key={cellIndex} style={{ ...commonCellStyle, padding: '9px 10px', display: 'flex', alignItems: 'center' }}>{cell}</div>
+                    : <textarea key={cellIndex} value={cell} onChange={(event) => updateReportTableCell(sectionIndex, tableIndex, rowIndex, cellIndex, event.target.value)} style={{ ...reportInputStyle, ...commonCellStyle, resize: 'vertical', border: 'none', borderRight: commonCellStyle.borderRight, borderRadius: 0 }} />;
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>;
+    };
+
+    return <div style={{ border: `1px solid ${C.g200}`, borderRadius: 16, background: '#F7F8FA', padding: 16 }}>
+      <div style={{ maxWidth: 880, margin: '0 auto', background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 10px 28px rgba(27,94,59,.08)', padding: '34px 36px', display: 'grid', gap: 22 }}>
+        <div style={{ textAlign: 'center', padding: '24px 0 10px' }}>
+          <textarea value={reportDraft.title} onChange={(event) => updateReportTopField('title', event.target.value)} style={{ ...reportInputStyle, border: 'none', resize: 'vertical', textAlign: 'center', fontSize: 24, fontWeight: 900, lineHeight: 1.4, minHeight: 84 }} />
+        </div>
+        {reportDraft.report_sections.map((section, sectionIndex) => (
+          <section key={section.section_id} style={{ display: 'grid', gap: 10 }}>
+            {section.section_id !== 'cover' && (
+              <input value={section.title} onChange={(event) => updateReportSectionTitle(sectionIndex, event.target.value)} style={{ ...reportInputStyle, border: 'none', borderBottom: `2px solid ${C.g800}`, borderRadius: 0, padding: '10px 0 8px', fontSize: 17, fontWeight: 900, background: 'transparent' }} />
+            )}
+            {section.paragraphs.map((paragraph, paragraphIndex) => (
+              <textarea key={paragraphIndex} value={paragraph} onChange={(event) => updateReportParagraph(sectionIndex, paragraphIndex, event.target.value)} style={{ ...reportInputStyle, minHeight: paragraph.length > 90 ? 78 : 42, resize: 'vertical', border: section.kind === 'opinion' ? `1px solid ${C.g200}` : 'none', background: section.kind === 'opinion' ? C.white : 'transparent', fontWeight: 700 }} />
+            ))}
+            {section.tables.map((_, tableIndex) => renderTemplateTable(sectionIndex, tableIndex))}
+          </section>
+        ))}
+      </div>
+    </div>;
+  };
+
   const renderReport = () => {
     const canGenerateReport = status === 'done';
     const reportWorkflowMeta = {
@@ -705,7 +840,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <Button size="lg" onClick={handleReportGenerate} disabled={!canGenerateReport || reportStatus === 'generating'}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
-            <Button size="lg" variant="outline" onClick={() => setExportNoticeOpen(true)} disabled={reportStatus !== 'done'}>PDF 추출</Button>
+            <Button size="lg" variant="outline" onClick={() => setExportNoticeOpen(true)} disabled={reportStatus !== 'done'}>DOCX 추출</Button>
           </div>
         </div>
         {reportStatus === 'generating' && <div style={{ marginTop: 16 }}>
@@ -728,7 +863,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
           </div>
           <Button size="sm" variant="outline" onClick={handleSaveDraft}>저장</Button>
         </div>
-        <textarea value={reportDraft} onChange={(e) => setReportDraft(e.target.value)} style={{ width: '100%', minHeight: 210, resize: 'vertical', border: `1px solid ${C.light}`, borderRadius: 12, padding: '12px 14px', fontFamily: 'inherit', fontSize: 13, color: C.g800, lineHeight: 1.7, background: C.white, outline: 'none' }} />
+        {renderReportEditor()}
       </Card>}
 
     </div>;
@@ -740,7 +875,7 @@ ${issueText || '- 현재 즉시 보완이 필요한 항목은 없습니다.'}
     {activeTab === 'dashboard' && status === 'idle' && renderEmpty()}
     {activeTab === 'dashboard' && status === 'done' && renderDashboard()}
     {activeTab === 'report' && renderReport()}
-    <CenterModal open={exportNoticeOpen} title="PDF 추출" body="보고서 PDF 추출 요청이 접수되었습니다." actionLabel="확인" onAction={() => setExportNoticeOpen(false)} />
+    <CenterModal open={exportNoticeOpen} title="DOCX 추출" body="편집된 보고서 JSON을 기반으로 DOCX 추출 요청이 접수되었습니다." actionLabel="확인" onAction={() => setExportNoticeOpen(false)} />
   </div>;
 };
 

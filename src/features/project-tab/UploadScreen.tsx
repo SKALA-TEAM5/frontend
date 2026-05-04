@@ -1,5 +1,6 @@
 ﻿import { useEffect, useState } from 'react';
 import Button from '../../components/ui/Button';
+import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import InlineLoader from '../../components/ui/InlineLoader';
 import Modal from '../../components/ui/Modal';
@@ -127,17 +128,18 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
             </div>
         </div>)}
         <div data-ui="upload-screen.12" className="screen-enter">
-          <div data-ui="upload-screen.13" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: compact ? 10 : 10 }}>
+        <Card style={{ padding: compact ? '14px 16px' : '20px 22px', overflow: 'visible', minWidth: 0 }}>
+          <div data-ui="upload-screen.13" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: compact ? 10 : 12, minWidth: 0 }}>
             {UPLOAD_ZONES.map((zone) => {
             const count = files[zone.key].length;
             const blockedByInitialUsageRule = requireUsageStatementFirst && zone.key !== 'usage_statement' && !usageStatementReady;
-            return (<div data-ui="upload-screen.14" key={zone.key} style={{ gridColumn: zone.key === 'usage_statement' ? '1 / -1' : undefined }}>
+            return (<div data-ui="upload-screen.14" key={zone.key} style={{ gridColumn: zone.key === 'usage_statement' ? '1 / -1' : undefined, minWidth: 0 }}>
                 <UploadZone zone={zone} count={count} names={files[zone.key]} onDrop={(e) => handleDrop(zone.key, e)} onClick={() => pickFile(zone.key)} onRemove={(fileId) => removeFile(zone.key, fileId)} disabled={!basicReady || blockedByInitialUsageRule} disabledReason={blockedByInitialUsageRule ? '첫 프로젝트는 사용내역서를 먼저 업로드해 주세요.' : undefined} compact={compact}/>
               </div>);
         })}
           </div>
-          <div data-ui="upload-screen.16" style={{ marginTop: compact ? 8 : 10, padding: compact ? '9px 12px' : '10px 14px', borderRadius: compact ? 10 : 12, background: C.white, border: `1px solid ${C.g200}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: compact ? 8 : 10 }}>
-            <div data-ui="upload-screen.17" style={{ fontSize: compact ? 12 : 15, color: C.g600 }}>제출 완료 후 AI가 <strong data-ui="upload-screen.18" style={{ color: C.primary }}>9개 항목</strong>으로 자동 분류하고, 관련 증빙을 같은 폴더에 묶습니다.</div>
+          <div data-ui="upload-screen.16" style={{ marginTop: compact ? 8 : 12, padding: compact ? '9px 12px' : '12px 14px', borderRadius: compact ? 10 : 12, background: C.bg, border: `1px solid ${C.g200}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: compact ? 8 : 10, flexWrap: 'wrap' }}>
+            <div data-ui="upload-screen.17" style={{ fontSize: compact ? 12 : 14, color: C.g600, lineHeight: 1.5, minWidth: 0 }}>제출 완료 후 AI가 <strong data-ui="upload-screen.18" style={{ color: C.primary }}>9개 항목</strong>으로 자동 분류하고, 관련 증빙을 같은 폴더에 묶습니다.</div>
             <div data-ui="upload-screen.19" style={{ display: 'flex', gap: 8, flexShrink: 0 }}><Button size="sm" disabled={!canProceed || !hasUploads || loading} onClick={() => { setLoading(true); setTimeout(() => { setLoading(false); setMatchDone(true); }, 1400); }}>분류 검토</Button></div>
           </div>
           {loading && <InlineLoader title="매칭 검토 화면을 준비하고 있어요" body="업로드된 사용내역서, 영수증, 현장사진, 세금계산서와 기타 자료를 항목별로 정리하고 있습니다."/>}
@@ -188,6 +190,7 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
               </div>
             </div>
           </Modal>
+        </Card>
         </div>
     </>);
     return <div data-ui="upload-screen.20" style={{ background: C.soft, padding: 0 }}>{content}</div>;
