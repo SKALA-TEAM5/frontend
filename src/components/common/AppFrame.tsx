@@ -219,7 +219,11 @@ export default function AppFrame({ title, description, actions, mainClassName, c
           </button>
         </div>
 
-        <div data-ui="side-projects" style={{ marginTop: 18 }}>
+        <div data-ui="side-projects" style={{ marginTop: 8 }}>
+          <Link href="/projects/new" onClick={() => setActiveUtilityView(null)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 12px', borderRadius: 12, textDecoration: 'none', color: activeUtilityView === null && pathname === '/projects/new' ? C.primary : C.g600, background: activeUtilityView === null && pathname === '/projects/new' ? C.bg : 'transparent', fontSize: 15, fontWeight: 900, marginBottom: 8 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 99, background: activeUtilityView === null && pathname === '/projects/new' ? C.primary : C.g200, flexShrink: 0 }}/>
+            새 프로젝트
+          </Link>
           <button type="button" onClick={() => setProjectsOpen((open) => !open)} style={{ width: '100%', border: 'none', background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', padding: '8px 4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4 }}>
             <span style={{ fontSize: 14, fontWeight: 900 }}>프로젝트 목록</span>
             <span aria-hidden="true" style={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: C.g400, lineHeight: 1 }}>

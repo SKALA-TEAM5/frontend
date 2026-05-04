@@ -88,7 +88,6 @@ export default function ProjectDetailPage() {
     const [projectHeaderOpen, setProjectHeaderOpen] = useState(true);
     const [actionGuideOpen, setActionGuideOpen] = useState(false);
     const [actionCompletionSent, setActionCompletionSent] = useState(false);
-    const [historyOpen, setHistoryOpen] = useState(true);
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
     const historyDateMenuRef = useRef<HTMLDivElement | null>(null);
     const monthMenuRef = useRef<HTMLDivElement | null>(null);
@@ -98,6 +97,7 @@ export default function ProjectDetailPage() {
     const selectedStatement = monthlyStatements.find((statement) => statement.month === selectedMonth) || latestStatement;
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
     const canViewActionGuide = user.role === 'project_manager' && project.hasActionRequest;
+    const shouldShowActionBadge = project.hasActionRequest;
     const shouldPulseActionBadge = canViewActionGuide && !actionCompletionSent;
     useEffect(() => {
         setArchiveSeed(workflowStorage.getArchiveSeed(project.id));
@@ -216,13 +216,10 @@ export default function ProjectDetailPage() {
         </Modal>
     ) : null;
     const historyCard = (<section data-ui="project-detail.40" style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <button type="button" onClick={() => setHistoryOpen((open) => !open)} style={{ width: '100%', border: 'none', background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', padding: '8px 4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4 }}>
+      <div style={{ width: '100%', color: C.g800, fontFamily: 'inherit', padding: '8px 4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4 }}>
         <span data-ui="project-detail.1" style={{ fontSize: 14, color: C.g800, fontWeight: 900 }}>최근 이력</span>
-        <span aria-hidden="true" style={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: C.g400, lineHeight: 1 }}>
-          <ChevronIcon direction={historyOpen ? 'up' : 'down'} size={16} />
-        </span>
-      </button>
-      {historyOpen && (<div data-ui="project-detail.41" style={{ marginTop: 6, minHeight: 0, display: 'flex', flexDirection: 'column', flex: '1 1 auto' }}>
+      </div>
+      <div data-ui="project-detail.41" style={{ marginTop: 6, minHeight: 0, display: 'flex', flexDirection: 'column', flex: '1 1 auto' }}>
       <div data-ui="project-detail.2" style={{ display: 'grid', gridTemplateColumns: 'auto 92px', gap: 6, alignItems: 'center', marginBottom: 8 }}>
         <button data-ui="project-detail.3" onClick={() => {
             setSelectedHeaderHistoryDate('all');
@@ -255,7 +252,7 @@ export default function ProjectDetailPage() {
             </div>
           </div>))}
       </div>
-      </div>)}
+      </div>
     </section>);
     
     const projectInfoGrid = (<div data-ui="project-detail.info-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
@@ -289,7 +286,7 @@ export default function ProjectDetailPage() {
     const usageDetailPages = Array.from({ length: Math.ceil(USAGE_LINE_ITEMS.length / usageDetailPageSize) }, (_, index) => USAGE_LINE_ITEMS.slice(index * usageDetailPageSize, (index + 1) * usageDetailPageSize));
     const usageStatementPageCount = 1 + usageDetailPages.length;
     const selectedUsageDetailPage = usageDetailPages[usageStatementPage - 1] || [];
-    const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '120px 260px 120px 260px', minWidth: 760 } as const;
+    const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '120px minmax(0, 1fr) 120px minmax(0, 1fr)', width: '100%' } as const;
     const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 130px 130px', minWidth: 650 } as const;
     const usageDetailGridStyle = { display: 'grid', gridTemplateColumns: '64px minmax(220px, 1fr) minmax(180px, .75fr) 130px', minWidth: 594 } as const;
     const usageTableScrollStyle = { width: '100%', overflowX: 'auto', overflowY: 'hidden' } as const;
@@ -424,9 +421,15 @@ export default function ProjectDetailPage() {
           {projectHeaderOpen && <div data-ui="project-detail.26" style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 2, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, fontWeight: 900, color: C.g400 }}>프로젝트 기본 정보</span>
-              <button type="button" data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => canViewActionGuide && setActionGuideOpen(true)} disabled={!canViewActionGuide} style={{ border: 'none', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '4px 10px', cursor: canViewActionGuide ? 'pointer' : 'default' }}>
-                {STATUS_META[project.status].label}
-              </button>
+              {shouldShowActionBadge && (canViewActionGuide ? (
+                <button type="button" data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: 'none', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META.action_required.color, background: STATUS_META.action_required.bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }}>
+                  조치 요청
+                </button>
+              ) : (
+                <span data-ui="project-detail.27" style={{ fontSize: 12, fontWeight: 800, color: STATUS_META.action_required.color, background: STATUS_META.action_required.bg, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap' }}>
+                  조치 요청
+                </span>
+              ))}
             </div>
             {projectInfoGrid}
           </div>}

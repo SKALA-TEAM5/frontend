@@ -27,7 +27,7 @@ export default function PeriodFilter({ mode, value, onModeChange, onValueChange,
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: mode === 'custom' ? 'max-content minmax(180px, 260px)' : 'max-content', alignItems: 'center', gap: 10, width: '100%' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: mode === 'custom' ? 'max-content minmax(150px, 220px)' : 'max-content', alignItems: 'center', gap: 10, width: 'fit-content', maxWidth: '100%' }}>
       <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
         {options.map((option) => {
           const active = mode === option.mode;

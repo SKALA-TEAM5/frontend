@@ -1,12 +1,19 @@
 import { PROJECT_STATUS_META, type ProjectSummary } from './project-data';
 
-export type SortOption = 'name' | 'recent' | 'progress';
+export type ProjectSortField = 'name' | 'startDate' | 'endDate' | 'progress';
+export type SortDirection = 'asc' | 'desc';
 export type PeriodMode = 'all' | '1m' | '3m' | '6m' | 'custom';
 
-export const SORT_LABELS: Record<SortOption, string> = {
-  name: '사전순',
-  recent: '최근순',
-  progress: '진행 현황순',
+export const PROJECT_SORT_FIELD_LABELS: Record<ProjectSortField, string> = {
+  name: '가나다순',
+  startDate: '공사시작일순',
+  endDate: '공사마감일순',
+  progress: '공정률순',
+};
+
+export const SORT_DIRECTION_LABELS: Record<SortDirection, string> = {
+  asc: '오름차순',
+  desc: '내림차순',
 };
 
 interface ProjectFilterOptions {
@@ -62,15 +69,22 @@ const matchesRecentPeriod = (project: ProjectSummary, mode: PeriodMode) => {
 
 const progressValue = (project: ProjectSummary) => Number.parseInt(project.progressRate, 10) || 0;
 
-export const sortProjects = (projects: ProjectSummary[], sortBy: SortOption) => {
+export const sortProjects = (projects: ProjectSummary[], sortBy: ProjectSortField, sortDirection: SortDirection = 'asc') => {
   const nextProjects = [...projects];
-  if (sortBy === 'name') {
-    return nextProjects.sort((a, b) => a.constructionName.localeCompare(b.constructionName, 'ko-KR'));
-  }
-  if (sortBy === 'recent') {
-    return nextProjects.sort((a, b) => parsePeriodDate(b.period) - parsePeriodDate(a.period));
-  }
-  return nextProjects.sort((a, b) => progressValue(b) - progressValue(a));
+  const direction = sortDirection === 'asc' ? 1 : -1;
+
+  return nextProjects.sort((a, b) => {
+    if (sortBy === 'name') {
+      return a.constructionName.localeCompare(b.constructionName, 'ko-KR') * direction;
+    }
+    if (sortBy === 'startDate') {
+      return (parseProjectPeriodRange(a.period).startTime - parseProjectPeriodRange(b.period).startTime) * direction;
+    }
+    if (sortBy === 'endDate') {
+      return (parseProjectPeriodRange(a.period).endTime - parseProjectPeriodRange(b.period).endTime) * direction;
+    }
+    return (progressValue(a) - progressValue(b)) * direction;
+  });
 };
 
 export const filterProjects = (projects: ProjectSummary[], options: ProjectFilterOptions) => {
@@ -112,5 +126,6 @@ export const filterProjects = (projects: ProjectSummary[], options: ProjectFilte
 export const getVisibleProjects = (
   projects: ProjectSummary[],
   filters: ProjectFilterOptions,
-  sortBy: SortOption,
-) => sortProjects(filterProjects(projects, filters), sortBy);
+  sortBy: ProjectSortField,
+  sortDirection: SortDirection = 'asc',
+) => sortProjects(filterProjects(projects, filters), sortBy, sortDirection);

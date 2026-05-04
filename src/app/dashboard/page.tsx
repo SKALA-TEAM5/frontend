@@ -4,14 +4,13 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
-import { AppFrame } from '../../components/common';
+import { AppFrame, ProjectSortControl } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { C } from '../../lib/theme';
-import { getAccessibleProjects, getDashboardCounts, getMonthlyUsageStatements, getSheFilterOptions, STATUS_META } from '../../lib/project-data';
-import { getPrimaryProjectAction } from '../../lib/project-actions';
+import { getAccessibleProjects, getDashboardCounts, getMonthlyUsageStatements, getSheFilterOptions, PROJECT_STATUS_META } from '../../lib/project-data';
 import { useCurrentUser } from '../../lib/dev-user';
-import { REPORT_DATA, fmt } from '../../lib/mock-data';
-import { getVisibleProjects, SORT_LABELS, type PeriodMode, type SortOption } from '../../lib/project-list';
+import { REPORT_DATA } from '../../lib/mock-data';
+import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { useActionNotifications } from '../../lib/use-action-notifications';
 import {
   DASHBOARD_WIDGETS,
@@ -36,12 +35,14 @@ import {
 
 const fieldStyle: CSSProperties = {
   width: '100%',
-  height: 38,
-  padding: '11px 12px',
+  height: 42,
+  boxSizing: 'border-box',
+  padding: '0 12px',
   borderRadius: 12,
   border: `1px solid ${C.g200}`,
   fontFamily: 'inherit',
   fontSize: 14,
+  lineHeight: '20px',
   color: C.g800,
   background: C.white,
 };
@@ -49,20 +50,10 @@ const fieldStyle: CSSProperties = {
 const sortBarStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 9,
+  gap: 10,
+  flexWrap: 'wrap',
   marginBottom: 14,
 };
-
-const sortButtonStyle = (active: boolean): CSSProperties => ({
-  border: 'none',
-  padding: 0,
-  background: 'transparent',
-  color: active ? C.primary : C.g600,
-  fontFamily: 'inherit',
-  fontSize: 14,
-  fontWeight: active ? 900 : 800,
-  cursor: 'pointer',
-});
 
 const widgetTitleStyle: CSSProperties = {
   fontSize: 14,
@@ -116,8 +107,8 @@ const titleTooltipStyle: CSSProperties = {
 };
 
 const widgetHelpText: Record<WidgetHelpId, string> = {
-  projectStatus: '접근 가능한 프로젝트의 주요 상태를 요약합니다.',
-  todayTasks: '오늘 우선 확인해야 하는 프로젝트 작업을 보여줍니다.',
+  projectStatus: '접근 가능한 프로젝트의 진행 상태를 요약합니다.',
+  actionRequestProjects: '조치 요청이 등록되어 담당자 확인이나 보완이 필요한 프로젝트를 보여줍니다.',
   recentActivity: '최근 업로드, 요청, 보고서 수정과 같은 프로젝트 활동을 보여줍니다.',
   sla: '조치 요청 등록 후 처리 기한까지 남은 시간을 보여줍니다.',
   openActionRequests: '아직 해결되지 않은 조치 요청 프로젝트 수를 보여줍니다.',
@@ -140,7 +131,8 @@ export default function DashboardPage() {
   const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
   const [manager, setManager] = useState(filterOptions.managers[0] || '전체');
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
-  const [sortBy, setSortBy] = useState<SortOption>('name');
+  const [sortBy, setSortBy] = useState<ProjectSortField>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [riskTooltip, setRiskTooltip] = useState<'error' | 'warn' | null>(null);
   const [slaTooltip, setSlaTooltip] = useState<'overdue' | 'dueSoon' | 'open' | null>(null);
   const [missingUploadTooltip, setMissingUploadTooltip] = useState(false);
@@ -158,8 +150,9 @@ export default function DashboardPage() {
     const stored = window.localStorage.getItem(DASHBOARD_WIDGET_STORAGE_KEY);
     if (!stored) return;
     try {
-      const parsed = JSON.parse(stored) as DashboardWidgetId[];
-      const validIds = parsed.filter((id) => DEFAULT_WIDGET_IDS.includes(id));
+      const parsed = JSON.parse(stored) as string[];
+      const migratedIds = parsed.map((id) => id === 'todayTasks' ? 'actionRequestProjects' : id);
+      const validIds = migratedIds.filter((id): id is DashboardWidgetId => DEFAULT_WIDGET_IDS.includes(id as DashboardWidgetId));
       if (!validIds.includes('openActionRequests')) {
         validIds.push('openActionRequests');
       }
@@ -173,8 +166,10 @@ export default function DashboardPage() {
     const storedLayout = window.localStorage.getItem(DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY);
     if (!storedLayout) return;
     try {
-      const parsed = JSON.parse(storedLayout) as Partial<Record<DashboardWidgetId, WidgetPosition>>;
-      setWidgetLayout({ ...DEFAULT_WIDGET_LAYOUT, ...parsed });
+      const parsed = JSON.parse(storedLayout) as Partial<Record<DashboardWidgetId | 'todayTasks', WidgetPosition>>;
+      const migratedLayout = { ...parsed, actionRequestProjects: parsed.actionRequestProjects || parsed.todayTasks };
+      delete migratedLayout.todayTasks;
+      setWidgetLayout({ ...DEFAULT_WIDGET_LAYOUT, ...migratedLayout });
     } catch {
       window.localStorage.removeItem(DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY);
     }
@@ -229,10 +224,9 @@ export default function DashboardPage() {
       status,
       allManagerLabel: filterOptions.managers[0],
       allStatusLabel: filterOptions.statuses[0],
-    }, sortBy);
-  }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, status]);
+    }, sortBy, sortDirection);
+  }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, sortDirection, status]);
 
-  const workItems = projects.filter((project) => project.status === 'action_required' || project.status === 'drafting_report');
   const recentActivities = [
     {
       project: projects[0],
@@ -295,8 +289,28 @@ export default function DashboardPage() {
       return Math.ceil((dueTime - todayTime) / 86400000) > 3;
     }),
   };
-  const errorRows = REPORT_DATA.filter((row) => row.status === 'error');
-  const warnRows = REPORT_DATA.filter((row) => row.status === 'warn');
+  const validatedRiskProjects = projects.flatMap((project, projectIndex) => {
+    const validatedStatements = getMonthlyUsageStatements(project.id).filter((statement) =>
+      statement.parseStatus === '파싱 완료' && statement.validationStatus !== '미검증' && statement.validationStatus !== '검증 중',
+    );
+    if (validatedStatements.length === 0) return [];
+    const latestValidatedStatement = validatedStatements[validatedStatements.length - 1];
+    const rows = project.status === 'action_required' || latestValidatedStatement.issueCount > 0
+      ? REPORT_DATA.filter((row) => row.status === 'error' || row.status === 'warn')
+      : [];
+    return rows.map((row) => ({
+      ...row,
+      projectId: project.id,
+      projectName: project.constructionName,
+      statementLabel: latestValidatedStatement.label,
+      rowKey: `${project.id}-${latestValidatedStatement.month}-${row.id}-${projectIndex}`,
+    }));
+  });
+  const errorRows = validatedRiskProjects.filter((row) => row.status === 'error');
+  const warnRows = validatedRiskProjects.filter((row) => row.status === 'warn');
+  const riskEmptyText = validatedRiskProjects.length === 0
+    ? '유효성 검증을 완료했거나 리스크가 있는 프로젝트가 없습니다.'
+    : '부적정/조건부 리스크 항목이 없습니다.';
   const riskCards = [
     {
       id: 'error' as const,
@@ -304,7 +318,7 @@ export default function DashboardPage() {
       count: errorRows.length,
       color: C.danger,
       rows: errorRows,
-      emptyText: '부적정 항목 없음',
+      emptyText: riskEmptyText,
     },
     {
       id: 'warn' as const,
@@ -312,7 +326,7 @@ export default function DashboardPage() {
       count: warnRows.length,
       color: C.warn,
       rows: warnRows,
-      emptyText: '조건부 항목 없음',
+      emptyText: riskEmptyText,
     },
   ];
   const missingUploadProjects = projects.filter((project) => !project.hasUploads || project.status === 'upload_pending');
@@ -461,29 +475,27 @@ export default function DashboardPage() {
         <Card {...widgetFrameProps('projectStatus', { padding: '18px 20px', overflow: 'hidden' })}>
           {renderWidgetRemoveButton('projectStatus')}
           {renderWidgetTitle('프로젝트 현황', 'projectStatus', { fontSize: 14, fontWeight: 800, color: C.g400, marginBottom: 8 })}
-          <div style={{ fontSize: 16, fontWeight: 900, color: C.g800, lineHeight: 1.22 }}>{user.name}님<br />오늘 확인할 프로젝트가 있습니다.</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginTop: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, marginTop: 12 }}>
             {[
-              { label: '내 프로젝트', value: dashboardCounts.myProjects, color: C.primary, bg: C.bg },
-              { label: '조치 요청', value: dashboardCounts.actionRequired, color: C.danger, bg: C.dangerBg },
-              { label: '검토 중', value: dashboardCounts.reviewing, color: C.warn, bg: '#FFF8F0' },
-              { label: '보고서 작성 중', value: dashboardCounts.reportDrafting, color: '#7B4CE2', bg: '#F5F0FF' },
+              { label: '진행 중', value: dashboardCounts.active, color: '#176B45', bg: '#E7F5EC' },
+              { label: '완료', value: dashboardCounts.completed, color: '#2F5FB8', bg: '#EEF4FF' },
+              { label: '중단', value: dashboardCounts.suspended, color: '#8A5A00', bg: '#FFF4D8' },
             ].map((item) => (
-              <div key={item.label} style={{ borderRadius: 14, padding: '13px 11px', minHeight: 72, background: item.bg }}>
-                <div style={{ fontSize: 12, color: C.g400, fontWeight: 700 }}>{item.label}</div>
-                <div style={{ fontSize: 22, fontWeight: 900, color: item.color, marginTop: 3 }}>{item.value}</div>
+              <div key={item.label} style={{ borderRadius: 10, padding: '9px 5px', minWidth: 0, textAlign: 'center', background: item.bg }}>
+                <div style={{ ...widgetLabelStyle, fontSize: 11, whiteSpace: 'nowrap' }}>{item.label}</div>
+                <div style={{ ...widgetValueStyle, fontSize: 22, color: item.color, marginTop: 4 }}>{item.value}</div>
               </div>
             ))}
           </div>
         </Card>
         )}
 
-        {visibleWidgetSet.has('todayTasks') && (
-        <Card {...widgetFrameProps('todayTasks', { padding: '22px 20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
-          {renderWidgetRemoveButton('todayTasks')}
-          {renderWidgetTitle('오늘 할 일', 'todayTasks', { fontSize: 14, fontWeight: 800, color: C.g400, marginBottom: 12 })}
+        {visibleWidgetSet.has('actionRequestProjects') && (
+        <Card {...widgetFrameProps('actionRequestProjects', { padding: '22px 20px', overflow: 'visible', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
+          {renderWidgetRemoveButton('actionRequestProjects')}
+          {renderWidgetTitle('조치 요청 프로젝트', 'actionRequestProjects', { fontSize: 14, fontWeight: 800, color: C.g400, marginBottom: 12 })}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', paddingRight: 4, minHeight: 0, flex: 1 }}>
-            {workItems.map((project) => {
+            {actionProjects.map((project) => {
               const actionRequest = project.status === 'action_required' ? project.actionRequestDetails : null;
               return (
                 <Link key={project.id} href={`/projects/${project.id}`} style={{ textDecoration: 'none' }}>
@@ -494,11 +506,7 @@ export default function DashboardPage() {
                         <span style={{ fontSize: 11, fontWeight: 900, color: C.primary, background: C.bg, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '2px 7px', lineHeight: '16px', whiteSpace: 'nowrap', flexShrink: 0 }}>
                           {getLatestMonthLabel(project.id)}
                         </span>
-                        <div style={{ fontSize: 12, color: C.g600, fontWeight: 800, lineHeight: '22px', whiteSpace: 'nowrap', flexShrink: 0 }}>{getPrimaryProjectAction(user, project).label}</div>
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
-                        {STATUS_META[project.status].label}
-                      </span>
                     </div>
                     {actionRequest && (
                       <div style={{ marginTop: 9, padding: '9px 10px', borderRadius: 12, background: C.dangerBg, border: `1px solid #FFD5D5` }}>
@@ -611,7 +619,11 @@ export default function DashboardPage() {
         <Card {...widgetFrameProps('risk', { padding: '18px 18px', overflow: 'visible' })}>
           {renderWidgetRemoveButton('risk')}
           {renderWidgetTitle('검증 리스크 요약', 'risk')}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {validatedRiskProjects.length === 0 ? (
+            <div style={{ fontSize: 13, color: C.g400, fontWeight: 800, lineHeight: 1.5, marginTop: 10 }}>
+              부적정/조건부 리스크 항목이 없습니다.
+            </div>
+          ) : <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {riskCards.map((item) => (
               <div
                 key={item.id}
@@ -628,8 +640,9 @@ export default function DashboardPage() {
                       {item.rows.length === 0 ? (
                         <div style={{ fontSize: 13, color: C.g400, lineHeight: 1.5 }}>{item.emptyText}</div>
                       ) : item.rows.slice(0, 3).map((row) => (
-                        <div key={row.id} style={tooltipItemStyle}>
-                          <div style={{ fontWeight: 900, color: C.g800 }}>{row.cat}</div>
+                        <div key={row.rowKey} style={tooltipItemStyle}>
+                          <div style={{ fontWeight: 900, color: C.g800 }}>{row.projectName}</div>
+                          <div style={{ fontWeight: 900 }}>{row.statementLabel} · {row.cat}</div>
                           <div>{row.note}</div>
                         </div>
                       ))}
@@ -638,7 +651,7 @@ export default function DashboardPage() {
                 )}
               </div>
             ))}
-          </div>
+          </div>}
         </Card>
         )}
 
@@ -663,7 +676,7 @@ export default function DashboardPage() {
                     ) : missingUploadProjects.slice(0, 4).map((project) => (
                       <div key={project.id} style={tooltipItemStyle}>
                         <div style={{ fontWeight: 900, color: C.g800 }}>{project.constructionName}</div>
-                        <div>{STATUS_META[project.status].label} · {project.manager}</div>
+                        <div>{project.manager}</div>
                       </div>
                     ))}
                   </div>
@@ -748,7 +761,7 @@ export default function DashboardPage() {
 
           <div style={{ border: `1px solid ${C.g200}`, borderRadius: 16, padding: 14, background: '#FCFEFD', marginBottom: 14 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, alignItems: 'end' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) 160px 160px', gap: 12, alignItems: 'end' }}>
                 <div style={{ minWidth: 0 }}>
                   <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={fieldStyle} />
                 </div>
@@ -766,49 +779,37 @@ export default function DashboardPage() {
                   </select>
                 </div>
               </div>
-              <div>
-                <PeriodFilter mode={periodMode} value={period} onModeChange={setPeriodMode} onValueChange={setPeriod} inputStyle={fieldStyle} />
-              </div>
             </div>
           </div>
 
           <div data-ui="dash-sort" style={sortBarStyle}>
-            {(Object.keys(SORT_LABELS) as SortOption[]).map((item, index, items) => (
-              <span key={item} style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
-                <button type="button" onClick={() => setSortBy(item)} style={sortButtonStyle(sortBy === item)}>
-                  {SORT_LABELS[item]}
-                </button>
-                {index < items.length - 1 && <span style={{ color: C.g200, fontSize: 14, fontWeight: 800 }}>|</span>}
-              </span>
-            ))}
+            <ProjectSortControl field={sortBy} direction={sortDirection} onFieldChange={setSortBy} onDirectionChange={setSortDirection} />
+            <PeriodFilter mode={periodMode} value={period} onModeChange={setPeriodMode} onValueChange={setPeriod} inputStyle={fieldStyle} />
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', paddingRight: 4, minHeight: 0 }}>
             {visibleProjects.map((project) => (
               <Link key={project.id} href={`/projects/${project.id}`} style={{ textDecoration: 'none' }}>
                 <div style={{ border: `1px solid ${C.g200}`, borderRadius: 18, padding: '16px 18px', background: C.white }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
-                        <div style={{ fontSize: 17, fontWeight: 800, color: C.g800 }}>{project.name}</div>
-                        <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, background: C.bg, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '3px 8px', whiteSpace: 'nowrap' }}>
-                          {getLatestMonthLabel(project.id)}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 14, color: C.g400, marginTop: 4 }}>{project.manager} · {project.period}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+                      <div style={{ color: C.g800, fontSize: 18, fontWeight: 900 }}>{project.constructionName}</div>
+                      <span style={{ fontSize: 12, fontWeight: 900, color: PROJECT_STATUS_META[project.projectStatusCode].color, background: PROJECT_STATUS_META[project.projectStatusCode].bg, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
+                        {PROJECT_STATUS_META[project.projectStatusCode].label}
+                      </span>
                     </div>
-                    <span style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap' }}>
-                      {STATUS_META[project.status].label}
-                    </span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.g400 }}>최근 현황</div>
-                      <div style={{ fontSize: 14, color: C.g600, marginTop: 4, lineHeight: 1.6 }}>{project.recentActivity}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.g400 }}>다음 액션</div>
-                      <div style={{ fontSize: 14, color: C.primary, marginTop: 4, lineHeight: 1.6, fontWeight: 700 }}>{getPrimaryProjectAction(user, project).label}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '150px 140px 220px 90px', gap: 10, maxWidth: 640 }}>
+                      {[
+                        ['프로젝트 번호', project.contractNumber],
+                        ['관리자', project.manager],
+                        ['공사기간', project.period],
+                        ['공정률', project.progressRate],
+                      ].map(([label, value]) => (
+                        <div key={label} style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, color: C.g400, fontWeight: 800, marginBottom: 4 }}>{label}</div>
+                          <div style={{ fontSize: 14, color: C.g800, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>

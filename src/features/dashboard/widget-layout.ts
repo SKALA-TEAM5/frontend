@@ -3,7 +3,7 @@ import { C } from '../../lib/theme';
 
 export type DashboardWidgetId =
   | 'projectStatus'
-  | 'todayTasks'
+  | 'actionRequestProjects'
   | 'recentActivity'
   | 'sla'
   | 'openActionRequests'
@@ -20,7 +20,7 @@ export type WidgetSize = { colSpan: number; rowSpan: number };
 
 export const DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; label: string }> = [
   { id: 'projectStatus', label: '프로젝트 현황' },
-  { id: 'todayTasks', label: '오늘 할 일' },
+  { id: 'actionRequestProjects', label: '조치 요청 프로젝트' },
   { id: 'recentActivity', label: '최근 활동' },
   { id: 'sla', label: '보완 요청 기한' },
   { id: 'openActionRequests', label: '조치 요청 미처리 건' },
@@ -42,8 +42,8 @@ export const GRID_EDIT_PADDING = 12;
 export const GRID_COLUMN_COUNT = 10;
 
 export const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
-  projectStatus: { colSpan: 2, rowSpan: 2 },
-  todayTasks: { colSpan: 4, rowSpan: 3 },
+  projectStatus: { colSpan: 2, rowSpan: 1 },
+  actionRequestProjects: { colSpan: 3, rowSpan: 2 },
   recentActivity: { colSpan: 2, rowSpan: 2 },
   sla: { colSpan: 2, rowSpan: 1 },
   openActionRequests: { colSpan: 1, rowSpan: 1 },
@@ -52,21 +52,21 @@ export const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
   unreadNotifications: { colSpan: 1, rowSpan: 1 },
   settlementProgress: { colSpan: 2, rowSpan: 1 },
   workload: { colSpan: 2, rowSpan: 1 },
-  myProjects: { colSpan: 8, rowSpan: 5 },
+  myProjects: { colSpan: 8, rowSpan: 4 },
 };
 
 export const DEFAULT_WIDGET_LAYOUT: Record<DashboardWidgetId, WidgetPosition> = {
   projectStatus: { col: 1, row: 1 },
-  todayTasks: { col: 3, row: 1 },
+  actionRequestProjects: { col: 3, row: 1 },
   risk: { col: 7, row: 1 },
   missingUpload: { col: 9, row: 1 },
   openActionRequests: { col: 10, row: 1 },
   workload: { col: 7, row: 2 },
   settlementProgress: { col: 9, row: 2 },
-  unreadNotifications: { col: 7, row: 3 },
+  unreadNotifications: { col: 6, row: 1 },
   recentActivity: { col: 9, row: 3 },
-  sla: { col: 1, row: 3 },
-  myProjects: { col: 1, row: 4 },
+  sla: { col: 1, row: 2 },
+  myProjects: { col: 1, row: 3 },
 };
 
 export const dashboardGridStyle: CSSProperties = {

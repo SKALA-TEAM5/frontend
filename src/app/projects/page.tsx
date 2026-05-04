@@ -3,22 +3,24 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Card from '../../components/ui/Card';
-import { AppFrame } from '../../components/common';
+import { AppFrame, ProjectSortControl } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { C } from '../../lib/theme';
 import { getAccessibleProjects, getSheFilterOptions, PROJECT_STATUS_META } from '../../lib/project-data';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
-import { getVisibleProjects, SORT_LABELS, type PeriodMode, type SortOption } from '../../lib/project-list';
+import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
-  height: 38,
-  padding: '12px 12px',
+  height: 42,
+  boxSizing: 'border-box',
+  padding: '0 12px',
   borderRadius: 12,
   border: `1px solid ${C.g200}`,
   fontFamily: 'inherit',
   fontSize: 14,
+  lineHeight: '20px',
   color: C.g800,
   background: C.white,
 };
@@ -26,20 +28,10 @@ const inputStyle: React.CSSProperties = {
 const sortBarStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 9,
+  gap: 10,
+  flexWrap: 'wrap',
   margin: '-6px 0 14px',
 };
-
-const sortButtonStyle = (active: boolean): React.CSSProperties => ({
-  border: 'none',
-  padding: 0,
-  background: 'transparent',
-  color: active ? C.primary : C.g600,
-  fontFamily: 'inherit',
-  fontSize: 14,
-  fontWeight: active ? 900 : 800,
-  cursor: 'pointer',
-});
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -52,7 +44,8 @@ export default function ProjectsPage() {
   const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
   const [manager, setManager] = useState(filterOptions.managers[0] || '전체');
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
-  const [sortBy, setSortBy] = useState<SortOption>('name');
+  const [sortBy, setSortBy] = useState<ProjectSortField>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   const visibleProjects = useMemo(() => {
     return getVisibleProjects(projects, {
@@ -65,8 +58,8 @@ export default function ProjectsPage() {
       allManagerLabel: filterOptions.managers[0],
       allStatusLabel: filterOptions.statuses[0],
       includeManagerStatus: true,
-    }, sortBy);
-  }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, status]);
+    }, sortBy, sortDirection);
+  }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, sortDirection, status]);
 
   return (
     <AppFrame
@@ -100,21 +93,12 @@ export default function ProjectsPage() {
               </select>
             </div>
           </div>
-          <div>
-            <PeriodFilter mode={periodMode} value={period} onModeChange={setPeriodMode} onValueChange={setPeriod} inputStyle={inputStyle} />
-          </div>
         </div>
       </Card>
 
       <div data-ui="projects.2" style={sortBarStyle}>
-        {(Object.keys(SORT_LABELS) as SortOption[]).map((item, index, items) => (
-          <span key={item} style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
-            <button type="button" onClick={() => setSortBy(item)} style={sortButtonStyle(sortBy === item)}>
-              {SORT_LABELS[item]}
-            </button>
-            {index < items.length - 1 && <span style={{ color: C.g200, fontSize: 14, fontWeight: 800 }}>|</span>}
-          </span>
-        ))}
+        <ProjectSortControl field={sortBy} direction={sortDirection} onFieldChange={setSortBy} onDirectionChange={setSortDirection} />
+        <PeriodFilter mode={periodMode} value={period} onModeChange={setPeriodMode} onValueChange={setPeriod} inputStyle={inputStyle} />
       </div>
 
       <div data-ui="projects.3" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -136,7 +120,7 @@ export default function ProjectsPage() {
               <div data-ui="projects.5" style={{ minWidth: 0 }}>
                 <div data-ui="projects.6" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
                   <div data-ui="projects.7" style={{ color: C.g800, fontSize: 20, fontWeight: 900 }}>{project.constructionName}</div>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: PROJECT_STATUS_META[project.projectStatusCode].color, background: PROJECT_STATUS_META[project.projectStatusCode].bg, borderRadius: 999, padding: '4px 10px' }}>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: PROJECT_STATUS_META[project.projectStatusCode].color, background: PROJECT_STATUS_META[project.projectStatusCode].bg, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
                     {PROJECT_STATUS_META[project.projectStatusCode].label}
                   </span>
                 </div>

@@ -63,6 +63,20 @@ export interface MonthlyUsageStatementSummary {
   issueCount: number;
 }
 
+export interface NewProjectInput {
+  contractNumber: string;
+  constructionName: string;
+  constructionCompany: string;
+  representative: string;
+  client: string;
+  constructionAmount: string;
+  manager: string;
+  startDate: string;
+  endDate: string;
+  location: string;
+  usageStatementFileName?: string;
+}
+
 export const CURRENT_USER: AppUser = {
   id: 'user-hong',
   name: '홍길동',
@@ -179,15 +193,84 @@ export const ACTION_REQUEST_STATUS_META: Record<ActionRequestStatusCode, { label
 
 export const ACTION_REQUEST_STATUS_STEPS: ActionRequestStatusCode[] = ['open', 'in_progress', 'resolved', 'closed'];
 
-export const getAccessibleProjects = (user: AppUser = CURRENT_USER) => PROJECTS.filter((project) => canAccessProject(user, project));
+const PROJECT_STORAGE_KEY = 'sananbee.projects.created';
+
+const normalizeProjectId = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'new-project';
+
+const readCreatedProjects = (): ProjectSummary[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(PROJECT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) as ProjectSummary[] : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeCreatedProjects = (projects: ProjectSummary[]) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(PROJECT_STORAGE_KEY, JSON.stringify(projects));
+};
+
+export const getAllProjects = () => [...PROJECTS, ...readCreatedProjects()];
+
+export const createProject = (input: NewProjectInput) => {
+  const createdProjects = readCreatedProjects();
+  const existingIds = new Set(getAllProjects().map((project) => project.id));
+  const baseId = normalizeProjectId(`${input.contractNumber}-${input.constructionName}`);
+  let id = baseId;
+  let index = 2;
+  while (existingIds.has(id)) {
+    id = `${baseId}-${index}`;
+    index += 1;
+  }
+
+  const period = `${input.startDate.replace(/-/g, '/')}~${input.endDate.replace(/-/g, '/')}`;
+  const project: ProjectSummary = {
+    id,
+    contractNumber: input.contractNumber,
+    name: input.constructionName,
+    constructionCompany: input.constructionCompany,
+    representative: input.representative,
+    client: input.client,
+    constructionName: input.constructionName,
+    constructionAmount: input.constructionAmount,
+    manager: input.manager,
+    period,
+    location: input.location,
+    progressRate: '0%',
+    settlementRound: '1차',
+    plannedAmount: input.constructionAmount,
+    accumulatedAmount: '0',
+    usageRate: '0%',
+    projectStatusCode: 'active',
+    status: input.usageStatementFileName ? 'under_review' : 'upload_pending',
+    hasUploads: Boolean(input.usageStatementFileName),
+    hasActionRequest: false,
+    reportReady: false,
+    recentActivity: input.usageStatementFileName ? '신규 프로젝트가 등록되었고 사용내역서가 업로드되었습니다.' : '신규 프로젝트가 등록되었습니다.',
+    participants: ['홍길동', input.manager],
+  };
+
+  writeCreatedProjects([project, ...createdProjects]);
+  return project;
+};
+
+export const getAccessibleProjects = (user: AppUser = CURRENT_USER) => getAllProjects().filter((project) => canAccessProject(user, project));
 
 export const getDashboardCounts = (user: AppUser = CURRENT_USER) => {
   const projects = getAccessibleProjects(user);
   return {
     myProjects: projects.length,
-    actionRequired: projects.filter((project) => project.status === 'action_required').length,
-    reviewing: projects.filter((project) => project.status === 'under_review').length,
-    reportDrafting: projects.filter((project) => project.status === 'drafting_report').length,
+    active: projects.filter((project) => project.projectStatusCode === 'active').length,
+    completed: projects.filter((project) => project.projectStatusCode === 'completed').length,
+    suspended: projects.filter((project) => project.projectStatusCode === 'suspended').length,
   };
 };
 
@@ -200,7 +283,7 @@ export const getSheFilterOptions = (user: AppUser = CURRENT_USER) => {
 };
 
 export const getProjectById = (projectId: string, user: AppUser = CURRENT_USER) =>
-  getAccessibleProjects(user).find((project) => project.id === projectId) || getAccessibleProjects(user)[0] || PROJECTS[0];
+  getAccessibleProjects(user).find((project) => project.id === projectId) || getAccessibleProjects(user)[0] || getAllProjects()[0] || PROJECTS[0];
 export const getDefaultProjectId = (user: AppUser = CURRENT_USER) => getAccessibleProjects(user)[0]?.id || PROJECTS[0]?.id || '';
 export const getProjectByContractNumber = (contractNumber?: string | null) =>
   getAccessibleProjects().find((project) => project.contractNumber === contractNumber) || getAccessibleProjects()[0] || PROJECTS[0];
@@ -222,4 +305,18 @@ const MONTHLY_USAGE_STATEMENTS: Record<string, MonthlyUsageStatementSummary[]> =
 };
 
 export const getMonthlyUsageStatements = (projectId: string) =>
-  (MONTHLY_USAGE_STATEMENTS[projectId] || MONTHLY_USAGE_STATEMENTS[PROJECTS[0].id]).toSorted((a, b) => a.month.localeCompare(b.month));
+  (MONTHLY_USAGE_STATEMENTS[projectId] || [{
+    month: '2026-04',
+    label: '2026년 4월',
+    sourceFileName: '사용내역서 미업로드',
+    revisionNo: 1,
+    documentWrittenDate: '-',
+    uploadedAt: '-',
+    uploadedBy: '-',
+    parseStatus: '업로드 대기',
+    validationStatus: '미검증',
+    currentAmount: '0',
+    cumulativeAmount: '0',
+    evidenceCount: 0,
+    issueCount: 0,
+  }]).toSorted((a, b) => a.month.localeCompare(b.month));
