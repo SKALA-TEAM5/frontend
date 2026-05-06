@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import { C } from '../lib/theme';
-import { authenticateDevUser, useCurrentUser } from '../lib/dev-user';
+import { useCurrentUser } from '../lib/dev-user';
+import { login, toAppRole } from '../lib/auth-api';
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -29,16 +30,21 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const submitLogin = (event: FormEvent<HTMLFormElement>) => {
+  const submitLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const role = authenticateDevUser(employeeNumber, password);
-    if (!role) {
-      setError('사번 또는 비밀번호를 확인해 주세요.');
+    try {
+      const result = await login(employeeNumber.trim(), password);
+      const role = toAppRole(result.user.roleCode);
+      setError('');
+      setCurrentRole(role, {
+        id: String(result.user.id),
+        name: result.user.realName,
+      });
+      router.replace(role === 'she_manager' ? '/dashboard' : '/projects');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '사번 또는 비밀번호를 확인해 주세요.');
       return;
     }
-    setError('');
-    setCurrentRole(role);
-    router.replace(role === 'she_manager' ? '/dashboard' : '/projects');
   };
 
   const submitLoginOnEnter = (event: KeyboardEvent<HTMLFormElement>) => {
@@ -53,9 +59,9 @@ export default function LoginPage() {
     <main data-ui="login.1" style={{ minHeight: '100vh', background: C.soft, display: 'grid', placeItems: 'center', padding: 24 }}>
       <Card style={{ width: 'min(420px, 100%)', padding: '34px 32px' }}>
         <div data-ui="login.2" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
-          <img src="/uploads/character.png" alt="산안비 검증" style={{ width: 42, height: 42, borderRadius: 13, objectFit: 'cover', flexShrink: 0 }} />
+          <img src="/uploads/character.png" alt="veri" style={{ width: 42, height: 42, borderRadius: 13, objectFit: 'cover', flexShrink: 0 }} />
           <div>
-            <div style={{ fontSize: 22, fontWeight: 900, color: C.primary, lineHeight: 1.2 }}>산안비 검증</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: C.primary, lineHeight: 1.2 }}>i-veri</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: C.g400, marginTop: 3 }}>로그인</div>
           </div>
         </div>
@@ -85,8 +91,7 @@ export default function LoginPage() {
         </form>
 
         <div data-ui="login.5" style={{ marginTop: 18, padding: '12px 14px', borderRadius: 12, background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, lineHeight: 1.55 }}>
-          SHE 담당자: SHE001 / 1234<br />
-          프로젝트 담당자: PM001 / 1234
+          백엔드 등록 계정의 사번과 비밀번호로 로그인해 주세요.
         </div>
         <div style={{ marginTop: 16, textAlign: 'center' }}>
           <Link href="/signup" style={{ fontSize: 14, fontWeight: 900, color: C.primary, textDecoration: 'none' }}>

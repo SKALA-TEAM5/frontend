@@ -7,9 +7,10 @@ import Button from '../../components/ui/Button';
 import { AppFrame, ProjectSortControl } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { C } from '../../lib/theme';
-import { getAccessibleProjects, getDashboardCounts, getMonthlyUsageStatements, getSheFilterOptions, PROJECT_STATUS_META } from '../../lib/project-data';
+import { getDashboardCountsFromProjects, getMonthlyUsageStatements, getSheFilterOptionsFromProjects, PROJECT_STATUS_META, type ProjectSummary } from '../../lib/project-data';
+import { listProjects } from '../../lib/project-api';
 import { useCurrentUser } from '../../lib/dev-user';
-import { REPORT_DATA } from '../../lib/mock-data';
+import { REPORT_DATA } from '../../lib/evidence-utils';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { useActionNotifications } from '../../lib/use-action-notifications';
 import {
@@ -122,9 +123,9 @@ const widgetHelpText: Record<WidgetHelpId, string> = {
 
 export default function DashboardPage() {
   const { user } = useCurrentUser();
-  const projects = getAccessibleProjects(user);
-  const dashboardCounts = getDashboardCounts(user);
-  const filterOptions = getSheFilterOptions(user);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const dashboardCounts = useMemo(() => getDashboardCountsFromProjects(projects), [projects]);
+  const filterOptions = useMemo(() => getSheFilterOptionsFromProjects(projects), [projects]);
   const [projectName, setProjectName] = useState('');
   const [contractNumber, setContractNumber] = useState('');
   const [period, setPeriod] = useState('');
@@ -145,6 +146,20 @@ export default function DashboardPage() {
   const [widgetLayout, setWidgetLayout] = useState<Record<DashboardWidgetId, WidgetPosition>>(DEFAULT_WIDGET_LAYOUT);
   const { unreadNotifications: unreadSheNotifications } = useActionNotifications(user);
   const dashboardGridRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    listProjects({ size: 10 })
+      .then((items) => {
+        if (alive) setProjects(items);
+      })
+      .catch(() => {
+        if (alive) setProjects([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(DASHBOARD_WIDGET_STORAGE_KEY);
@@ -227,33 +242,14 @@ export default function DashboardPage() {
     }, sortBy, sortDirection);
   }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, sortDirection, status]);
 
-  const recentActivities = [
-    {
-      project: projects[0],
-      date: '2026/04/23 10:14',
-      actor: '김현장',
-      action: '개인보호구 항목 영수증 업로드',
-    },
-    {
-      project: projects[0],
-      date: '2026/04/23 11:02',
-      actor: 'SHE',
-      action: '현장사진 보완 요청 등록',
-    },
-    {
-      project: projects[1],
-      date: '2026/04/23 11:40',
-      actor: '박공무',
-      action: '보고서 초안 수정',
-    },
-    {
-      project: projects[2],
-      date: '2026/04/24 09:18',
-      actor: '이프로',
-      action: '신규 프로젝트 등록',
-    },
-  ]
-    .filter((item) => item.project)
+  const recentActivities = projects
+    .filter((project) => project.recentActivity)
+    .map((project) => ({
+      project,
+      date: '-',
+      actor: project.manager || '-',
+      action: project.recentActivity,
+    }))
     .sort((a, b) => new Date(b.date.replace(/\//g, '-')).getTime() - new Date(a.date.replace(/\//g, '-')).getTime())
     .slice(0, 4);
   const actionProjects = projects.filter((project) => project.status === 'action_required');

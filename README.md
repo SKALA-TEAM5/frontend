@@ -39,12 +39,9 @@ npm run build
 npm run start
 ```
 
-## 목업 로그인 계정
+## 로그인
 
-| 역할 | 사번 | 비밀번호 | 최초 진입 |
-|---|---|---|---|
-| SHE 담당자 | `SHE001` | `1234` | 대시보드 |
-| 프로젝트 담당자 | `PM001` | `1234` | 담당 프로젝트 목록 |
+로그인/회원가입은 백엔드 인증 API를 사용합니다.
 
 회원가입 완료 후에는 자동 로그인하지 않고 로그인 화면으로 돌아갑니다.
 
@@ -121,7 +118,10 @@ src/features
   project-tab                 업로드, 아카이브, SHE 유효성 검증, SHE 보고서 화면
 
 src/lib
-  mock-data.ts                목업 데이터 및 아카이브 정규화
+  api-client.ts               백엔드 API fetch 클라이언트
+  auth-api.ts                 인증 API
+  project-api.ts              프로젝트 API
+  evidence-utils.ts           증빙 분류 및 아카이브 정규화 유틸
   permissions.ts              역할/권한 정의
   action-notifications.ts     알림 저장/읽음 처리
   use-action-notifications.ts 알림 구독 hook

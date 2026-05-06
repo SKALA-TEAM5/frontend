@@ -1,12 +1,13 @@
 ﻿'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Card from '../../components/ui/Card';
 import { AppFrame, ProjectSortControl } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { C } from '../../lib/theme';
-import { getAccessibleProjects, getSheFilterOptions, PROJECT_STATUS_META } from '../../lib/project-data';
+import { getSheFilterOptionsFromProjects, PROJECT_STATUS_META, type ProjectSummary } from '../../lib/project-data';
+import { listProjects } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
@@ -36,8 +37,10 @@ const sortBarStyle: React.CSSProperties = {
 export default function ProjectsPage() {
   const router = useRouter();
   const { user } = useCurrentUser();
-  const projects = getAccessibleProjects(user);
-  const filterOptions = getSheFilterOptions(user);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const filterOptions = useMemo(() => getSheFilterOptionsFromProjects(projects), [projects]);
   const [projectName, setProjectName] = useState('');
   const [contractNumber, setContractNumber] = useState('');
   const [period, setPeriod] = useState('');
@@ -46,6 +49,25 @@ export default function ProjectsPage() {
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
   const [sortBy, setSortBy] = useState<ProjectSortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setLoadError('');
+    listProjects({ size: 10 })
+      .then((items) => {
+        if (alive) setProjects(items);
+      })
+      .catch((error) => {
+        if (alive) setLoadError(error instanceof Error ? error.message : '프로젝트 목록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const visibleProjects = useMemo(() => {
     return getVisibleProjects(projects, {
@@ -102,6 +124,9 @@ export default function ProjectsPage() {
       </div>
 
       <div data-ui="projects.3" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {loading && <Card style={{ padding: 24, textAlign: 'center', color: C.g400, fontWeight: 900 }}>프로젝트 목록을 불러오는 중입니다.</Card>}
+        {!loading && loadError && <Card style={{ padding: 24, textAlign: 'center', color: C.danger, fontWeight: 900 }}>{loadError}</Card>}
+        {!loading && !loadError && visibleProjects.length === 0 && <Card style={{ padding: 24, textAlign: 'center', color: C.g400, fontWeight: 900 }}>조회된 프로젝트가 없습니다.</Card>}
         {visibleProjects.map((project) => (
           <Card key={project.id} style={{ padding: '18px 20px' }}>
             <div

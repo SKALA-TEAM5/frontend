@@ -8,8 +8,10 @@ import { useActionNotifications } from '../../lib/use-action-notifications';
 import { APP_THEMES, C, type AppThemeId, useAppTheme } from '../../lib/theme';
 import { ChevronIcon } from '../ui';
 import { ROLE_LABELS } from '../../lib/permissions';
-import { type DevUserRole, useCurrentUser } from '../../lib/dev-user';
-import { ACTION_REQUEST_STATUS_META, ACTION_REQUEST_STATUS_STEPS, getAccessibleProjects, type ActionRequestStatusCode } from '../../lib/project-data';
+import { useCurrentUser } from '../../lib/dev-user';
+import { ACTION_REQUEST_STATUS_META, ACTION_REQUEST_STATUS_STEPS, type ActionRequestStatusCode, type ProjectSummary } from '../../lib/project-data';
+import { logout } from '../../lib/auth-api';
+import { listProjects } from '../../lib/project-api';
 interface AppFrameProps {
     title: string;
     description?: string;
@@ -18,7 +20,7 @@ interface AppFrameProps {
     children: React.ReactNode;
 }
 export default function AppFrame({ title, description, actions, mainClassName, children }: AppFrameProps) {
-    const { user, role, setCurrentRole } = useCurrentUser();
+    const { user, clearCurrentUser } = useCurrentUser();
     const [projectsOpen, setProjectsOpen] = useState(true);
     const [activeUtilityView, setActiveUtilityView] = useState<'notifications' | null>(null);
     const [notificationQuery, setNotificationQuery] = useState('');
@@ -27,15 +29,32 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const [notificationStatusFilter, setNotificationStatusFilter] = useState<ActionRequestStatusCode | 'active'>('active');
     const [toastVisible, setToastVisible] = useState(true);
     const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+    const [sidebarProjects, setSidebarProjects] = useState<ProjectSummary[]>([]);
     const { themeId, setThemeId } = useAppTheme();
     const router = useRouter();
     const pathname = usePathname();
-    const sidebarProjects = getAccessibleProjects(user);
     const { notifications, visibleNotifications: roleNotifications, unreadNotifications } = useActionNotifications(user);
-    const handleRoleChange = (nextRole: DevUserRole) => {
-        setCurrentRole(nextRole);
-        setActiveUtilityView(null);
-        router.push(nextRole === 'project_manager' ? '/projects' : '/dashboard');
+    useEffect(() => {
+        let alive = true;
+        listProjects({ size: 10 })
+            .then((projects) => {
+                if (alive) setSidebarProjects(projects);
+            })
+            .catch(() => {
+                if (alive) setSidebarProjects([]);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [pathname, user.id]);
+    const handleLogout = async () => {
+        try {
+            await logout();
+        } finally {
+            clearCurrentUser();
+            setActiveUtilityView(null);
+            router.replace('/');
+        }
     };
     const navItems = user.role === 'she_manager'
         ? [{ href: '/dashboard', label: '대시보드' }, { href: '/projects', label: '전체 프로젝트' }]
@@ -97,7 +116,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     }, [latestUnreadNotification?.id]);
     useEffect(() => {
         setToastVisible(true);
-    }, [role]);
+    }, [user.role]);
     const goBack = () => {
         if (window.history.length > 1) {
             router.back();
@@ -215,9 +234,9 @@ export default function AppFrame({ title, description, actions, mainClassName, c
       </button>
       <aside data-ui="app-frame.2" className={leftSidebarOpen ? 'app-sidebar' : 'app-sidebar app-sidebar-closed'}>
         <div data-ui="app-frame.3" style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-          <img data-ui="app-frame.4" src="/uploads/character.png" alt="산안비 검증" style={{ width: 38, height: 38, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }}/>
+          <img data-ui="app-frame.4" src="/uploads/character.png" alt="veri" style={{ width: 38, height: 38, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }}/>
           <div data-ui="app-frame.5" style={{ minWidth: 0 }}>
-            <div data-ui="app-frame.6" style={{ fontSize: 17, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>산안비 검증</div>
+            <div data-ui="app-frame.6" style={{ fontSize: 17, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>i-veri</div>
             <div data-ui="app-frame.7" style={{ fontSize: 13, color: C.g400, fontWeight: 700, whiteSpace: 'nowrap' }}>프로젝트 운영</div>
           </div>
         </div>
@@ -298,10 +317,9 @@ export default function AppFrame({ title, description, actions, mainClassName, c
               })}
             </div>
           </div>
-          <select data-ui="app-frame.14" value={role} onChange={(event) => handleRoleChange(event.target.value as DevUserRole)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 10, padding: '9px 10px', fontFamily: 'inherit', fontSize: 14, fontWeight: 800, color: C.g600, background: C.white, cursor: 'pointer', marginBottom: 12 }}>
-            <option value="project_manager">프로젝트 담당자</option>
-            <option value="she_manager">SHE 관리자</option>
-          </select>
+          <button data-ui="app-frame.14" type="button" onClick={handleLogout} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 10, padding: '9px 10px', fontFamily: 'inherit', fontSize: 14, fontWeight: 800, color: C.g600, background: C.white, cursor: 'pointer', marginBottom: 12 }}>
+            로그아웃
+          </button>
           <div data-ui="app-frame.15" style={{ padding: 12, borderRadius: 14, background: C.bg, border: `1px solid ${C.g200}` }}>
             <div data-ui="app-frame.16" style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>{user.name}</div>
             <div data-ui="app-frame.17" style={{ fontSize: 13, color: C.g400, fontWeight: 800, marginTop: 3 }}>{ROLE_LABELS[user.role]}</div>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
 import { C } from '../../lib/theme';
-import { CATS, USAGE_LINE_ITEMS, buildArchiveDataFromUploads, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData } from '../../lib/mock-data';
+import { CATS, USAGE_LINE_ITEMS, buildArchiveDataFromUploads, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData } from '../../lib/evidence-utils';
 import ArchiveFolderGrid from './ArchiveFolderGrid';
 import ArchiveHierarchyView, { type HierarchyEvidenceKind } from './ArchiveHierarchyView';
 import ArchivePreview from './ArchivePreview';

@@ -10,7 +10,7 @@ import { can } from '../../lib/permissions';
 import { getProjectById } from '../../lib/project-data';
 import { buildReportDraftJson, type ReportDraft } from '../../lib/report-draft';
 import { C } from '../../lib/theme';
-import { VALIDATION_DASHBOARD_RESULT, fmt } from '../../lib/mock-data';
+import { VALIDATION_DASHBOARD_RESULT, fmt } from '../../lib/evidence-utils';
 import type { CategoryValidationResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
 
 interface VerifyScreenProps {

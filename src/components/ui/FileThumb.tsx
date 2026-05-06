@@ -1,5 +1,5 @@
 import { C } from '../../lib/theme';
-import { isImageFile, makeThumbSvg } from '../../lib/mock-data';
+import { isImageFile, makeThumbSvg } from '../../lib/evidence-utils';
 import type { EvidenceFile } from '../../types/domain';
 interface FileThumbProps {
     entry: EvidenceFile;

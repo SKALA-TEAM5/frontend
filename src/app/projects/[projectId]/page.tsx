@@ -6,7 +6,9 @@ import Modal from '../../../components/ui/Modal';
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
-import { getMonthlyUsageStatements, getProjectById, STATUS_META } from '../../../lib/project-data';
+import { EMPTY_PROJECT, getMonthlyUsageStatements, getProjectManagers, STATUS_META, type ProjectSummary } from '../../../lib/project-data';
+import { getProject, listProjectManagerCandidates, replaceProjectAssignees, type ProjectAssignee } from '../../../lib/project-api';
+import type { BackendUserProfile } from '../../../lib/auth-api';
 import { addActionNotification, closeResolvedActionNotificationsForProject } from '../../../lib/action-notifications';
 import { can } from '../../../lib/permissions';
 import { workflowStorage } from '../../../lib/workflow-storage';
@@ -14,7 +16,7 @@ import { useCurrentUser } from '../../../lib/dev-user';
 import UploadScreen from '../../../features/project-tab/UploadScreen';
 import ArchiveScreen from '../../../features/project-tab/ArchiveScreen';
 import VerifyScreen from '../../../features/project-tab/VerifyScreen';
-import { CATS, USAGE_LINE_ITEMS, buildArchiveDataFromUploads, fmt } from '../../../lib/mock-data';
+import { CATS, USAGE_LINE_ITEMS, buildArchiveDataFromUploads, fmt } from '../../../lib/evidence-utils';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile } from '../../../types/domain';
 type DetailTab = 'overview' | 'upload' | 'validation' | 'report' | 'archive';
 const TABS: Array<{
@@ -37,7 +39,11 @@ export default function ProjectDetailPage() {
     const searchParams = useSearchParams();
     const { user } = useCurrentUser();
     const projectId = params?.projectId || '';
-    const project = useMemo(() => getProjectById(projectId, user), [projectId, user]);
+    const [projectRevision, setProjectRevision] = useState(0);
+    const [project, setProject] = useState<ProjectSummary>(EMPTY_PROJECT);
+    const [projectLoading, setProjectLoading] = useState(true);
+    const [projectError, setProjectError] = useState('');
+    const [managerCandidateProfiles, setManagerCandidateProfiles] = useState<BackendUserProfile[]>([]);
     const monthlyStatements = useMemo(() => getMonthlyUsageStatements(project.id), [project.id]);
     const latestStatement = monthlyStatements[monthlyStatements.length - 1];
     const headerHistoryItems = [
@@ -89,6 +95,10 @@ export default function ProjectDetailPage() {
     const [actionGuideOpen, setActionGuideOpen] = useState(false);
     const [actionCompletionSent, setActionCompletionSent] = useState(false);
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+    const [managerModalOpen, setManagerModalOpen] = useState(false);
+    const [draftManagerIds, setDraftManagerIds] = useState<number[]>([]);
+    const [managerSaveError, setManagerSaveError] = useState('');
+    const [managerSaving, setManagerSaving] = useState(false);
     const historyDateMenuRef = useRef<HTMLDivElement | null>(null);
     const monthMenuRef = useRef<HTMLDivElement | null>(null);
     const visibleHeaderHistoryItems = selectedHeaderHistoryDate === 'all'
@@ -97,8 +107,41 @@ export default function ProjectDetailPage() {
     const selectedStatement = monthlyStatements.find((statement) => statement.month === selectedMonth) || latestStatement;
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
     const canViewActionGuide = user.role === 'project_manager' && project.hasActionRequest;
+    const canEditManagers = user.role === 'she_manager';
+    const projectManagers = getProjectManagers(project);
+    const managerCandidates = managerCandidateProfiles.map((manager) => manager.realName);
     const shouldShowActionBadge = project.hasActionRequest;
     const shouldPulseActionBadge = canViewActionGuide && !actionCompletionSent;
+    useEffect(() => {
+        if (!projectId)
+            return;
+        let alive = true;
+        setProjectLoading(true);
+        setProjectError('');
+        getProject(projectId)
+            .then((item) => {
+                if (alive)
+                    setProject(item);
+            })
+            .catch((error) => {
+                if (alive)
+                    setProjectError(error instanceof Error ? error.message : '프로젝트 정보를 불러오지 못했습니다.');
+            })
+            .finally(() => {
+                if (alive)
+                    setProjectLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [projectId, projectRevision]);
+    useEffect(() => {
+        if (!canEditManagers)
+            return;
+        listProjectManagerCandidates()
+            .then(setManagerCandidateProfiles)
+            .catch(() => setManagerCandidateProfiles([]));
+    }, [canEditManagers]);
     useEffect(() => {
         setArchiveSeed(workflowStorage.getArchiveSeed(project.id));
         setMatchReady(workflowStorage.getMatchReady(project.id));
@@ -183,6 +226,93 @@ export default function ProjectDetailPage() {
         });
         setActionCompletionSent(true);
     };
+    const openManagerModal = () => {
+        const idsFromProject = project.assigneeUserIds || [];
+        const idsFromNames = projectManagers
+            .map((name) => managerCandidateProfiles.find((manager) => manager.realName === name)?.id)
+            .filter((id): id is number => typeof id === 'number');
+        setDraftManagerIds(idsFromProject.length ? idsFromProject : idsFromNames);
+        setManagerSaveError('');
+        setManagerModalOpen(true);
+    };
+    const toggleDraftManager = (managerId: number) => {
+        setDraftManagerIds((current) => current.includes(managerId) ? current.filter((item) => item !== managerId) : [...current, managerId]);
+        setManagerSaveError('');
+    };
+    const selectedManagerNames = draftManagerIds
+        .map((id) => managerCandidateProfiles.find((manager) => manager.id === id)?.realName)
+        .filter((name): name is string => Boolean(name));
+    const assigneesToProjectPatch = (assignees: ProjectAssignee[]) => {
+        const names = assignees.map((assignee) => assignee.realName).filter(Boolean);
+        return {
+            manager: names.join(', '),
+            participants: names,
+            assigneeUserIds: assignees.map((assignee) => assignee.userId),
+        };
+    };
+    const saveManagers = async () => {
+        const userIds = Array.from(new Set(draftManagerIds));
+        setManagerSaving(true);
+        setManagerSaveError('');
+        try {
+            const assignees = await replaceProjectAssignees(project.id, userIds);
+            setProject((current) => ({ ...current, ...assigneesToProjectPatch(assignees) }));
+            setProjectRevision((revision) => revision + 1);
+            setManagerModalOpen(false);
+        } catch (error) {
+            setManagerSaveError(error instanceof Error ? error.message : '관리자 저장에 실패했습니다.');
+        } finally {
+            setManagerSaving(false);
+        }
+    };
+    const managerModal = (<Modal open={managerModalOpen} onClose={() => setManagerModalOpen(false)} zIndex={960} maxWidth={560}>
+      <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
+        <div style={{ padding: '18px 20px 15px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>관리자 수정</div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: C.g400, marginTop: 5 }}>{project.constructionName}</div>
+          </div>
+          <button type="button" aria-label="관리자 수정 닫기" onClick={() => setManagerModalOpen(false)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 900, color: C.g400, marginBottom: 8 }}>현재 관리자</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, minHeight: 34, marginBottom: 18 }}>
+            {selectedManagerNames.map((manager) => {
+              const managerId = managerCandidateProfiles.find((candidate) => candidate.realName === manager)?.id;
+              return (
+              <span key={manager} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 999, padding: '6px 9px 6px 11px', background: C.bg, color: C.primary, border: `1px solid ${C.light}`, fontSize: 12, fontWeight: 900 }}>
+                {manager}
+                <button type="button" aria-label={`${manager} 삭제`} onClick={() => {
+                    if (managerId)
+                        setDraftManagerIds((current) => current.filter((item) => item !== managerId));
+                }} style={{ width: 18, height: 18, borderRadius: 999, border: 'none', background: C.white, color: C.g400, fontFamily: 'inherit', fontSize: 14, lineHeight: '18px', cursor: 'pointer', padding: 0 }}>×</button>
+              </span>
+            );
+            })}
+            {selectedManagerNames.length === 0 && <span style={{ fontSize: 13, fontWeight: 800, color: C.g400 }}>현재 지정된 관리자가 없습니다.</span>}
+          </div>
+
+          <div style={{ fontSize: 12, fontWeight: 900, color: C.g400, marginBottom: 8 }}>관리자 후보</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 18 }}>
+            {managerCandidateProfiles.map((manager) => {
+                const selected = draftManagerIds.includes(manager.id);
+                return (
+                  <button key={manager.id} type="button" onClick={() => toggleDraftManager(manager.id)} style={{ border: `1px solid ${selected ? C.primary : C.g200}`, borderRadius: 12, padding: '9px 10px', background: selected ? C.bg : C.white, color: selected ? C.primary : C.g800, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {manager.realName}
+                  </button>
+                );
+            })}
+          </div>
+
+          {!managerCandidates.length && <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, padding: '12px 13px', color: C.g400, fontSize: 13, fontWeight: 800 }}>지정할 수 있는 프로젝트 담당자가 없습니다. system_admin에게 프로젝트 담당자 계정 생성을 요청해 주세요.</div>}
+          {managerSaveError && <div style={{ marginTop: 12, fontSize: 13, fontWeight: 900, color: C.danger }}>{managerSaveError}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+            <button type="button" onClick={() => setManagerModalOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+            <button type="button" onClick={saveManagers} disabled={managerSaving} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: managerSaving ? C.g200 : C.primary, color: managerSaving ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: managerSaving ? 'not-allowed' : 'pointer' }}>{managerSaving ? '저장 중' : '저장'}</button>
+          </div>
+        </div>
+      </div>
+    </Modal>);
     const actionGuideModal = canViewActionGuide && project.actionRequestDetails ? (
         <Modal open={actionGuideOpen} onClose={() => setActionGuideOpen(false)} zIndex={960} maxWidth={680}>
           <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
@@ -256,12 +386,20 @@ export default function ProjectDetailPage() {
     </section>);
     
     const projectInfoGrid = (<div data-ui="project-detail.info-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, minWidth: 0 }}>
+      <div style={{ minWidth: 0, padding: '11px 12px', borderRadius: 12, background: C.g100, border: `1px solid ${C.g200}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+          <div style={{ fontSize: 12, fontWeight: 900, color: C.g400 }}>관리자</div>
+          {canEditManagers && <button type="button" onClick={openManagerModal} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '3px 8px', background: C.white, color: C.primary, fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>수정</button>}
+        </div>
+        <div title={project.manager} style={{ fontSize: 13, fontWeight: 900, color: C.g800, lineHeight: 1.45, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</div>
+      </div>
       {[
-              ['계약번호', project.contractNumber],
               ['건설업체', project.constructionCompany],
-              ['관리자', project.manager],
               ['공사기간', project.period],
               ['공사금액', `${project.constructionAmount}원`],
+              ['계상된 안전관리비', `${project.plannedAmount}원`],
+              ['발주자', project.client],
+              ['대표자', project.representative],
               ['소재지', project.location],
           ].map(([label, value]) => (
             <div key={label} style={{ minWidth: 0, padding: '11px 12px', borderRadius: 12, background: C.g100, border: `1px solid ${C.g200}` }}>
@@ -290,6 +428,16 @@ export default function ProjectDetailPage() {
     const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 130px 130px', minWidth: 650 } as const;
     const usageDetailGridStyle = { display: 'grid', gridTemplateColumns: '64px minmax(220px, 1fr) minmax(180px, .75fr) 130px', minWidth: 594 } as const;
     const usageTableScrollStyle = { width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden' } as const;
+    if (projectLoading) {
+        return (<AppFrame title="프로젝트 상세">
+          <Card style={{ padding: 24, textAlign: 'center', color: C.g400, fontWeight: 900 }}>프로젝트 정보를 불러오는 중입니다.</Card>
+        </AppFrame>);
+    }
+    if (projectError) {
+        return (<AppFrame title="프로젝트 상세">
+          <Card style={{ padding: 24, textAlign: 'center', color: C.danger, fontWeight: 900 }}>{projectError}</Card>
+        </AppFrame>);
+    }
     const tabContent = {
         overview: (<Card style={{ padding: '22px 24px', minWidth: 0, overflow: 'hidden' }}>
         <div data-ui="project-detail.15" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap', minWidth: 0 }}>
@@ -396,7 +544,10 @@ export default function ProjectDetailPage() {
       <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20 }}>
         <div data-ui="project-detail.19" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div data-ui="project-detail.20" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
-            <h2 data-ui="project-detail.21" style={{ fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>{project.constructionName} 계약 정산</h2>
+            <h2 data-ui="project-detail.21" style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>
+              <span>{project.constructionName} 계약 정산</span>
+              <span style={{ fontSize: 12, fontWeight: 900, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>{project.contractNumber}</span>
+            </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 220px', maxWidth: '100%', minWidth: 0 }}>
               <div data-ui="project-detail.22" ref={monthMenuRef} style={{ position: 'relative', flex: '0 0 142px', maxWidth: '100%', minWidth: 0 }}>
                 <button data-ui="project-detail.23" type="button" onClick={() => setMonthMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '9px 11px', background: C.white, color: C.g800, fontFamily: 'inherit', cursor: 'pointer', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 16px', alignItems: 'center', gap: 8, textAlign: 'left' }}>
@@ -440,6 +591,7 @@ export default function ProjectDetailPage() {
         </div>
       </Card>
       {actionGuideModal}
+      {managerModal}
 
       <div data-ui="project-detail.28" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

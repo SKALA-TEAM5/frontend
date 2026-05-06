@@ -1,4 +1,3 @@
-import { CONTRACT_DB } from './mock-data';
 import { C } from './theme';
 import { canAccessProject, type AppUser } from './permissions';
 
@@ -45,6 +44,7 @@ export interface ProjectSummary {
   reportReady: boolean;
   recentActivity: string;
   participants: string[];
+  assigneeUserIds?: number[];
 }
 
 export interface MonthlyUsageStatementSummary {
@@ -70,6 +70,7 @@ export interface NewProjectInput {
   representative: string;
   client: string;
   constructionAmount: string;
+  appropriatedAmount: string;
   manager: string;
   startDate: string;
   endDate: string;
@@ -78,96 +79,38 @@ export interface NewProjectInput {
 }
 
 export const CURRENT_USER: AppUser = {
-  id: 'user-hong',
-  name: '홍길동',
+  id: '',
+  name: '',
   role: 'she_manager',
 };
 
-export const PROJECTS: ProjectSummary[] = [
-  {
-    id: 'dt-logistics-2024',
-    contractNumber: CONTRACT_DB[0].num,
-    name: CONTRACT_DB[0].name,
-    constructionCompany: '스칼라건설',
-    representative: '정대표',
-    client: '동탄물류센터',
-    constructionName: CONTRACT_DB[0].project || '동탄 물류센터 증축공사',
-    constructionAmount: CONTRACT_DB[0].planned || '12,000,000,000',
-    manager: '김현장',
-    period: CONTRACT_DB[0].period || '',
-    location: '경기도 화성시 동탄물류단지',
-    progressRate: '78%',
-    settlementRound: CONTRACT_DB[0].round || '4차',
-    plannedAmount: CONTRACT_DB[0].planned || '12,000,000,000',
-    accumulatedAmount: CONTRACT_DB[0].accumulated || '48,614,045',
-    usageRate: '64%',
-    projectStatusCode: 'active',
-    status: 'action_required',
-    hasUploads: true,
-    hasActionRequest: true,
-    actionRequestDetails: {
-      title: '개인보호구 증빙 보완 요청',
-      reason: '안전모 지급 영수증과 현장 착용 사진의 대상 인원이 일치하지 않습니다. 지급 대상자 명단과 착용 확인 사진을 추가 제출해야 합니다.',
-      assignee: '김현장',
-      statusCode: 'open',
-      dueDate: '2026-04-26',
-      requestedAt: '2026-04-23 11:02',
-    },
-    reportReady: false,
-    recentActivity: 'SHE 담당자가 개인보호구 항목 보완을 요청했습니다.',
-    participants: ['홍길동', '김현장', '최안전', '이검토'],
-  },
-  {
-    id: 'pt-manufacturing-2024',
-    contractNumber: CONTRACT_DB[1].num,
-    name: CONTRACT_DB[1].name,
-    constructionCompany: '평택산업개발',
-    representative: '강대표',
-    client: '평택제조시설',
-    constructionName: CONTRACT_DB[1].project || '평택 제조시설 증설',
-    constructionAmount: CONTRACT_DB[1].planned || '8,500,000,000',
-    manager: '박공무',
-    period: CONTRACT_DB[1].period || '',
-    location: '경기도 평택시 고덕산업단지',
-    progressRate: '91%',
-    settlementRound: CONTRACT_DB[1].round || '2차',
-    plannedAmount: CONTRACT_DB[1].planned || '8,500,000,000',
-    accumulatedAmount: CONTRACT_DB[1].accumulated || '31,120,000',
-    usageRate: '72%',
-    projectStatusCode: 'active',
-    status: 'drafting_report',
-    hasUploads: true,
-    hasActionRequest: false,
-    reportReady: true,
-    recentActivity: 'AI가 보고서 초안을 생성했습니다.',
-    participants: ['홍길동', '박공무', '오정산'],
-  },
-  {
-    id: 'gm-datacenter-2025',
-    contractNumber: CONTRACT_DB[2].num,
-    name: CONTRACT_DB[2].name,
-    constructionCompany: '광명디씨건설',
-    representative: '문대표',
-    client: '광명데이터센터',
-    constructionName: CONTRACT_DB[2].project || '광명 데이터센터 신축',
-    constructionAmount: CONTRACT_DB[2].planned || '15,700,000,000',
-    manager: '이프로',
-    period: CONTRACT_DB[2].period || '',
-    location: '경기도 광명시 첨단산업지구',
-    progressRate: '18%',
-    settlementRound: CONTRACT_DB[2].round || '1차',
-    plannedAmount: CONTRACT_DB[2].planned || '15,700,000,000',
-    accumulatedAmount: CONTRACT_DB[2].accumulated || '9,820,000',
-    usageRate: '21%',
-    projectStatusCode: 'active',
-    status: 'upload_pending',
-    hasUploads: false,
-    hasActionRequest: false,
-    reportReady: false,
-    recentActivity: '프로젝트가 등록되었고 첫 업로드를 기다리고 있습니다.',
-    participants: ['이프로', '정현장'],
-  },
-];
+export const PROJECTS: ProjectSummary[] = [];
+
+export const EMPTY_PROJECT: ProjectSummary = {
+  id: '',
+  contractNumber: '',
+  name: '',
+  constructionCompany: '',
+  representative: '',
+  client: '',
+  constructionName: '',
+  constructionAmount: '',
+  manager: '',
+  period: '',
+  location: '',
+  progressRate: '',
+  settlementRound: '',
+  plannedAmount: '',
+  accumulatedAmount: '',
+  usageRate: '',
+  projectStatusCode: 'active',
+  status: 'upload_pending',
+  hasUploads: false,
+  hasActionRequest: false,
+  reportReady: false,
+  recentActivity: '',
+  participants: [],
+};
 
 export const STATUS_META: Record<ProjectStatus, { label: string; color: string; bg: string }> = {
   upload_pending: { label: '업로드 전', color: C.g600, bg: C.g100 },
@@ -194,6 +137,43 @@ export const ACTION_REQUEST_STATUS_META: Record<ActionRequestStatusCode, { label
 export const ACTION_REQUEST_STATUS_STEPS: ActionRequestStatusCode[] = ['open', 'in_progress', 'resolved', 'closed'];
 
 const PROJECT_STORAGE_KEY = 'sananbee.projects.created';
+const PROJECT_MANAGER_ASSIGNMENTS_KEY = 'sananbee.projects.managers';
+
+const splitManagerNames = (value: string) =>
+  value.split(',').map((manager) => manager.trim()).filter(Boolean);
+
+const normalizeManagerNames = (managers: string[]) =>
+  Array.from(new Set(managers.map((manager) => manager.trim()).filter(Boolean)));
+
+const readProjectManagerAssignments = (): Record<string, string[]> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(PROJECT_MANAGER_ASSIGNMENTS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, string[]>;
+    return Object.fromEntries(Object.entries(parsed).map(([projectId, managers]) => [projectId, normalizeManagerNames(Array.isArray(managers) ? managers : [])]));
+  } catch {
+    return {};
+  }
+};
+
+const writeProjectManagerAssignments = (assignments: Record<string, string[]>) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(PROJECT_MANAGER_ASSIGNMENTS_KEY, JSON.stringify(assignments));
+};
+
+const applyProjectManagerAssignments = (projects: ProjectSummary[]) => {
+  const assignments = readProjectManagerAssignments();
+  return projects.map((project) => {
+    const managers = assignments[project.id];
+    if (!managers?.length) return project;
+    return {
+      ...project,
+      manager: managers.join(', '),
+      participants: normalizeManagerNames([...project.participants, ...managers]),
+    };
+  });
+};
 
 const normalizeProjectId = (value: string) =>
   value
@@ -218,7 +198,27 @@ const writeCreatedProjects = (projects: ProjectSummary[]) => {
   window.localStorage.setItem(PROJECT_STORAGE_KEY, JSON.stringify(projects));
 };
 
-export const getAllProjects = () => [...PROJECTS, ...readCreatedProjects()];
+export const getAllProjects = () => applyProjectManagerAssignments([...PROJECTS, ...readCreatedProjects()]);
+
+export const getProjectManagers = (project: ProjectSummary) => splitManagerNames(project.manager);
+
+export const getProjectManagerCandidates = () =>
+  normalizeManagerNames(getAllProjects().flatMap((project) => [
+    ...splitManagerNames(project.manager),
+    ...project.participants,
+    project.actionRequestDetails?.assignee || '',
+  ]));
+
+export const updateProjectManagers = (projectId: string, managers: string[]) => {
+  const normalizedManagers = normalizeManagerNames(managers);
+  const assignments = readProjectManagerAssignments();
+  if (normalizedManagers.length) {
+    assignments[projectId] = normalizedManagers;
+  } else {
+    delete assignments[projectId];
+  }
+  writeProjectManagerAssignments(assignments);
+};
 
 export const createProject = (input: NewProjectInput) => {
   const createdProjects = readCreatedProjects();
@@ -246,7 +246,7 @@ export const createProject = (input: NewProjectInput) => {
     location: input.location,
     progressRate: '0%',
     settlementRound: '1차',
-    plannedAmount: input.constructionAmount,
+    plannedAmount: input.appropriatedAmount || input.constructionAmount,
     accumulatedAmount: '0',
     usageRate: '0%',
     projectStatusCode: 'active',
@@ -255,7 +255,7 @@ export const createProject = (input: NewProjectInput) => {
     hasActionRequest: false,
     reportReady: false,
     recentActivity: input.usageStatementFileName ? '신규 프로젝트가 등록되었고 사용내역서가 업로드되었습니다.' : '신규 프로젝트가 등록되었습니다.',
-    participants: ['홍길동', input.manager],
+    participants: input.manager ? [input.manager] : [],
   };
 
   writeCreatedProjects([project, ...createdProjects]);
@@ -276,33 +276,30 @@ export const getDashboardCounts = (user: AppUser = CURRENT_USER) => {
 
 export const getSheFilterOptions = (user: AppUser = CURRENT_USER) => {
   const projects = getAccessibleProjects(user);
+  return getSheFilterOptionsFromProjects(projects);
+};
+
+export const getDashboardCountsFromProjects = (projects: ProjectSummary[]) => ({
+  myProjects: projects.length,
+  active: projects.filter((project) => project.projectStatusCode === 'active').length,
+  completed: projects.filter((project) => project.projectStatusCode === 'completed').length,
+  suspended: projects.filter((project) => project.projectStatusCode === 'suspended').length,
+});
+
+export const getSheFilterOptionsFromProjects = (projects: ProjectSummary[]) => {
   return {
-    managers: ['전체', ...Array.from(new Set(projects.map((project) => project.manager)))],
+    managers: ['전체', ...Array.from(new Set(projects.map((project) => project.manager).filter(Boolean)))],
     statuses: ['전체', ...Array.from(new Set(projects.map((project) => PROJECT_STATUS_META[project.projectStatusCode].label)))],
   };
 };
 
 export const getProjectById = (projectId: string, user: AppUser = CURRENT_USER) =>
-  getAccessibleProjects(user).find((project) => project.id === projectId) || getAccessibleProjects(user)[0] || getAllProjects()[0] || PROJECTS[0];
-export const getDefaultProjectId = (user: AppUser = CURRENT_USER) => getAccessibleProjects(user)[0]?.id || PROJECTS[0]?.id || '';
+  getAccessibleProjects(user).find((project) => project.id === projectId) || getAccessibleProjects(user)[0] || getAllProjects()[0] || EMPTY_PROJECT;
+export const getDefaultProjectId = (user: AppUser = CURRENT_USER) => getAccessibleProjects(user)[0]?.id || '';
 export const getProjectByContractNumber = (contractNumber?: string | null) =>
-  getAccessibleProjects().find((project) => project.contractNumber === contractNumber) || getAccessibleProjects()[0] || PROJECTS[0];
+  getAccessibleProjects().find((project) => project.contractNumber === contractNumber) || getAccessibleProjects()[0] || EMPTY_PROJECT;
 
-const MONTHLY_USAGE_STATEMENTS: Record<string, MonthlyUsageStatementSummary[]> = {
-  'dt-logistics-2024': [
-    { month: '2025-06', label: '2025년 6월', sourceFileName: '동탄_산안비_사용내역서_2025-06.xlsx', revisionNo: 2, documentWrittenDate: '2025-06-20', uploadedAt: '2025-06-21', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '조치 요청', currentAmount: '7,840,000', cumulativeAmount: '48,614,045', evidenceCount: 34, issueCount: 3 },
-    { month: '2025-05', label: '2025년 5월', sourceFileName: '동탄_산안비_사용내역서_2025-05.xlsx', revisionNo: 1, documentWrittenDate: '2025-05-24', uploadedAt: '2025-05-25', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '6,120,000', cumulativeAmount: '40,774,045', evidenceCount: 29, issueCount: 0 },
-    { month: '2025-04', label: '2025년 4월', sourceFileName: '동탄_산안비_사용내역서_2025-04.xlsx', revisionNo: 1, documentWrittenDate: '2025-04-21', uploadedAt: '2025-04-22', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '5,430,000', cumulativeAmount: '34,654,045', evidenceCount: 26, issueCount: 0 },
-  ],
-  'pt-manufacturing-2024': [
-    { month: '2024-12', label: '2024년 12월', sourceFileName: '평택_사용내역서_2024-12.xlsx', revisionNo: 1, documentWrittenDate: '2024-12-20', uploadedAt: '2024-12-21', uploadedBy: '박공무', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,920,000', cumulativeAmount: '31,120,000', evidenceCount: 22, issueCount: 0 },
-    { month: '2024-11', label: '2024년 11월', sourceFileName: '평택_사용내역서_2024-11.xlsx', revisionNo: 1, documentWrittenDate: '2024-11-19', uploadedAt: '2024-11-20', uploadedBy: '박공무', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,300,000', cumulativeAmount: '26,200,000', evidenceCount: 20, issueCount: 0 },
-  ],
-  'gm-datacenter-2025': [
-    { month: '2026-04', label: '2026년 4월', sourceFileName: '광명_사용내역서_2026-04.xlsx', revisionNo: 1, documentWrittenDate: '2026-04-18', uploadedAt: '2026-04-19', uploadedBy: '이프로', parseStatus: '업로드 대기', validationStatus: '미검증', currentAmount: '0', cumulativeAmount: '9,820,000', evidenceCount: 0, issueCount: 0 },
-    { month: '2026-03', label: '2026년 3월', sourceFileName: '광명_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-20', uploadedAt: '2026-03-21', uploadedBy: '이프로', parseStatus: '파싱 완료', validationStatus: '검증 중', currentAmount: '3,120,000', cumulativeAmount: '9,820,000', evidenceCount: 12, issueCount: 1 },
-  ],
-};
+const MONTHLY_USAGE_STATEMENTS: Record<string, MonthlyUsageStatementSummary[]> = {};
 
 const parseProjectPeriod = (period: string) => {
   const [startText, endText] = period.split('~');

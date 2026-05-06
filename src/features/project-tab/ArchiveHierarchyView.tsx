@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from '../../components/ui/Modal';
 import FileThumb from '../../components/ui/FileThumb';
-import { fmt, isImageFile, makeThumbSvg, type UsageLineItem } from '../../lib/mock-data';
+import { fmt, isImageFile, makeThumbSvg, type UsageLineItem } from '../../lib/evidence-utils';
 import { C } from '../../lib/theme';
 import type { EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 

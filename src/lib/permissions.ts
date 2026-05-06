@@ -47,5 +47,5 @@ export const can = (user: AppUser, permission: Permission) => hasRoleAtLeast(use
 
 export const canAccessProject = (user: AppUser, project: ProjectAccessTarget) => {
   if (hasRoleAtLeast(user.role, 'she_manager')) return true;
-  return project.manager === user.name;
+  return project.manager.split(',').map((manager) => manager.trim()).includes(user.name);
 };

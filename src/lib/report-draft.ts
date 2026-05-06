@@ -1,5 +1,5 @@
 import type { ValidationDashboardResult } from '../types/domain';
-import { CATS, fmt } from './mock-data';
+import { CATS, fmt } from './evidence-utils';
 import type { ProjectSummary } from './project-data';
 
 export interface ReportTable {

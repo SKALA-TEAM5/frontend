@@ -6,7 +6,9 @@ import { AppFrame } from '../../../components/common';
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
 import Modal from '../../../components/ui/Modal';
-import { createProject, getAllProjects, type NewProjectInput, type ProjectSummary } from '../../../lib/project-data';
+import { type BackendUserProfile } from '../../../lib/auth-api';
+import { type NewProjectInput, type ProjectSummary } from '../../../lib/project-data';
+import { createProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees } from '../../../lib/project-api';
 import { C } from '../../../lib/theme';
 import { workflowStorage } from '../../../lib/workflow-storage';
 import type { ArchiveSeed } from '../../../types/domain';
@@ -19,7 +21,7 @@ interface ProjectManagerAccount {
 }
 
 const MANAGER_STORAGE_KEY = 'sananbee.project.managers';
-const defaultManagers = ['김현장', '박공무', '이프로'];
+const defaultManagers: string[] = [];
 
 const readManagers = () => {
   if (typeof window === 'undefined') return defaultManagers;
@@ -81,6 +83,7 @@ const projectToFormSeed = (project: ProjectSummary): Partial<NewProjectInput> =>
     representative: project.representative,
     client: project.client,
     constructionAmount: project.constructionAmount.replace(/\D/g, ''),
+    appropriatedAmount: project.plannedAmount.replace(/\D/g, ''),
     startDate,
     endDate,
     location: project.location,
@@ -104,6 +107,7 @@ const parseUsageStatementInfo = async (file: File): Promise<Partial<NewProjectIn
     representative: extractByLabels(source, ['대표자', '대표자명']),
     client: extractByLabels(source, ['발주자', '발주처']),
     constructionAmount: extractByLabels(source, ['공사금액', '계약금액']).replace(/\D/g, ''),
+    appropriatedAmount: extractByLabels(source, ['계상된 안전관리비', '안전관리비', '책정 예산']).replace(/\D/g, ''),
     startDate: periodDates ? normalizeDate(periodDates[1]) : normalizeDate(extractByLabels(source, ['공사 시작일', '착공일', '시작일'])),
     endDate: periodDates ? normalizeDate(periodDates[2]) : normalizeDate(extractByLabels(source, ['공사 마감일', '준공일', '종료일'])),
     location: extractByLabels(source, ['소재지', '현장 소재지', '주소']),
@@ -117,6 +121,7 @@ const initialForm: NewProjectInput = {
   representative: '',
   client: '',
   constructionAmount: '',
+  appropriatedAmount: '',
   manager: '',
   startDate: '',
   endDate: '',
@@ -153,6 +158,7 @@ const requiredFields: Array<keyof NewProjectInput> = [
   'representative',
   'client',
   'constructionAmount',
+  'appropriatedAmount',
   'manager',
   'startDate',
   'endDate',
@@ -163,6 +169,8 @@ export default function NewProjectPage() {
   const router = useRouter();
   const [form, setForm] = useState<NewProjectInput>(initialForm);
   const [managers, setManagers] = useState(defaultManagers);
+  const [managerCandidates, setManagerCandidates] = useState<BackendUserProfile[]>([]);
+  const [importableProjects, setImportableProjects] = useState<ProjectSummary[]>([]);
   const [managerModalOpen, setManagerModalOpen] = useState(false);
   const [managerDraft, setManagerDraft] = useState({ name: '', employeeNumber: '' });
   const [createdManager, setCreatedManager] = useState<ProjectManagerAccount | null>(null);
@@ -174,6 +182,18 @@ export default function NewProjectPage() {
 
   useEffect(() => {
     setManagers(readManagers());
+    listProjectManagerCandidates()
+      .then((items) => {
+        setManagerCandidates(items);
+        setManagers(items.map((item) => item.realName));
+      })
+      .catch(() => {
+        setManagerCandidates([]);
+        setManagers([]);
+      });
+    listProjects({ size: 10 })
+      .then(setImportableProjects)
+      .catch(() => setImportableProjects([]));
   }, []);
 
   const updateField = (key: keyof NewProjectInput, value: string) => {
@@ -185,7 +205,7 @@ export default function NewProjectPage() {
     updateField('constructionAmount', value.replace(/\D/g, ''));
   };
 
-  const importedProjectResults = getAllProjects().filter((project) => {
+  const importedProjectResults = importableProjects.filter((project) => {
     const query = projectImportQuery.trim().toLowerCase();
     if (!query) return true;
     return `${project.contractNumber} ${project.constructionName} ${project.name}`.toLowerCase().includes(query);
@@ -261,7 +281,7 @@ export default function NewProjectPage() {
     await navigator.clipboard.writeText(`아이디: ${createdManager.loginId}\n비밀번호: ${createdManager.password}`);
   };
 
-  const submit = () => {
+  const submit = async () => {
     const missing = requiredFields.find((key) => !form[key].trim());
     if (missing) {
       setError('필수 정보를 모두 입력해 주세요.');
@@ -272,7 +292,12 @@ export default function NewProjectPage() {
       return;
     }
 
-    const project = createProject({ ...form, usageStatementFileName: usageStatementFile?.name });
+    try {
+      const project = await createProject({ ...form, usageStatementFileName: usageStatementFile?.name });
+      const selectedManager = managerCandidates.find((manager) => manager.realName === form.manager);
+      if (selectedManager) {
+        await replaceProjectAssignees(project.id, [selectedManager.id]);
+      }
     if (usageStatementFile) {
       const archiveSeed: ArchiveSeed = {
         usage_statement: [{
@@ -288,7 +313,10 @@ export default function NewProjectPage() {
       workflowStorage.setArchiveSeed(project.id, archiveSeed);
       workflowStorage.setMatchReady(project.id, true);
     }
-    router.push(`/projects/${project.id}`);
+      router.push(`/projects/${project.id}`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '프로젝트 등록에 실패했습니다.');
+    }
   };
 
   return (
@@ -331,21 +359,20 @@ export default function NewProjectPage() {
             <label style={labelStyle}>프로젝트 담당자</label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
               <select value={form.manager} onChange={(event) => {
-                if (event.target.value === '__new__') {
-                  setManagerModalOpen(true);
-                  return;
-                }
                 updateField('manager', event.target.value);
               }} style={fieldStyle}>
                 <option value="">담당자를 직접 선택해 주세요</option>
                 {managers.map((manager) => <option key={manager} value={manager}>{manager}</option>)}
-                <option value="__new__">새 담당자 추가하기</option>
               </select>
             </div>
           </div>
           <div>
             <label style={labelStyle}>공사금액</label>
             <input inputMode="numeric" value={form.constructionAmount} onChange={(event) => updateAmount(event.target.value)} placeholder="예: 12000000000" style={fieldStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>계상된 안전관리비</label>
+            <input inputMode="numeric" value={form.appropriatedAmount} onChange={(event) => updateField('appropriatedAmount', event.target.value.replace(/\D/g, ''))} placeholder="예: 150000000" style={fieldStyle} />
           </div>
           <div>
             <label style={labelStyle}>소재지</label>

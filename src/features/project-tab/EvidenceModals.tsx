@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from 'react';
 import { C } from '../../lib/theme';
-import { SITE_DESCRIPTION_SEED } from '../../lib/mock-data';
+import { SITE_DESCRIPTION_SEED } from '../../lib/evidence-utils';
 import Button from '../../components/ui/Button';
 import FileThumb from '../../components/ui/FileThumb';
 import Modal from '../../components/ui/Modal';

@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import { C } from '../../lib/theme';
 import { type DevUserRole } from '../../lib/dev-user';
+import { signup } from '../../lib/auth-api';
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -30,14 +31,19 @@ export default function SignupPage() {
   const [role, setRole] = useState<DevUserRole>('project_manager');
   const [error, setError] = useState('');
 
-  const submitSignup = (event: FormEvent<HTMLFormElement>) => {
+  const submitSignup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!employeeNumber.trim() || !name.trim() || !password.trim()) {
       setError('사번, 이름, 비밀번호를 모두 입력해 주세요.');
       return;
     }
-    setError('');
-    router.replace('/');
+    try {
+      await signup(employeeNumber.trim(), name.trim(), password, role);
+      setError('');
+      router.replace('/');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '회원가입에 실패했습니다.');
+    }
   };
 
   const submitSignupOnEnter = (event: KeyboardEvent<HTMLFormElement>) => {
@@ -52,9 +58,9 @@ export default function SignupPage() {
     <main data-ui="signup.1" style={{ minHeight: '100vh', background: C.soft, display: 'grid', placeItems: 'center', padding: 24 }}>
       <Card style={{ width: 'min(440px, 100%)', padding: '34px 32px' }}>
         <div data-ui="signup.2" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
-          <img src="/uploads/character.png" alt="산안비 검증" style={{ width: 42, height: 42, borderRadius: 13, objectFit: 'cover', flexShrink: 0 }} />
+          <img src="/uploads/character.png" alt="veri" style={{ width: 42, height: 42, borderRadius: 13, objectFit: 'cover', flexShrink: 0 }} />
           <div>
-            <div style={{ fontSize: 22, fontWeight: 900, color: C.primary, lineHeight: 1.2 }}>산안비 검증</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: C.primary, lineHeight: 1.2 }}>i-veri</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: C.g400, marginTop: 3 }}>회원가입</div>
           </div>
         </div>

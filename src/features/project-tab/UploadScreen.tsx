@@ -5,7 +5,7 @@ import CenterModal from '../../components/ui/CenterModal';
 import InlineLoader from '../../components/ui/InlineLoader';
 import Modal from '../../components/ui/Modal';
 import { C } from '../../lib/theme';
-import { createEntryFromFile, getCategoryLabels } from '../../lib/mock-data';
+import { createEntryFromFile, getCategoryLabels } from '../../lib/evidence-utils';
 import { PhotoDescriptionModal } from './EvidenceModals';
 import UploadZone from './UploadZone';
 import type { ContractInfo, EvidenceCategory, EvidenceFile } from '../../types/domain';

@@ -1,5 +1,5 @@
 import { C } from '../../lib/theme';
-import { getCategoryLabels, makeThumbSvg } from '../../lib/mock-data';
+import { getCategoryLabels, makeThumbSvg } from '../../lib/evidence-utils';
 import type { EvidenceFile } from '../../types/domain';
 interface ArchivePreviewProps {
     hoverPreview: {
