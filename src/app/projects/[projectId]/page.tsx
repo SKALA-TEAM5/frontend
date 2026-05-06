@@ -7,7 +7,7 @@ import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
 import { getMonthlyUsageStatements, getProjectById, STATUS_META } from '../../../lib/project-data';
-import { addActionNotification } from '../../../lib/action-notifications';
+import { addActionNotification, closeResolvedActionNotificationsForProject } from '../../../lib/action-notifications';
 import { can } from '../../../lib/permissions';
 import { workflowStorage } from '../../../lib/workflow-storage';
 import { useCurrentUser } from '../../../lib/dev-user';
@@ -255,7 +255,7 @@ export default function ProjectDetailPage() {
       </div>
     </section>);
     
-    const projectInfoGrid = (<div data-ui="project-detail.info-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+    const projectInfoGrid = (<div data-ui="project-detail.info-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, minWidth: 0 }}>
       {[
               ['계약번호', project.contractNumber],
               ['건설업체', project.constructionCompany],
@@ -286,18 +286,18 @@ export default function ProjectDetailPage() {
     const usageDetailPages = Array.from({ length: Math.ceil(USAGE_LINE_ITEMS.length / usageDetailPageSize) }, (_, index) => USAGE_LINE_ITEMS.slice(index * usageDetailPageSize, (index + 1) * usageDetailPageSize));
     const usageStatementPageCount = 1 + usageDetailPages.length;
     const selectedUsageDetailPage = usageDetailPages[usageStatementPage - 1] || [];
-    const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '120px minmax(0, 1fr) 120px minmax(0, 1fr)', width: '100%' } as const;
+    const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '120px minmax(170px, 1fr) 120px minmax(170px, 1fr)', minWidth: 620 } as const;
     const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 130px 130px', minWidth: 650 } as const;
     const usageDetailGridStyle = { display: 'grid', gridTemplateColumns: '64px minmax(220px, 1fr) minmax(180px, .75fr) 130px', minWidth: 594 } as const;
-    const usageTableScrollStyle = { width: '100%', overflowX: 'auto', overflowY: 'hidden' } as const;
+    const usageTableScrollStyle = { width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden' } as const;
     const tabContent = {
-        overview: (<Card style={{ padding: '22px 24px' }}>
-        <div data-ui="project-detail.15" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        overview: (<Card style={{ padding: '22px 24px', minWidth: 0, overflow: 'hidden' }}>
+        <div data-ui="project-detail.15" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap', minWidth: 0 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>{selectedStatement.label} 사용내역서</div>
             <div style={{ fontSize: 12, color: C.g400, marginTop: 4 }}>{usageStatementPage === 0 ? '1페이지 · 기본 정보 및 9개 항목 요약' : `${usageStatementPage + 1}페이지 · 세부 사용내역 항목`}</div>
           </div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 'auto' }}>
             <button type="button" onClick={() => setUsageStatementPage((page) => Math.max(0, page - 1))} disabled={usageStatementPage === 0} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 10, background: C.white, color: usageStatementPage === 0 ? C.g400 : C.g800, cursor: usageStatementPage === 0 ? 'not-allowed' : 'pointer', fontSize: 18, fontWeight: 900, fontFamily: 'inherit' }}>{'<'}</button>
             <span style={{ minWidth: 58, textAlign: 'center', fontSize: 12, fontWeight: 900, color: C.g600 }}>{usageStatementPage + 1} / {usageStatementPageCount}</span>
             <button type="button" onClick={() => setUsageStatementPage((page) => Math.min(usageStatementPageCount - 1, page + 1))} disabled={usageStatementPage >= usageStatementPageCount - 1} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 10, background: C.white, color: usageStatementPage >= usageStatementPageCount - 1 ? C.g400 : C.g800, cursor: usageStatementPage >= usageStatementPageCount - 1 ? 'not-allowed' : 'pointer', fontSize: 18, fontWeight: 900, fontFamily: 'inherit' }}>{'>'}</button>
@@ -373,7 +373,11 @@ export default function ProjectDetailPage() {
                 setMatchReady(true);
                 updateTab('archive');
             }}/>),
-        validation: (<VerifyScreen projectId={project.id} initialTab="dashboard" initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`}/>),
+        validation: (<VerifyScreen projectId={project.id} initialTab="dashboard" initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`} onValidationApproved={() => {
+                setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
+                closeResolvedActionNotificationsForProject(project.id);
+                updateTab('report');
+            }}/>),
         report: (<VerifyScreen projectId={project.id} initialTab="report" initialStatus="done" contractName={`${project.name} · ${selectedStatement.label}`}/>),
         archive: (<ArchiveScreen matchReady={matchReady} onDismissMatchReady={() => {
                 workflowStorage.setMatchReady(project.id, false);
@@ -401,7 +405,7 @@ export default function ProjectDetailPage() {
                     <ChevronIcon direction={monthMenuOpen ? 'up' : 'down'} size={16} />
                   </span>
                 </button>
-                {monthMenuOpen && (<div data-ui="project-detail.24" style={{ position: 'absolute', top: 'calc(100% + 7px)', right: 0, zIndex: 80, width: 142, maxWidth: 'calc(100vw - 40px)', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 12, padding: 6, boxShadow: '0 8px 20px rgba(27,94,59,.14)' }}>
+                {monthMenuOpen && (<div data-ui="project-detail.24" style={{ position: 'absolute', top: 'calc(100% + 7px)', right: 0, zIndex: 80, width: 142, maxWidth: 'calc(100vw - 40px)', maxHeight: 260, overflowY: 'auto', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 12, padding: 6, boxShadow: '0 8px 20px rgba(27,94,59,.14)', scrollbarWidth: 'thin' }}>
                   {monthlyStatements.map((statement) => {
                       const active = selectedStatement.month === statement.month;
                       return (<button data-ui="project-detail.25" key={statement.month} type="button" onClick={() => {

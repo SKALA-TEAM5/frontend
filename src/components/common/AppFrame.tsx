@@ -24,6 +24,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const [notificationQuery, setNotificationQuery] = useState('');
     const [notificationProjectFilter, setNotificationProjectFilter] = useState('all');
     const [notificationPeriodFilter, setNotificationPeriodFilter] = useState('all');
+    const [notificationStatusFilter, setNotificationStatusFilter] = useState<ActionRequestStatusCode | 'active'>('active');
     const [toastVisible, setToastVisible] = useState(true);
     const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
     const { themeId, setThemeId } = useAppTheme();
@@ -39,8 +40,16 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const navItems = user.role === 'she_manager'
         ? [{ href: '/dashboard', label: '대시보드' }, { href: '/projects', label: '전체 프로젝트' }]
         : [{ href: '/projects', label: '담당 프로젝트' }];
-    const latestUnreadNotification = unreadNotifications[0];
-    const sidebarNotificationCount = roleNotifications.length;
+    const hasCompletionNotification = (notification: ActionNotification) => notifications.some((item) => item.recipientRole === 'she_manager' && item.projectId === notification.projectId && item.categoryName === notification.categoryName && item.title === `${notification.categoryName} 조치 완료`);
+    const getNotificationStatusCode = (notification: ActionNotification, completionSent = false): ActionRequestStatusCode => {
+        if (notification.statusCode) return notification.statusCode;
+        if (completionSent || notification.recipientRole === 'she_manager') return 'resolved';
+        return 'open';
+    };
+    const isActiveNotification = (notification: ActionNotification) => getNotificationStatusCode(notification, hasCompletionNotification(notification)) !== 'closed';
+    const activeRoleNotifications = roleNotifications.filter(isActiveNotification);
+    const latestUnreadNotification = unreadNotifications.find(isActiveNotification);
+    const sidebarNotificationCount = activeRoleNotifications.length;
     const notificationProjectOptions = Array.from(new Set(roleNotifications.map((notification) => notification.projectName))).filter(Boolean);
     const notificationPeriodStart = (() => {
         const now = Date.now();
@@ -50,15 +59,19 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         return 0;
     })();
     const filteredNotifications = roleNotifications.filter((notification) => {
+        const completionSent = hasCompletionNotification(notification);
+        const statusCode = getNotificationStatusCode(notification, completionSent);
         const query = notificationQuery.trim().toLowerCase();
         const matchesQuery = !query || [notification.projectName, notification.categoryName, notification.title, notification.message, notification.senderName].some((value) => value.toLowerCase().includes(query));
         const matchesProject = notificationProjectFilter === 'all' || notification.projectName === notificationProjectFilter;
         const matchesPeriod = notificationPeriodFilter === 'all' || (notification.createdAtMs || 0) >= notificationPeriodStart;
-        return matchesQuery && matchesProject && matchesPeriod;
+        const matchesStatus = notificationStatusFilter === 'active' ? statusCode !== 'closed' : statusCode === notificationStatusFilter;
+        return matchesQuery && matchesProject && matchesPeriod && matchesStatus;
     });
     const openProject = (notification: ActionNotification, tab?: 'upload' | 'validation') => {
         if (!notification.projectId) return;
-        if (tab === 'upload') updateActionNotificationStatus(notification.id, 'in_progress');
+        const statusCode = getNotificationStatusCode(notification, hasCompletionNotification(notification));
+        if (tab === 'upload' && statusCode === 'open') updateActionNotificationStatus(notification.id, 'in_progress');
         markActionNotificationRead(notification.id);
         setActiveUtilityView(null);
         router.push(`/projects/${notification.projectId}${tab ? `?tab=${tab}` : ''}`);
@@ -78,12 +91,6 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         });
         updateActionNotificationStatus(notification.id, 'resolved');
         markActionNotificationRead(notification.id);
-    };
-    const hasCompletionNotification = (notification: ActionNotification) => notifications.some((item) => item.recipientRole === 'she_manager' && item.projectId === notification.projectId && item.categoryName === notification.categoryName && item.title === `${notification.categoryName} 조치 완료`);
-    const getNotificationStatusCode = (notification: ActionNotification, completionSent = false): ActionRequestStatusCode => {
-        if (notification.statusCode) return notification.statusCode;
-        if (completionSent || notification.recipientRole === 'she_manager') return 'resolved';
-        return 'open';
     };
     useEffect(() => {
         setToastVisible(true);
@@ -116,18 +123,34 @@ export default function AppFrame({ title, description, actions, mainClassName, c
             </div>
             <button type="button" onClick={() => setActiveUtilityView(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '8px 12px', background: C.white, color: C.g600, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>이전 화면으로 돌아가기</button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 180px 150px', gap: 8, marginBottom: 12 }}>
-            <input value={notificationQuery} onChange={(event) => setNotificationQuery(event.target.value)} placeholder="알림 내용, 항목, 담당자 검색" style={{ border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, background: C.white, outline: 'none' }} />
-            <select value={notificationProjectFilter} onChange={(event) => setNotificationProjectFilter(event.target.value)} style={{ border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, background: C.white }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <input value={notificationQuery} onChange={(event) => setNotificationQuery(event.target.value)} placeholder="알림 내용, 항목, 담당자 검색" style={{ flex: '1 1 260px', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, background: C.white, outline: 'none' }} />
+            <select value={notificationProjectFilter} onChange={(event) => setNotificationProjectFilter(event.target.value)} style={{ flex: '0 1 180px', minWidth: 140, border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, background: C.white }}>
               <option value="all">전체 프로젝트</option>
               {notificationProjectOptions.map((projectName) => <option key={projectName} value={projectName}>{projectName}</option>)}
             </select>
-            <select value={notificationPeriodFilter} onChange={(event) => setNotificationPeriodFilter(event.target.value)} style={{ border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, background: C.white }}>
+            <select value={notificationPeriodFilter} onChange={(event) => setNotificationPeriodFilter(event.target.value)} style={{ flex: '0 1 150px', minWidth: 130, border: `1px solid ${C.g200}`, borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, background: C.white }}>
               <option value="all">전체 기간</option>
               <option value="today">최근 24시간</option>
               <option value="7d">최근 7일</option>
               <option value="30d">최근 30일</option>
             </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12, maxWidth: '100%' }}>
+            <button type="button" onClick={() => setNotificationStatusFilter('active')} style={{ border: `1px solid ${notificationStatusFilter === 'active' ? C.primary : C.g200}`, borderRadius: 999, padding: '7px 12px', background: notificationStatusFilter === 'active' ? C.bg : C.white, color: notificationStatusFilter === 'active' ? C.primary : C.g600, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              기본
+            </button>
+            <div role="tablist" aria-label="알림 단계 필터" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: '1 1 360px', minWidth: 0, borderBottom: `1px solid ${C.g200}`, overflowX: 'auto' }}>
+              {ACTION_REQUEST_STATUS_STEPS.map((statusCode) => {
+                const active = notificationStatusFilter === statusCode;
+                const meta = ACTION_REQUEST_STATUS_META[statusCode];
+                return (
+                  <button key={statusCode} type="button" role="tab" aria-selected={active} onClick={() => setNotificationStatusFilter(statusCode)} style={{ border: 'none', borderBottom: `2px solid ${active ? meta.color : 'transparent'}`, background: 'transparent', color: active ? meta.color : C.g600, padding: '8px 12px 9px', fontSize: 12, fontWeight: active ? 900 : 800, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    {meta.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 16, overflow: 'hidden' }}>
             <div style={{ padding: '13px 16px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
@@ -176,7 +199,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
                   <button type="button" onClick={() => openProject(notification, 'validation')} disabled={!notification.projectId} style={{ border: 'none', borderRadius: 999, padding: '7px 10px', background: C.primary, color: C.white, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: notification.projectId ? 'pointer' : 'not-allowed', opacity: notification.projectId ? 1 : 0.45 }}>유효성 검증</button>
                 ) : (
                   <>
-                    <button type="button" onClick={() => openProject(notification, 'upload')} disabled={!notification.projectId} style={{ border: `1px solid ${C.primary}`, borderRadius: 999, padding: '7px 10px', background: C.white, color: C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: notification.projectId ? 'pointer' : 'not-allowed', opacity: notification.projectId ? 1 : 0.45 }}>조치하기</button>
+                    <button type="button" onClick={() => openProject(notification, 'upload')} disabled={!notification.projectId || actionStatusCode === 'closed'} style={{ border: `1px solid ${C.primary}`, borderRadius: 999, padding: '7px 10px', background: C.white, color: C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: notification.projectId && actionStatusCode !== 'closed' ? 'pointer' : 'not-allowed', opacity: notification.projectId && actionStatusCode !== 'closed' ? 1 : 0.45 }}>조치하기</button>
                     <button type="button" onClick={() => sendCompletionNotification(notification)} disabled={!notification.projectId || completionSent} style={{ border: 'none', borderRadius: 999, padding: '7px 10px', background: completionSent ? C.g200 : C.primary, color: completionSent ? C.g400 : C.white, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: !notification.projectId || completionSent ? 'not-allowed' : 'pointer', opacity: notification.projectId ? 1 : 0.45 }}>{completionSent ? '완료 알림 전송됨' : '조치 완료 알림'}</button>
                   </>
                 )}
@@ -304,7 +327,11 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
           <button type="button" onClick={() => setActiveUtilityView('notifications')} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 13px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>알림 탭 보기</button>
           <button type="button" onClick={() => {
+              if (user.role === 'project_manager' && getNotificationStatusCode(latestUnreadNotification, hasCompletionNotification(latestUnreadNotification)) === 'open') {
+                  updateActionNotificationStatus(latestUnreadNotification.id, 'in_progress');
+              }
               markActionNotificationRead(latestUnreadNotification.id);
+              setActiveUtilityView(null);
               if (latestUnreadNotification.projectId) router.push(`/projects/${latestUnreadNotification.projectId}?tab=${user.role === 'she_manager' ? 'validation' : 'upload'}`);
           }} style={{ border: `1px solid ${C.primary}`, borderRadius: 999, padding: '9px 13px', background: C.white, color: C.primary, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: latestUnreadNotification.projectId ? 'pointer' : 'not-allowed', opacity: latestUnreadNotification.projectId ? 1 : 0.45 }}>{user.role === 'she_manager' ? '유효성 검증' : '조치하기'}</button>
           <button type="button" onClick={() => markActionNotificationRead(latestUnreadNotification.id)} style={{ border: 'none', borderRadius: 999, padding: '9px 13px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>확인</button>

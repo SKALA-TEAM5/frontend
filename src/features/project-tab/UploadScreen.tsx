@@ -18,6 +18,7 @@ interface UploadScreenProps {
         files: Record<EvidenceCategory, EvidenceFile[]>;
     }) => void;
     compact?: boolean;
+    hideUsageStatementZone?: boolean;
 }
 const UPLOAD_ZONES: Array<{
     key: EvidenceCategory;
@@ -31,7 +32,7 @@ const UPLOAD_ZONES: Array<{
     { key: 'other_document', label: '기타 자료', hint: '추가 확인 자료를\n제출해 주세요.' },
 ];
 const OTHER_DOCUMENT_TYPES = ['지급대장', '점검일지', '선임확인서', '기타'];
-const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst = false, onUploadCountChange, onMatchComplete, compact = false }: UploadScreenProps) => {
+const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst = false, onUploadCountChange, onMatchComplete, compact = false, hideUsageStatementZone = false }: UploadScreenProps) => {
     const [files, setFiles] = useState<Record<EvidenceCategory, EvidenceFile[]>>({ receipt: [], site_photo: [], usage_statement: [], tax_invoice: [], other_document: [] });
     const [loading, setLoading] = useState(false);
     const [matchDone, setMatchDone] = useState(false);
@@ -109,6 +110,7 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
     const usageStatementReady = files.usage_statement.length > 0;
     const canProceed = basicReady && files.site_photo.every((file) => file.description?.trim());
     const hasUploads = files.receipt.length || files.site_photo.length || files.usage_statement.length || files.tax_invoice.length || files.other_document.length;
+    const visibleUploadZones = hideUsageStatementZone ? UPLOAD_ZONES.filter((zone) => zone.key !== 'usage_statement') : UPLOAD_ZONES;
     const content = (<>
         {classificationToast && classificationToast.length > 0 && (<div data-ui="upload-screen.1" style={{ position: 'fixed', top: 18, left: '50%', transform: 'translateX(-50%)', zIndex: 900, width: 'min(760px, calc(100vw - 40px))', pointerEvents: 'none' }}>
             <div data-ui="upload-screen.2" className="screen-enter" style={{ width: '100%', background: C.white, border: `1px solid ${C.light}`, boxShadow: '0 12px 30px rgba(27,94,59,.12)', borderRadius: 18, padding: '14px 18px', pointerEvents: 'auto' }}>
@@ -130,7 +132,7 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
         <div data-ui="upload-screen.12" className="screen-enter">
         <Card style={{ padding: compact ? '14px 16px' : '20px 22px', overflow: 'visible', minWidth: 0 }}>
           <div data-ui="upload-screen.13" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: compact ? 10 : 12, minWidth: 0 }}>
-            {UPLOAD_ZONES.map((zone) => {
+            {visibleUploadZones.map((zone) => {
             const count = files[zone.key].length;
             const blockedByInitialUsageRule = requireUsageStatementFirst && zone.key !== 'usage_statement' && !usageStatementReady;
             return (<div data-ui="upload-screen.14" key={zone.key} style={{ gridColumn: zone.key === 'usage_statement' ? '1 / -1' : undefined, minWidth: 0 }}>
@@ -142,7 +144,7 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
             <div data-ui="upload-screen.17" style={{ fontSize: compact ? 12 : 14, color: C.g600, lineHeight: 1.5, minWidth: 0 }}>제출 완료 후 AI가 <strong data-ui="upload-screen.18" style={{ color: C.primary }}>9개 항목</strong>으로 자동 분류하고, 관련 증빙을 같은 폴더에 묶습니다.</div>
             <div data-ui="upload-screen.19" style={{ display: 'flex', gap: 8, flexShrink: 0 }}><Button size="sm" disabled={!canProceed || !hasUploads || loading} onClick={() => { setLoading(true); setTimeout(() => { setLoading(false); setMatchDone(true); }, 1400); }}>분류 검토</Button></div>
           </div>
-          {loading && <InlineLoader title="매칭 검토 화면을 준비하고 있어요" body="업로드된 사용내역서, 영수증, 현장사진, 세금계산서와 기타 자료를 항목별로 정리하고 있습니다."/>}
+          {loading && <InlineLoader title="매칭 검토 화면을 준비하고 있어요" body={hideUsageStatementZone ? '업로드된 영수증, 현장사진, 세금계산서와 기타 자료를 항목별로 정리하고 있습니다.' : '업로드된 사용내역서, 영수증, 현장사진, 세금계산서와 기타 자료를 항목별로 정리하고 있습니다.'}/>}
           <CenterModal open={matchDone} title="매칭 검토가 완료되었습니다" body="분류가 완료되었습니다. 아카이브에서 확인하고 필요하면 폴더 간 이동으로 위치를 조정할 수 있습니다." actionLabel="아카이브로 이동" onAction={() => { setMatchDone(false); onMatchComplete({ files }); }}/>
           <PhotoDescriptionModal open={siteModalFiles.length > 0} files={siteModalFiles} onClose={() => setSiteModalFiles([])} onSave={(values) => { const nextEntries = siteModalFiles.map((file) => ({ ...file, description: values[file.name] })); setFiles((prev) => ({ ...prev, site_photo: [...prev.site_photo, ...nextEntries].slice(0, 12) })); showClassificationToast(nextEntries); setSiteModalFiles([]); }}/>
           <Modal open={otherModalFiles.length > 0} onClose={() => setOtherModalFiles([])} zIndex={940} maxWidth={720}>

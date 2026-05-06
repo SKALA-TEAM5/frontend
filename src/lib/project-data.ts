@@ -290,13 +290,13 @@ export const getProjectByContractNumber = (contractNumber?: string | null) =>
 
 const MONTHLY_USAGE_STATEMENTS: Record<string, MonthlyUsageStatementSummary[]> = {
   'dt-logistics-2024': [
-    { month: '2026-04', label: '2026년 4월', sourceFileName: '동탄_산안비_사용내역서_2026-04.xlsx', revisionNo: 2, documentWrittenDate: '2026-04-22', uploadedAt: '2026-04-23', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '조치 요청', currentAmount: '7,840,000', cumulativeAmount: '48,614,045', evidenceCount: 34, issueCount: 3 },
-    { month: '2026-03', label: '2026년 3월', sourceFileName: '동탄_산안비_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-24', uploadedAt: '2026-03-25', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '6,120,000', cumulativeAmount: '40,774,045', evidenceCount: 29, issueCount: 0 },
-    { month: '2026-02', label: '2026년 2월', sourceFileName: '동탄_산안비_사용내역서_2026-02.xlsx', revisionNo: 1, documentWrittenDate: '2026-02-21', uploadedAt: '2026-02-22', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '5,430,000', cumulativeAmount: '34,654,045', evidenceCount: 26, issueCount: 0 },
+    { month: '2025-06', label: '2025년 6월', sourceFileName: '동탄_산안비_사용내역서_2025-06.xlsx', revisionNo: 2, documentWrittenDate: '2025-06-20', uploadedAt: '2025-06-21', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '조치 요청', currentAmount: '7,840,000', cumulativeAmount: '48,614,045', evidenceCount: 34, issueCount: 3 },
+    { month: '2025-05', label: '2025년 5월', sourceFileName: '동탄_산안비_사용내역서_2025-05.xlsx', revisionNo: 1, documentWrittenDate: '2025-05-24', uploadedAt: '2025-05-25', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '6,120,000', cumulativeAmount: '40,774,045', evidenceCount: 29, issueCount: 0 },
+    { month: '2025-04', label: '2025년 4월', sourceFileName: '동탄_산안비_사용내역서_2025-04.xlsx', revisionNo: 1, documentWrittenDate: '2025-04-21', uploadedAt: '2025-04-22', uploadedBy: '김현장', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '5,430,000', cumulativeAmount: '34,654,045', evidenceCount: 26, issueCount: 0 },
   ],
   'pt-manufacturing-2024': [
-    { month: '2026-04', label: '2026년 4월', sourceFileName: '평택_사용내역서_2026-04.xlsx', revisionNo: 1, documentWrittenDate: '2026-04-20', uploadedAt: '2026-04-21', uploadedBy: '박공무', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,920,000', cumulativeAmount: '31,120,000', evidenceCount: 22, issueCount: 0 },
-    { month: '2026-03', label: '2026년 3월', sourceFileName: '평택_사용내역서_2026-03.xlsx', revisionNo: 1, documentWrittenDate: '2026-03-19', uploadedAt: '2026-03-20', uploadedBy: '박공무', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,300,000', cumulativeAmount: '26,200,000', evidenceCount: 20, issueCount: 0 },
+    { month: '2024-12', label: '2024년 12월', sourceFileName: '평택_사용내역서_2024-12.xlsx', revisionNo: 1, documentWrittenDate: '2024-12-20', uploadedAt: '2024-12-21', uploadedBy: '박공무', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,920,000', cumulativeAmount: '31,120,000', evidenceCount: 22, issueCount: 0 },
+    { month: '2024-11', label: '2024년 11월', sourceFileName: '평택_사용내역서_2024-11.xlsx', revisionNo: 1, documentWrittenDate: '2024-11-19', uploadedAt: '2024-11-20', uploadedBy: '박공무', parseStatus: '파싱 완료', validationStatus: '보고서 생성', currentAmount: '4,300,000', cumulativeAmount: '26,200,000', evidenceCount: 20, issueCount: 0 },
   ],
   'gm-datacenter-2025': [
     { month: '2026-04', label: '2026년 4월', sourceFileName: '광명_사용내역서_2026-04.xlsx', revisionNo: 1, documentWrittenDate: '2026-04-18', uploadedAt: '2026-04-19', uploadedBy: '이프로', parseStatus: '업로드 대기', validationStatus: '미검증', currentAmount: '0', cumulativeAmount: '9,820,000', evidenceCount: 0, issueCount: 0 },
@@ -304,10 +304,42 @@ const MONTHLY_USAGE_STATEMENTS: Record<string, MonthlyUsageStatementSummary[]> =
   ],
 };
 
-export const getMonthlyUsageStatements = (projectId: string) =>
-  (MONTHLY_USAGE_STATEMENTS[projectId] || [{
-    month: '2026-04',
-    label: '2026년 4월',
+const parseProjectPeriod = (period: string) => {
+  const [startText, endText] = period.split('~');
+  const parseMonth = (value?: string) => {
+    const match = value?.match(/(\d{4})\/(\d{1,2})/);
+    if (!match) return null;
+    return { year: Number(match[1]), month: Number(match[2]) };
+  };
+  return { start: parseMonth(startText), end: parseMonth(endText) };
+};
+
+const formatMonthKey = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
+const formatMonthLabel = (monthKey: string) => {
+  const [year, month] = monthKey.split('-');
+  return `${year}년 ${Number(month)}월`;
+};
+
+const getMonthsInPeriod = (period: string) => {
+  const { start, end } = parseProjectPeriod(period);
+  if (!start || !end) return [];
+  const months: string[] = [];
+  let year = start.year;
+  let month = start.month;
+  while (year < end.year || (year === end.year && month <= end.month)) {
+    months.push(formatMonthKey(year, month));
+    month += 1;
+    if (month > 12) {
+      year += 1;
+      month = 1;
+    }
+  }
+  return months;
+};
+
+const buildEmptyMonthlyUsageStatement = (month: string, project?: ProjectSummary): MonthlyUsageStatementSummary => ({
+    month,
+    label: formatMonthLabel(month),
     sourceFileName: '사용내역서 미업로드',
     revisionNo: 1,
     documentWrittenDate: '-',
@@ -316,7 +348,19 @@ export const getMonthlyUsageStatements = (projectId: string) =>
     parseStatus: '업로드 대기',
     validationStatus: '미검증',
     currentAmount: '0',
-    cumulativeAmount: '0',
+    cumulativeAmount: project?.accumulatedAmount || '0',
     evidenceCount: 0,
     issueCount: 0,
-  }]).toSorted((a, b) => a.month.localeCompare(b.month));
+});
+
+const buildMonthlyUsageStatementsForPeriod = (projectId: string): MonthlyUsageStatementSummary[] => {
+  const project = getAllProjects().find((item) => item.id === projectId);
+  const periodMonths = getMonthsInPeriod(project?.period || '');
+  const explicitStatements = MONTHLY_USAGE_STATEMENTS[projectId] || [];
+  const explicitByMonth = new Map(explicitStatements.map((statement) => [statement.month, statement]));
+  if (!periodMonths.length) return explicitStatements.length ? explicitStatements : [buildEmptyMonthlyUsageStatement('2026-04', project)];
+  return periodMonths.map((month) => explicitByMonth.get(month) || buildEmptyMonthlyUsageStatement(month, project));
+};
+
+export const getMonthlyUsageStatements = (projectId: string) =>
+  buildMonthlyUsageStatementsForPeriod(projectId).toSorted((a, b) => a.month.localeCompare(b.month));

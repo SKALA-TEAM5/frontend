@@ -61,3 +61,11 @@ export const markActionNotificationRead = (notificationId: string) => {
 export const updateActionNotificationStatus = (notificationId: string, statusCode: ActionRequestStatusCode) => {
   writeRaw(readRaw().map((notification) => notification.id === notificationId ? { ...notification, statusCode } : notification));
 };
+
+export const closeResolvedActionNotificationsForProject = (projectId: string) => {
+  writeRaw(readRaw().map((notification) => {
+    if (notification.projectId !== projectId) return notification;
+    if (notification.statusCode !== 'resolved') return notification;
+    return { ...notification, statusCode: 'closed', read: true };
+  }));
+};

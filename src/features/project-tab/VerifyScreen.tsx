@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
+import Modal from '../../components/ui/Modal';
 import { addActionNotification } from '../../lib/action-notifications';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
@@ -18,13 +19,14 @@ interface VerifyScreenProps {
   initialTab?: VerifyTab;
   initialStatus?: VerifyStatus;
   hideValidationIntro?: boolean;
+  onValidationApproved?: () => void;
 }
 
 type VerifyStatus = 'idle' | 'loading' | 'done';
 type VerifyTab = 'dashboard' | 'report';
 type ReportGenerationStatus = 'idle' | 'generating' | 'done';
 type ReportWorkflowStatus = 'editing' | 'saved';
-type SheReviewDecision = 'pending' | 'approved' | 'rejected' | 'supplement_requested';
+type SheReviewDecision = 'pending' | 'approved' | 'supplement_requested';
 type ResultFilter = 'all' | ValidationDecision;
 type AmountTooltip = {
   label: string;
@@ -105,7 +107,7 @@ const renderCategoryTableName = (item: CategoryValidationResult) => {
   </>;
 };
 
-const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initialStatus = 'idle', hideValidationIntro = false }: VerifyScreenProps) => {
+const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initialStatus = 'idle', hideValidationIntro = false, onValidationApproved }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
   const [progress, setProgress] = useState(0);
@@ -119,9 +121,12 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
   const [reportDraft, setReportDraft] = useState<ReportDraft | null>(null);
   const [savedAt, setSavedAt] = useState('');
   const [exportNoticeOpen, setExportNoticeOpen] = useState(false);
+  const [docxExporting, setDocxExporting] = useState(false);
   const [amountTooltip, setAmountTooltip] = useState<AmountTooltip>(null);
   const [summaryWidgetTooltip, setSummaryWidgetTooltip] = useState<SummaryWidgetTooltip>(null);
   const [submittedEvidenceOpen, setSubmittedEvidenceOpen] = useState(false);
+  const [manualSupplementOpen, setManualSupplementOpen] = useState(false);
+  const [manualSupplementText, setManualSupplementText] = useState('');
   const [sentActionKeys, setSentActionKeys] = useState<string[]>([]);
   const [openActionKeys, setOpenActionKeys] = useState<string[]>([]);
   const verifyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -238,6 +243,31 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     setSavedAt(new Date().toLocaleString('ko-KR'));
   };
 
+  const handleDocxExport = async () => {
+    if (!reportDraft || docxExporting) return;
+    setDocxExporting(true);
+    try {
+      const response = await fetch('/api/report-docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reportDraft),
+      });
+      if (!response.ok) throw new Error('DOCX export failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${reportDraft.report_no || 'report'}.docx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setExportNoticeOpen(true);
+    } finally {
+      setDocxExporting(false);
+    }
+  };
+
   const updateReportTopField = (key: keyof Pick<ReportDraft, 'title' | 'report_no' | 'site_name' | 'report_period_label' | 'written_date_label' | 'department_label' | 'reviewer_label' | 'conclusion'>, value: string) => {
     setReportDraft((current) => current ? { ...current, [key]: value } : current);
     setReportWorkflowStatus('editing');
@@ -310,6 +340,41 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
       statusCode: 'open',
     });
     setSentActionKeys((prev) => prev.includes(notificationKey) ? prev : [...prev, notificationKey]);
+  };
+
+  const handleApproveValidation = () => {
+    setSheReviewDecision('approved');
+    onValidationApproved?.();
+  };
+
+  const handleSupplementRequest = () => {
+    if (!can(user, 'requestAction')) return;
+    if (!issues.length) {
+      setManualSupplementOpen(true);
+      return;
+    }
+    issues.forEach((issue) => handleSendActionNotification(issue));
+    setSheReviewDecision('supplement_requested');
+  };
+
+  const handleManualSupplementSend = () => {
+    const message = manualSupplementText.trim();
+    if (!message) return;
+    const targetProject = projectId ? getProjectById(projectId, user) : null;
+    addActionNotification({
+      projectId,
+      projectName: contractName,
+      categoryName: '수기 보완 요청',
+      title: 'SHE 담당자 보완 요청',
+      message,
+      requestedFiles: [],
+      senderName: user.name,
+      recipientUserName: targetProject?.manager,
+      statusCode: 'open',
+    });
+    setManualSupplementText('');
+    setManualSupplementOpen(false);
+    setSheReviewDecision('supplement_requested');
   };
 
   const renderProgress = () => (
@@ -685,10 +750,9 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     if (!can(user, 'confirmFinalReport')) return null;
 
     const decisionMetaByStatus: Record<SheReviewDecision, { label: string; color: string; bg: string; description: string }> = {
-      pending: { label: '검토 대기', color: C.g600, bg: C.g100, description: 'AI 판단 결과와 근거를 확인한 뒤 승인, 반려, 보완 요청 중 하나를 선택하세요.' },
-      approved: { label: '승인', color: C.ok, bg: '#F4FBF6', description: 'SHE 담당자가 검증 결과를 승인했습니다. 보고서 생성을 진행할 수 있습니다.' },
-      rejected: { label: '반려', color: C.danger, bg: C.dangerBg, description: '검증 결과가 반려되었습니다. 사용내역서 또는 증빙 재검토가 필요합니다.' },
-      supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 부족한 서류 보완을 요청한 상태입니다.' },
+      pending: { label: '검토 대기', color: C.g600, bg: C.g100, description: 'AI 판단 결과와 근거를 확인한 뒤 승인하거나 프로젝트 담당자에게 보완 요청을 보낼 수 있습니다.' },
+      approved: { label: '승인', color: C.ok, bg: '#F4FBF6', description: 'SHE 담당자가 검증 결과를 승인했습니다. 유효성 검증을 완료하고 보고서 탭으로 이동합니다.' },
+      supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 담당자 조치 목록의 보완 요청 알림을 전송했습니다.' },
     };
     const current = decisionMetaByStatus[sheReviewDecision];
     const reviewButtonStyle = (color: string, active: boolean): CSSProperties => ({
@@ -707,7 +771,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
 
     return (
       <Card style={{ padding: '18px 20px', marginBottom: 12, border: `1px solid ${current.color}` }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 14, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 7 }}>
               <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>SHE 최종 판단</div>
@@ -715,10 +779,9 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
             </div>
             <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6 }}>{current.description}</div>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={() => setSheReviewDecision('approved')} style={reviewButtonStyle(C.ok, sheReviewDecision === 'approved')}>승인</button>
-            <button type="button" onClick={() => setSheReviewDecision('supplement_requested')} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested')}>보완 요청</button>
-            <button type="button" onClick={() => setSheReviewDecision('rejected')} style={reviewButtonStyle(C.danger, sheReviewDecision === 'rejected')}>반려</button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
+            <button type="button" onClick={handleApproveValidation} style={reviewButtonStyle(C.ok, sheReviewDecision === 'approved')}>승인</button>
+            <button type="button" onClick={handleSupplementRequest} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested')}>보완 요청</button>
           </div>
         </div>
       </Card>
@@ -767,8 +830,11 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
       if (sectionId === 'cover' || sectionId === 'basic_info' || sectionId === 'issue_details') return cellIndex % 2 === 0;
       return rowIndex === 0 && cellIndex === 0 && Boolean(value);
     };
-    const isLockedDataCell = (sectionId: string, tableIndex: number, cellIndex: number) => sectionId === 'execution_summary' && tableIndex === 1 && cellIndex === 0;
+    const isLockedDataCell = (sectionId: string, tableIndex: number, table: ReportDraft['report_sections'][number]['tables'][number], cellIndex: number) =>
+      (sectionId === 'execution_summary' && tableIndex === 1 && cellIndex === 0) || (table.headers[0] === 'No.' && cellIndex === 0);
     const getReportColumnTemplate = (sectionId: string, table: ReportDraft['report_sections'][number]['tables'][number]) => {
+      if (table.headers.length === 0 && (sectionId === 'cover' || sectionId === 'issue_details')) return '150px minmax(0, 1fr)';
+      if (table.headers.length === 0 && sectionId === 'basic_info') return '150px minmax(0, 1fr) 150px minmax(0, 1fr)';
       if (sectionId === 'supplement_actions' && table.headers[0] === 'No.') return '48px minmax(140px, 1fr) minmax(280px, 2.2fr) minmax(110px, .8fr) minmax(100px, .8fr)';
       if (table.headers[0] === 'No.') return `48px repeat(${Math.max(0, table.headers.length - 1)}, minmax(120px, 1fr))`;
       return `repeat(${Math.max(table.headers.length, 1)}, minmax(0, 1fr))`;
@@ -789,9 +855,9 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
               {table.headers.map((header) => <div key={header} style={{ padding: '9px 10px', borderRight: `1px solid ${C.g200}`, fontSize: 12, fontWeight: 900, color: C.g800, textAlign: 'center' }}>{header}</div>)}
             </div>}
             {table.rows.map((row, rowIndex) => (
-              <div key={rowIndex} style={{ display: 'grid', gridTemplateColumns: table.headers.length ? columnTemplate : `repeat(${row.length}, minmax(0, 1fr))`, borderBottom: `1px solid ${C.g200}` }}>
+              <div key={rowIndex} style={{ display: 'grid', gridTemplateColumns: columnTemplate, borderBottom: `1px solid ${C.g200}` }}>
                 {row.map((cell, cellIndex) => {
-                  const isLabel = isTemplateLabelCell(section.section_id, table.headers.length > 0, cellIndex, rowIndex, cell) || isLockedDataCell(section.section_id, tableIndex, cellIndex);
+                  const isLabel = isTemplateLabelCell(section.section_id, table.headers.length > 0, cellIndex, rowIndex, cell) || isLockedDataCell(section.section_id, tableIndex, table, cellIndex);
                   const commonCellStyle: CSSProperties = { minHeight: 38, borderRight: cellIndex === row.length - 1 ? 'none' : `1px solid ${C.g200}`, background: isLabel ? '#EEF3F0' : C.white, color: isLabel ? C.g600 : C.g800, textAlign: table.headers.length > 0 && cellIndex > 0 ? 'center' : 'left', fontSize: 12, fontWeight: isLabel ? 900 : 800 };
                   return isLabel
                     ? <div key={cellIndex} style={{ ...commonCellStyle, padding: '9px 10px', display: 'flex', alignItems: 'center' }}>{cell}</div>
@@ -804,7 +870,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
       </div>;
     };
 
-    return <div style={{ border: `1px solid ${C.g200}`, borderRadius: 16, background: '#F7F8FA', padding: 16 }}>
+    return <div style={{ border: `1px solid ${C.g200}`, borderRadius: 16, background: '#F7F8FA', padding: 16, maxHeight: 'min(760px, calc(100vh - 230px))', minHeight: 420, overflowY: 'auto', overflowX: 'hidden' }}>
       <div style={{ maxWidth: 880, margin: '0 auto', background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 10px 28px rgba(27,94,59,.08)', padding: '34px 36px', display: 'grid', gap: 22 }}>
         <div style={{ textAlign: 'center', padding: '24px 0 10px' }}>
           <textarea value={reportDraft.title} onChange={(event) => updateReportTopField('title', event.target.value)} style={{ ...reportInputStyle, border: 'none', resize: 'vertical', textAlign: 'center', fontSize: 24, fontWeight: 900, lineHeight: 1.4, minHeight: 84 }} />
@@ -833,14 +899,14 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
 
     return <div className="screen-enter">
       <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 16, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 생성</div>
             <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{canGenerateReport ? '검증 대시보드의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '유효성 검증을 먼저 완료해야 보고서를 생성할 수 있습니다.'}</div>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
             <Button size="lg" onClick={handleReportGenerate} disabled={!canGenerateReport || reportStatus === 'generating'}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
-            <Button size="lg" variant="outline" onClick={() => setExportNoticeOpen(true)} disabled={reportStatus !== 'done'}>DOCX 추출</Button>
+            <Button size="lg" variant="outline" onClick={handleDocxExport} disabled={reportStatus !== 'done' || !reportDraft || docxExporting}>{docxExporting ? '추출 중...' : 'DOCX 추출'}</Button>
           </div>
         </div>
         {reportStatus === 'generating' && <div style={{ marginTop: 16 }}>
@@ -855,8 +921,8 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
       </Card>}
 
       {reportStatus === 'done' && <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
-          <div>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 편집/확정</div>
             <div style={{ display: 'inline-flex', marginTop: 8, ...chipStyle(reportWorkflowMeta.color, reportWorkflowMeta.bg) }}>{reportWorkflowMeta.label}</div>
             <div style={{ fontSize: 12, color: C.g400, marginTop: 8 }}>{reportWorkflowMeta.description}</div>
@@ -875,7 +941,18 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     {activeTab === 'dashboard' && status === 'idle' && renderEmpty()}
     {activeTab === 'dashboard' && status === 'done' && renderDashboard()}
     {activeTab === 'report' && renderReport()}
-    <CenterModal open={exportNoticeOpen} title="DOCX 추출" body="편집된 보고서 JSON을 기반으로 DOCX 추출 요청이 접수되었습니다." actionLabel="확인" onAction={() => setExportNoticeOpen(false)} />
+    <CenterModal open={exportNoticeOpen} title="DOCX 추출" body="편집된 보고서를 DOCX 파일로 생성했습니다." actionLabel="확인" onAction={() => setExportNoticeOpen(false)} />
+    <Modal open={manualSupplementOpen} onClose={() => setManualSupplementOpen(false)} maxWidth={560} zIndex={980}>
+      <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
+        <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>보완 요청 알림 작성</div>
+        <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginBottom: 14 }}>담당자 조치 목록이 비어 있습니다. 프로젝트 담당자에게 보낼 보완 요청 내용을 직접 입력해 주세요.</div>
+        <textarea value={manualSupplementText} onChange={(event) => setManualSupplementText(event.target.value)} placeholder="예: 사용내역서의 보호구 항목 증빙이 부족합니다. 지급대장과 착용 사진을 추가 제출해 주세요." style={{ width: '100%', minHeight: 140, resize: 'vertical', boxSizing: 'border-box', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '12px 14px', outline: 'none', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, lineHeight: 1.6 }} />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <Button size="sm" variant="outline" onClick={() => setManualSupplementOpen(false)}>취소</Button>
+          <Button size="sm" onClick={handleManualSupplementSend} disabled={!manualSupplementText.trim()}>알림 보내기</Button>
+        </div>
+      </div>
+    </Modal>
   </div>;
 };
 

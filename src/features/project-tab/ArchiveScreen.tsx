@@ -239,7 +239,7 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
             <button type="button" onClick={() => setUploadModalOpen(false)} style={{ position: 'absolute', top: 8, right: 10, zIndex: 2, border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
           </div>
           <div style={{ padding: '34px 14px 14px' }}>
-            <UploadScreen contractName={contractName} contractMeta={contractMeta} requireUsageStatementFirst={false} onMatchComplete={(payload) => {
+            <UploadScreen contractName={contractName} contractMeta={contractMeta} requireUsageStatementFirst={false} hideUsageStatementZone onMatchComplete={(payload) => {
                 const nextSeed = buildArchiveDataFromUploads(payload.files);
                 setFileData(normalizeArchiveData(nextSeed));
                 setSelectedHierarchyCatId(USAGE_LINE_ITEMS[0]?.categoryId || 1);

@@ -25,7 +25,7 @@ export default function ArchiveToolbar({ viewMode, onViewModeChange, validationS
             <button data-ui="archive-toolbar.3" onClick={() => onViewModeChange(item.id as ArchiveViewMode)} style={{ padding: 0, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: viewMode === item.id ? 900 : 800, background: 'transparent', color: viewMode === item.id ? C.primary : C.g600 }}>
               {item.label}
             </button>
-            {index < viewOptions.length - 1 && <span style={{ color: C.g200, fontSize: 14, fontWeight: 800 }}>|</span>}
+            {index < viewOptions.length - 1 && <span style={{ color: C.g100, fontSize: 14, fontWeight: 800 }}>|</span>}
           </span>))}
         {onUpload && <button data-ui="archive-toolbar.4" type="button" onClick={onUpload} style={{ marginLeft: 'auto', border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer', boxShadow: `0 6px 14px ${C.primaryShadow}` }}>
           증빙 업로드

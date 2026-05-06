@@ -21,6 +21,11 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--c-g200); border-radius: 99px; }
   .thin-x-scroll {
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
     scrollbar-width: thin;
     scrollbar-color: var(--c-g200) transparent;
   }
@@ -132,6 +137,7 @@
     margin-right: 0;
     padding: 28px 28px 40px;
     min-width: 0;
+    overflow-x: hidden;
   }
   .floating-history-sidebar {
     display: block;
@@ -194,6 +200,16 @@
     margin-right: 0 !important;
     padding-top: 18px;
     min-width: 0;
+    overflow-x: hidden;
+  }
+  .project-detail-main-with-history > * {
+    max-width: 100%;
+    min-width: 0;
+  }
+  [data-ui="project-detail.31"] {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
   }
   .project-detail-main-right-closed {
     --project-right-space: 28px;
