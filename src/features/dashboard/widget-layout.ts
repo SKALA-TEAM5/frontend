@@ -25,7 +25,7 @@ export const DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; label: string }> 
   { id: 'projectProgress', label: '프로젝트 공정률' },
   { id: 'workload', label: '담당자별 업무량' },
   { id: 'myProjects', label: '내 프로젝트 현황' },
-  { id: 'timeline', label: '월별 처리 타임라인' },
+  { id: 'timeline', label: '월별 타임라인' },
 ];
 
 export const DEFAULT_WIDGET_IDS = DASHBOARD_WIDGETS.map((widget) => widget.id);
@@ -39,12 +39,12 @@ export const GRID_COLUMN_COUNT = 10;
 
 export const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
   projectStatus: { colSpan: 2, rowSpan: 1 },
-  recentActivity: { colSpan: 4, rowSpan: 2 },
+  recentActivity: { colSpan: 3, rowSpan: 2 },
   sla: { colSpan: 2, rowSpan: 1 },
   risk: { colSpan: 2, rowSpan: 1 },
-  missingUpload: { colSpan: 2, rowSpan: 1 },
+  missingUpload: { colSpan: 1, rowSpan: 1 },
   projectProgress: { colSpan: 3, rowSpan: 2 },
-  workload: { colSpan: 3, rowSpan: 2 },
+  workload: { colSpan: 2, rowSpan: 2 },
   myProjects: { colSpan: 6, rowSpan: 3 },
   timeline: { colSpan: 10, rowSpan: 3 },
 };
@@ -53,7 +53,7 @@ export const DEFAULT_WIDGET_LAYOUT: Record<DashboardWidgetId, WidgetPosition> = 
   projectStatus: { col: 1, row: 1 },
   risk: { col: 3, row: 1 },
   missingUpload: { col: 5, row: 1 },
-  sla: { col: 7, row: 1 },
+  sla: { col: 6, row: 1 },
   workload: { col: 1, row: 2 },
   projectProgress: { col: 4, row: 2 },
   recentActivity: { col: 7, row: 2 },
@@ -67,8 +67,9 @@ export const dashboardGridStyle: CSSProperties = {
   gridAutoRows: GRID_ROW_GUIDE_HEIGHT,
   gap: GRID_GAP,
   alignItems: 'stretch',
-  width: '100%',
-  maxWidth: '100%',
+  width: 'min(100%, 1440px)',
+  maxWidth: 1440,
+  alignSelf: 'center',
   minWidth: 0,
 };
 
