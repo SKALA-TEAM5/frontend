@@ -1,6 +1,6 @@
 import type { ActionRequestStatusCode } from './project-data';
 
-export type NotificationType = 'action_request' | 'action_completed' | 'new_upload';
+export type NotificationType = 'action_request' | 'new_upload';
 
 export interface ActionNotification {
   id: string;
@@ -22,16 +22,26 @@ export interface ActionNotification {
 
 const STORAGE_KEY = 'sananbee.action.notifications';
 export const ACTION_NOTIFICATION_EVENT = 'sananbee:action-notifications';
+type StoredNotificationType = NotificationType | 'action_completed';
+type StoredActionNotification = Omit<ActionNotification, 'type'> & { type?: StoredNotificationType };
+
+const inferNotificationType = (notification: Partial<Omit<ActionNotification, 'type'>> & { type?: StoredNotificationType }): NotificationType => {
+  if (notification.type === 'action_request' || notification.type === 'new_upload') return notification.type;
+  if (notification.recipientRole === 'she_manager') return 'new_upload';
+  return 'action_request';
+};
 
 const readRaw = (): ActionNotification[] => {
   if (typeof window === 'undefined') return [];
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as ActionNotification[]).map((notification) => ({
-      ...notification,
-      type: notification.type || inferNotificationType(notification),
-      recipientRole: notification.recipientRole || 'project_manager',
-    })) : [];
+    return raw ? (JSON.parse(raw) as StoredActionNotification[])
+      .filter((notification) => notification.type !== 'action_completed')
+      .map((notification) => ({
+        ...notification,
+        type: inferNotificationType(notification),
+        recipientRole: notification.recipientRole || 'project_manager',
+      })) : [];
   } catch {
     return [];
   }
@@ -44,12 +54,6 @@ const writeRaw = (notifications: ActionNotification[]) => {
 };
 
 export const getActionNotifications = () => readRaw();
-
-const inferNotificationType = (notification: Partial<ActionNotification>): NotificationType => {
-  if (notification.type) return notification.type;
-  if (notification.recipientRole === 'she_manager') return 'action_completed';
-  return 'action_request';
-};
 
 export const addActionNotification = (notification: Omit<ActionNotification, 'id' | 'createdAt' | 'createdAtMs' | 'read' | 'recipientRole' | 'type'> & { recipientRole?: ActionNotification['recipientRole']; type?: NotificationType }) => {
   const next: ActionNotification = {
@@ -66,11 +70,27 @@ export const addActionNotification = (notification: Omit<ActionNotification, 'id
 };
 
 export const markActionNotificationRead = (notificationId: string) => {
-  writeRaw(readRaw().map((notification) => notification.id === notificationId ? { ...notification, read: true } : notification));
+  writeRaw(readRaw().map((notification) => {
+    if (notification.id !== notificationId) return notification;
+    const shouldStartAction = notification.type === 'action_request' && (!notification.statusCode || notification.statusCode === 'open');
+    return {
+      ...notification,
+      read: true,
+      statusCode: shouldStartAction ? 'in_progress' : notification.statusCode,
+    };
+  }));
 };
 
 export const updateActionNotificationStatus = (notificationId: string, statusCode: ActionRequestStatusCode) => {
   writeRaw(readRaw().map((notification) => notification.id === notificationId ? { ...notification, statusCode } : notification));
+};
+
+export const resolveActionRequestNotificationsForProject = (projectId: string) => {
+  writeRaw(readRaw().map((notification) => {
+    if (notification.projectId !== projectId) return notification;
+    if (notification.type !== 'action_request') return notification;
+    return { ...notification, statusCode: 'resolved', read: true };
+  }));
 };
 
 export const closeResolvedActionNotificationsForProject = (projectId: string) => {
