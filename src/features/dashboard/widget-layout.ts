@@ -3,16 +3,14 @@ import { C } from '../../lib/theme';
 
 export type DashboardWidgetId =
   | 'projectStatus'
-  | 'actionRequestProjects'
   | 'recentActivity'
   | 'sla'
-  | 'openActionRequests'
   | 'risk'
   | 'missingUpload'
-  | 'unreadNotifications'
-  | 'settlementProgress'
+  | 'projectProgress'
   | 'workload'
-  | 'myProjects';
+  | 'myProjects'
+  | 'timeline';
 
 export type WidgetHelpId = DashboardWidgetId;
 export type WidgetPosition = { col: number; row: number };
@@ -20,21 +18,19 @@ export type WidgetSize = { colSpan: number; rowSpan: number };
 
 export const DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; label: string }> = [
   { id: 'projectStatus', label: '프로젝트 현황' },
-  { id: 'actionRequestProjects', label: '조치 요청 프로젝트' },
   { id: 'recentActivity', label: '최근 활동' },
   { id: 'sla', label: '보완 요청 기한' },
-  { id: 'openActionRequests', label: '조치 요청 미처리 건' },
   { id: 'risk', label: '검증 리스크 요약' },
   { id: 'missingUpload', label: '업로드 누락 체크' },
-  { id: 'unreadNotifications', label: '미확인 알림' },
-  { id: 'settlementProgress', label: '정산 진행률' },
+  { id: 'projectProgress', label: '프로젝트 공정률' },
   { id: 'workload', label: '담당자별 업무량' },
   { id: 'myProjects', label: '내 프로젝트 현황' },
+  { id: 'timeline', label: '월별 처리 타임라인' },
 ];
 
 export const DEFAULT_WIDGET_IDS = DASHBOARD_WIDGETS.map((widget) => widget.id);
-export const DASHBOARD_WIDGET_STORAGE_KEY = 'she.dashboard.visibleWidgets';
-export const DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY = 'she.dashboard.widgetLayout';
+export const DASHBOARD_WIDGET_STORAGE_KEY = 'she.dashboard.visibleWidgets.v6';
+export const DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY = 'she.dashboard.widgetLayout.v6';
 
 export const GRID_GAP = 14;
 export const GRID_ROW_GUIDE_HEIGHT = 130;
@@ -43,30 +39,26 @@ export const GRID_COLUMN_COUNT = 10;
 
 export const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
   projectStatus: { colSpan: 2, rowSpan: 1 },
-  actionRequestProjects: { colSpan: 3, rowSpan: 2 },
-  recentActivity: { colSpan: 2, rowSpan: 2 },
+  recentActivity: { colSpan: 4, rowSpan: 2 },
   sla: { colSpan: 2, rowSpan: 1 },
-  openActionRequests: { colSpan: 1, rowSpan: 1 },
   risk: { colSpan: 2, rowSpan: 1 },
-  missingUpload: { colSpan: 1, rowSpan: 1 },
-  unreadNotifications: { colSpan: 1, rowSpan: 1 },
-  settlementProgress: { colSpan: 2, rowSpan: 1 },
-  workload: { colSpan: 2, rowSpan: 1 },
-  myProjects: { colSpan: 8, rowSpan: 4 },
+  missingUpload: { colSpan: 2, rowSpan: 1 },
+  projectProgress: { colSpan: 3, rowSpan: 2 },
+  workload: { colSpan: 3, rowSpan: 2 },
+  myProjects: { colSpan: 6, rowSpan: 3 },
+  timeline: { colSpan: 10, rowSpan: 3 },
 };
 
 export const DEFAULT_WIDGET_LAYOUT: Record<DashboardWidgetId, WidgetPosition> = {
   projectStatus: { col: 1, row: 1 },
-  actionRequestProjects: { col: 3, row: 1 },
-  risk: { col: 7, row: 1 },
-  missingUpload: { col: 9, row: 1 },
-  openActionRequests: { col: 10, row: 1 },
-  workload: { col: 7, row: 2 },
-  settlementProgress: { col: 9, row: 2 },
-  unreadNotifications: { col: 6, row: 1 },
-  recentActivity: { col: 9, row: 3 },
-  sla: { col: 1, row: 2 },
-  myProjects: { col: 1, row: 3 },
+  risk: { col: 3, row: 1 },
+  missingUpload: { col: 5, row: 1 },
+  sla: { col: 7, row: 1 },
+  workload: { col: 1, row: 2 },
+  projectProgress: { col: 4, row: 2 },
+  recentActivity: { col: 7, row: 2 },
+  myProjects: { col: 1, row: 4 },
+  timeline: { col: 1, row: 7 },
 };
 
 export const dashboardGridStyle: CSSProperties = {
@@ -84,7 +76,7 @@ export const dashboardEditGridStyle: CSSProperties = {
   boxSizing: 'border-box',
   padding: GRID_EDIT_PADDING,
   width: '100%',
-  minHeight: GRID_ROW_GUIDE_HEIGHT * 12 + GRID_GAP * 11 + GRID_EDIT_PADDING * 2,
+  minHeight: GRID_ROW_GUIDE_HEIGHT * 10 + GRID_GAP * 9 + GRID_EDIT_PADDING * 2,
   maxWidth: '100%',
   borderRadius: 18,
   backgroundImage: `linear-gradient(${C.g200} 1px, transparent 1px), linear-gradient(90deg, ${C.g200} 1px, transparent 1px)`,

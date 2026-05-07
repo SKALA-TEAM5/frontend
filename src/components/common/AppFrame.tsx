@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { addActionNotification, markActionNotificationRead, updateActionNotificationStatus, type ActionNotification, type NotificationType } from '../../lib/action-notifications';
 import { useActionNotifications } from '../../lib/use-action-notifications';
-import { APP_THEMES, C, type AppThemeId, useAppTheme } from '../../lib/theme';
+import { C } from '../../lib/theme';
 import { ChevronIcon } from '../ui';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
@@ -31,7 +31,6 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const [toastVisible, setToastVisible] = useState(true);
     const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
     const [sidebarProjects, setSidebarProjects] = useState<ProjectSummary[]>([]);
-    const { themeId, setThemeId } = useAppTheme();
     const router = useRouter();
     const pathname = usePathname();
     const { notifications, visibleNotifications: roleNotifications, unreadNotifications } = useActionNotifications(user);
@@ -77,6 +76,10 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const activeRoleNotifications = roleNotifications.filter(isActiveNotification);
     const latestUnreadNotification = unreadNotifications.find(isActiveNotification);
     const sidebarNotificationCount = activeRoleNotifications.length;
+    const primarySidebarProject = sidebarProjects[0];
+    const managedProjectSummary = primarySidebarProject
+        ? `${primarySidebarProject.constructionName}${sidebarProjects.length > 1 ? ` 외 ${sidebarProjects.length - 1}건 관리` : ' 관리'}`
+        : '관리 프로젝트 없음';
     const notificationProjectOptions = Array.from(new Set(roleNotifications.map((notification) => notification.projectName))).filter(Boolean);
     const notificationPeriodStart = (() => {
         const now = Date.now();
@@ -252,59 +255,64 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         </div>
     );
     return (<div data-ui="app-frame.1" style={frameStyle}>
+      <header className="app-global-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 900, color: C.g800 }}>
+          <img src="/uploads/character.png" alt="i-veri" style={{ width: 28, height: 28, objectFit: 'contain' }} />
+          <span>i-veri</span>
+          <span style={{ color: '#2F73B7', fontSize: 19 }}>WorkPlace</span>
+        </div>
+        <div style={{ display: 'flex', gap: 22, color: C.g400, fontSize: 11, fontWeight: 900, alignItems: 'center' }}>
+          <Link href="/dashboard" style={{ color: 'inherit', textDecoration: 'none' }}>검증 현황</Link>
+          <Link href="/projects" style={{ color: 'inherit', textDecoration: 'none' }}>조치 요청</Link>
+          <button type="button" onClick={() => setActiveUtilityView('notifications')} style={{ border: 'none', background: 'transparent', color: 'inherit', padding: 0, fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>알림센터</button>
+          <span>사용자</span>
+        </div>
+      </header>
       <button type="button" aria-label={leftSidebarOpen ? '좌측 사이드바 닫기' : '좌측 사이드바 열기'} onClick={() => setLeftSidebarOpen((open) => !open)} className="app-sidebar-toggle" style={{ left: leftSidebarOpen ? 205 : 10 }}>
         <ChevronIcon direction={leftSidebarOpen ? 'left' : 'right'} size={17} color={C.primary}/>
       </button>
       <aside data-ui="app-frame.2" className={leftSidebarOpen ? 'app-sidebar' : 'app-sidebar app-sidebar-closed'}>
-        <div data-ui="app-frame.3" style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-          <img data-ui="app-frame.4" src="/uploads/character.png" alt="veri" style={{ width: 38, height: 38, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }}/>
-          <div data-ui="app-frame.5" style={{ minWidth: 0 }}>
-            <div data-ui="app-frame.6" style={{ fontSize: 17, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>i-veri</div>
-            <div data-ui="app-frame.7" style={{ fontSize: 13, color: C.g400, fontWeight: 700, whiteSpace: 'nowrap' }}>프로젝트 운영</div>
-          </div>
-        </div>
-
-        <nav data-ui="app-frame.8" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 30 }}>
+        <nav data-ui="app-frame.8" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {navItems.map((item) => {
+            if (item.href === '/projects') {
+              const active = activeUtilityView === null && pathname === item.href;
+              return (
+                <div key={item.href}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 34px', alignItems: 'center', background: active ? C.bg : 'transparent', borderLeft: `4px solid ${active ? C.primary : 'transparent'}` }}>
+                    <Link href={item.href} onClick={() => setActiveUtilityView(null)} style={{ minHeight: 38, display: 'flex', alignItems: 'center', minWidth: 0, padding: '0 8px', textDecoration: 'none', color: active ? C.primary : C.g600, fontSize: 13, fontWeight: 900 }}>
+                      {item.label}
+                    </Link>
+                    <button type="button" aria-label={projectsOpen ? '프로젝트 목록 접기' : '프로젝트 목록 펼치기'} onClick={() => setProjectsOpen((open) => !open)} style={{ width: 34, height: 38, border: 'none', background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: active ? C.primary : C.g400, cursor: 'pointer' }}>
+                      <ChevronIcon direction={projectsOpen ? 'up' : 'down'} size={16} />
+                    </button>
+                  </div>
+                  {projectsOpen && (<div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 5, maxHeight: 240, overflowY: 'auto', paddingRight: 4 }}>
+                    {sidebarProjects.map((project) => {
+                      const href = `/projects/${project.id}`;
+                      const projectActive = pathname === href;
+                      return (<Link key={project.id} href={href} title={project.name} onClick={() => setActiveUtilityView(null)} style={{ display: 'block', textDecoration: 'none', borderLeft: `3px solid ${projectActive ? C.primary : 'transparent'}`, padding: '8px 9px', background: projectActive ? C.bg : 'transparent', color: projectActive ? C.primary : C.g600, fontSize: 13, fontWeight: projectActive ? 900 : 800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {project.constructionName}
+                      </Link>);
+                    })}
+                  </div>)}
+                </div>
+              );
+            }
             const active = activeUtilityView === null && pathname === item.href;
-            return (<Link key={item.href} href={item.href} onClick={() => setActiveUtilityView(null)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 12px', borderRadius: 12, textDecoration: 'none', color: active ? C.primary : C.g600, background: active ? C.bg : 'transparent', fontSize: 15, fontWeight: 900 }}>
-              <span data-ui="app-frame.9" style={{ width: 7, height: 7, borderRadius: 99, background: active ? C.primary : C.g200, flexShrink: 0 }}/>
+            return (<Link key={item.href} href={item.href} onClick={() => setActiveUtilityView(null)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 9, minHeight: 38, padding: '0 12px', borderLeft: `4px solid ${active ? C.primary : 'transparent'}`, textDecoration: 'none', color: active ? C.primary : C.g600, background: active ? C.bg : 'transparent', fontSize: 13, fontWeight: 900 }}>
               {item.label}
             </Link>);
         })}
-        </nav>
-
-        <div data-ui="side-notifications" style={{ marginTop: 8 }}>
-          <button type="button" onClick={() => setActiveUtilityView('notifications')} style={{ width: '100%', border: 'none', borderRadius: 12, background: activeUtilityView === 'notifications' ? C.bg : 'transparent', color: activeUtilityView === 'notifications' ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', padding: '11px 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 9, fontSize: 15, fontWeight: 900 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 99, background: activeUtilityView === 'notifications' ? C.primary : C.g200, flexShrink: 0 }}/>
-              알림
-            </span>
-            <span style={{ minWidth: 22, height: 22, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: sidebarNotificationCount ? C.primary : C.g100, color: sidebarNotificationCount ? C.white : C.g400, fontSize: 11, fontWeight: 900 }}>{sidebarNotificationCount}</span>
-          </button>
-        </div>
-
-        <div data-ui="side-projects" style={{ marginTop: 8 }}>
-          <Link href="/projects/new" onClick={() => setActiveUtilityView(null)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 12px', borderRadius: 12, textDecoration: 'none', color: activeUtilityView === null && pathname === '/projects/new' ? C.primary : C.g600, background: activeUtilityView === null && pathname === '/projects/new' ? C.bg : 'transparent', fontSize: 15, fontWeight: 900, marginBottom: 8 }}>
-            <span style={{ width: 7, height: 7, borderRadius: 99, background: activeUtilityView === null && pathname === '/projects/new' ? C.primary : C.g200, flexShrink: 0 }}/>
+          <Link href="/projects/new" onClick={() => setActiveUtilityView(null)} style={{ display: 'flex', alignItems: 'center', minHeight: 38, padding: '0 12px', borderLeft: `4px solid ${activeUtilityView === null && pathname === '/projects/new' ? C.primary : 'transparent'}`, textDecoration: 'none', color: activeUtilityView === null && pathname === '/projects/new' ? C.primary : C.g600, background: activeUtilityView === null && pathname === '/projects/new' ? C.bg : 'transparent', fontSize: 13, fontWeight: 900 }}>
             새 프로젝트
           </Link>
-          <button type="button" onClick={() => setProjectsOpen((open) => !open)} style={{ width: '100%', border: 'none', background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', padding: '8px 4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4 }}>
-            <span style={{ fontSize: 14, fontWeight: 900 }}>프로젝트 목록</span>
-            <span aria-hidden="true" style={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: C.g400, lineHeight: 1 }}>
-              <ChevronIcon direction={projectsOpen ? 'up' : 'down'} size={16} />
+          <button type="button" onClick={() => setActiveUtilityView('notifications')} style={{ width: '100%', border: 'none', borderLeft: `4px solid ${activeUtilityView === 'notifications' ? C.primary : 'transparent'}`, background: activeUtilityView === 'notifications' ? C.bg : 'transparent', color: activeUtilityView === 'notifications' ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', minHeight: 38, padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 9, fontSize: 13, fontWeight: 900 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+              알림
             </span>
+            <span style={{ minWidth: 22, height: 22, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: C.g100, color: C.primary, fontSize: 11, fontWeight: 900 }}>{sidebarNotificationCount}</span>
           </button>
-          {projectsOpen && (<div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6, maxHeight: 240, overflowY: 'auto', paddingRight: 4 }}>
-            {sidebarProjects.map((project) => {
-              const href = `/projects/${project.id}`;
-              const active = pathname === href;
-              return (<Link key={project.id} href={href} title={project.name} onClick={() => setActiveUtilityView(null)} style={{ display: 'block', textDecoration: 'none', borderRadius: 10, padding: '8px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, fontSize: 14, fontWeight: active ? 900 : 800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {project.constructionName}
-              </Link>);
-            })}
-          </div>)}
-        </div>
+        </nav>
 
         <div data-ui="app-frame.10" style={{ display: 'none' }}>
           <div data-ui="app-frame.11" style={{ fontSize: 12, fontWeight: 900, color: C.g400, marginBottom: 5 }}>현재 화면</div>
@@ -312,41 +320,18 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         </div>
 
         <div data-ui="app-frame.13" style={{ marginTop: 'auto', borderTop: `1px solid ${C.g200}`, paddingTop: 16 }}>
-          <div data-ui="side-theme" style={{ marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {(Object.keys(APP_THEMES) as AppThemeId[]).map((item) => {
-                const active = themeId === item;
-                const palette = APP_THEMES[item];
-                return (
-                  <button
-                    key={item}
-                    type="button"
-                    aria-label={`${palette.label} 테마`}
-                    title={`${palette.label} 테마`}
-                    onClick={() => setThemeId(item)}
-                    style={{
-                      width: 24,
-                      height: 24,
-                      border: `2px solid ${active ? C.primary : C.g200}`,
-                      borderRadius: 999,
-                      background: palette.primary,
-                      boxShadow: active ? `0 0 0 3px ${C.bg}` : 'none',
-                      fontFamily: 'inherit',
-                      cursor: 'pointer',
-                      padding: 0,
-                    }}
-                  />
-                );
-              })}
+          <div data-ui="app-frame.15" style={{ display: 'grid', gridTemplateColumns: '40px minmax(0,1fr)', gap: 10, alignItems: 'center', padding: 10, border: `1px solid ${C.g200}`, background: C.bg, marginBottom: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: '50%', display: 'grid', placeItems: 'center', color: C.white, fontSize: 14, fontWeight: 900, background: `linear-gradient(135deg, ${C.primary}, #94D49B)` }}>
+              {user.name.slice(0, 1)}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div data-ui="app-frame.16" style={{ fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name} {ROLE_LABELS[user.role]}</div>
+              <div data-ui="app-frame.17" style={{ marginTop: 2, color: C.g400, fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{managedProjectSummary}</div>
             </div>
           </div>
-          <button data-ui="app-frame.14" type="button" onClick={handleLogout} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 10, padding: '9px 10px', fontFamily: 'inherit', fontSize: 14, fontWeight: 800, color: C.g600, background: C.white, cursor: 'pointer', marginBottom: 12 }}>
+          <button data-ui="app-frame.14" type="button" onClick={handleLogout} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 2, padding: '9px 10px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, color: C.g600, background: C.white, cursor: 'pointer' }}>
             로그아웃
           </button>
-          <div data-ui="app-frame.15" style={{ padding: 12, borderRadius: 14, background: C.bg, border: `1px solid ${C.g200}` }}>
-            <div data-ui="app-frame.16" style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>{user.name}</div>
-            <div data-ui="app-frame.17" style={{ fontSize: 13, color: C.g400, fontWeight: 800, marginTop: 3 }}>{ROLE_LABELS[user.role]}</div>
-          </div>
         </div>
       </aside>
 

@@ -88,19 +88,34 @@
     animation: fadeUp .2s cubic-bezier(.22,1,.36,1) both;
     border: 1.5px solid var(--c-g200);
   }
-  .app-sidebar {
+  .app-global-header {
     position: fixed;
     top: 0;
     left: 0;
+    right: 0;
+    z-index: 55;
+    height: 44px;
+    box-sizing: border-box;
+    background: #fff;
+    border-bottom: 1px solid var(--c-g200);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+  }
+  .app-sidebar {
+    position: fixed;
+    top: 44px;
+    left: 0;
     z-index: 30;
     width: 220px;
-    height: 100vh;
-    padding: 22px 18px;
+    height: calc(100vh - 44px);
+    padding: 18px 14px;
     display: flex;
     flex-direction: column;
-    background: rgba(255, 255, 255, 0.961);
+    background: rgba(255, 255, 255, 0.92);
     border-right: 1px solid var(--c-g200);
-    box-shadow: 8px 0 28px var(--c-primary-shadow);
+    box-shadow: 8px 0 24px rgba(31,55,43,.06);
     transition: transform .22s ease;
   }
   .app-sidebar-closed {
@@ -111,18 +126,18 @@
   .app-sidebar-toggle,
   .project-detail-right-toggle {
     position: fixed;
-    top: 18px;
+    top: 58px;
     z-index: 60;
     width: 30px;
     height: 30px;
     border: 1px solid var(--c-g200);
-    border-radius: 999px;
+    border-radius: 2px;
     background: rgba(255, 255, 255, 0.96);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: none;
+    box-shadow: 0 8px 18px rgba(31,55,43,.08);
     transition: left .22s ease, right .22s ease, background .16s ease;
   }
   .app-sidebar-toggle:hover,
@@ -135,9 +150,17 @@
     max-width: 1400px;
     margin-left: calc(var(--app-left-offset, 220px) + max(0px, (100vw - var(--app-left-offset, 220px) - 1400px) / 2));
     margin-right: 0;
-    padding: 28px 28px 40px;
+    padding: 72px 28px 40px;
     min-width: 0;
     overflow-x: hidden;
+  }
+  .app-main.dashboard-main {
+    width: calc(100vw - var(--app-left-offset, 220px));
+    max-width: none;
+    margin-left: var(--app-left-offset, 220px);
+    margin-right: 0;
+    padding: 72px 0 40px;
+    background: #fff;
   }
   .floating-history-sidebar {
     display: block;
