@@ -33,6 +33,7 @@ interface ArchiveFileRowProps {
 }
 export default function ArchiveFileRow({ file, catId, kind, compact = false, problem = false, onDragStart, onDragEnd, onRemove, onPreview, onPreviewEnd }: ArchiveFileRowProps) {
     const badgeStyle = TYPE_BADGE_STYLES[kind];
+    const validation = file.visionValidation;
     const openPreview = (target: HTMLElement) => {
             if (kind !== 'site_photo' && kind !== 'receipt')
                 return;
@@ -58,6 +59,7 @@ export default function ArchiveFileRow({ file, catId, kind, compact = false, pro
         <div data-ui="archive-file-row.5" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
           <span data-ui="archive-file-row.6" style={{ fontSize: 11, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
           {kind === 'site_photo' && file.description && <span data-ui="archive-file-row.7" style={{ fontSize: 11, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>{file.description}</span>}
+          {kind === 'site_photo' && validation && <span style={{ fontSize: 10, fontWeight: 900, color: validation.status === 'suitable' ? C.ok : C.danger, background: validation.status === 'suitable' ? '#F4FBF6' : C.dangerBg, borderRadius: 999, padding: '2px 6px', whiteSpace: 'nowrap' }}>{validation.status === 'suitable' ? '적합' : '부적합'}</span>}
         </div>
       </div>
       {!compact && (<span data-ui="archive-file-row.8" style={{ fontSize: 10, fontWeight: 700, color: badgeStyle.color, background: badgeStyle.bg, border: `1px solid ${badgeStyle.border}`, borderRadius: 999, padding: '2px 6px', whiteSpace: 'nowrap' }}>

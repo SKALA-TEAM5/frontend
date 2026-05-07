@@ -16,6 +16,13 @@ export interface EvidenceFile {
   documentType?: string;
   categoryIds?: number[];
   usageItemIds?: string[];
+  visionValidation?: {
+    status: 'suitable' | 'unsuitable';
+    checkedAt: string;
+    itemName: string;
+    summary: string;
+    detections: Array<{ label: string; confidence: number; box: [number, number, number, number]; status?: 'ok' | 'bad' }>;
+  };
 }
 
 export interface ContractInfo {

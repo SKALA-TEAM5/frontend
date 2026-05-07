@@ -5,6 +5,7 @@ import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import Modal from '../../components/ui/Modal';
 import { addActionNotification } from '../../lib/action-notifications';
+import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
 import { getProjectById } from '../../lib/project-data';
@@ -127,13 +128,14 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
   const [submittedEvidenceOpen, setSubmittedEvidenceOpen] = useState(false);
   const [manualSupplementOpen, setManualSupplementOpen] = useState(false);
   const [manualSupplementText, setManualSupplementText] = useState('');
+  const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
   const [sentActionKeys, setSentActionKeys] = useState<string[]>([]);
   const [openActionKeys, setOpenActionKeys] = useState<string[]>([]);
   const verifyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reportTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeTab: VerifyTab = initialTab;
   const result = VALIDATION_DASHBOARD_RESULT;
-  const categories = result.categories;
+  const categories = result.categories ?? [];
 
   const STEPS = ['사용내역서 금액 구조화', '9개 항목별 증빙 매칭', '누락 및 문제 파일 탐지', '법령 agent 기준 검토', '인정 가능 금액 산정'];
   const REPORT_STEPS = ['항목별 판정 요약', '부적정 사유 정리', '보완 요청 문안 생성', '보고서 초안 저장'];
@@ -143,12 +145,12 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     [categories],
   );
   const filteredCategories = filter === 'all' ? sortedCategories : sortedCategories.filter((item) => item.decision === filter);
-  const selectedCategory = categories.find((item) => item.categoryId === selectedCategoryId) || sortedCategories[0];
+  const selectedCategory = categories.find((item) => item.categoryId === selectedCategoryId) || sortedCategories[0] || null;
   const issues = useMemo(() => flattenIssues(categories), [categories]);
   const totalUsage = sumBy(categories, 'usageAmount');
   const totalRecognized = sumBy(categories, 'recognizedAmount');
   const totalDisputed = sumBy(categories, 'disputedAmount');
-  const recognizedRate = Math.round((totalRecognized / totalUsage) * 100);
+  const recognizedRate = totalUsage > 0 ? Math.round((totalRecognized / totalUsage) * 100) : 0;
   const counts = {
     appropriate: categories.filter((item) => item.decision === 'appropriate').length,
     conditional: categories.filter((item) => item.decision === 'conditional').length,
@@ -194,48 +196,70 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
 
   const handleVerify = () => {
     clearVerifyTimer();
-    setStatus('loading');
-    setProgress(0);
-    setStepsDone([]);
-    setSelectedCategoryId(4);
-    setReportStatus('idle');
-    setReportDraft(null);
-    setReportWorkflowStatus('editing');
-    setSheReviewDecision('pending');
-    setSavedAt('');
-    let p = 0;
-    let stepIndex = 0;
-    verifyTimerRef.current = setInterval(() => {
-      p += Math.random() * 12 + 7;
-      if (p >= ((stepIndex + 1) * 100) / STEPS.length && stepIndex < STEPS.length) {
-        setStepsDone((prev) => [...prev, STEPS[stepIndex]]);
-        stepIndex += 1;
-      }
-      if (p >= 100) {
-        clearVerifyTimer();
-        setStatus('done');
-      }
-      setProgress(Math.min(p, 100));
-    }, 320);
+    try {
+      setStatus('loading');
+      setProgress(0);
+      setStepsDone([]);
+      setSelectedCategoryId(4);
+      setReportStatus('idle');
+      setReportDraft(null);
+      setReportWorkflowStatus('editing');
+      setSheReviewDecision('pending');
+      setSavedAt('');
+      let p = 0;
+      let stepIndex = 0;
+      verifyTimerRef.current = setInterval(() => {
+        try {
+          p += Math.random() * 12 + 7;
+          if (p >= ((stepIndex + 1) * 100) / STEPS.length && stepIndex < STEPS.length) {
+            setStepsDone((prev) => [...prev, STEPS[stepIndex]]);
+            stepIndex += 1;
+          }
+          if (p >= 100) {
+            clearVerifyTimer();
+            setStatus('done');
+          }
+          setProgress(Math.min(p, 100));
+        } catch {
+          clearVerifyTimer();
+          setStatus('idle');
+          setAgentFailureTarget('legal-validation');
+        }
+      }, 320);
+    } catch {
+      setStatus('idle');
+      setAgentFailureTarget('legal-validation');
+    }
   };
 
   const handleReportGenerate = () => {
     if (status !== 'done') return;
     clearReportTimer();
-    setReportStatus('generating');
-    setReportProgress(0);
-    let p = 0;
-    reportTimerRef.current = setInterval(() => {
-      p += Math.random() * 17 + 10;
-      if (p >= 100) {
-        clearReportTimer();
-        setReportDraft(buildReportDraftJson(projectId ? getProjectById(projectId, user) : null, result, contractName));
-        setReportStatus('done');
-        setReportWorkflowStatus('editing');
-        setSavedAt('');
-      }
-      setReportProgress(Math.min(p, 100));
-    }, 280);
+    try {
+      setReportStatus('generating');
+      setReportProgress(0);
+      let p = 0;
+      reportTimerRef.current = setInterval(() => {
+        try {
+          p += Math.random() * 17 + 10;
+          if (p >= 100) {
+            clearReportTimer();
+            setReportDraft(buildReportDraftJson(projectId ? getProjectById(projectId, user) : null, result, contractName));
+            setReportStatus('done');
+            setReportWorkflowStatus('editing');
+            setSavedAt('');
+          }
+          setReportProgress(Math.min(p, 100));
+        } catch {
+          clearReportTimer();
+          setReportStatus('idle');
+          setAgentFailureTarget('report-generation');
+        }
+      }, 280);
+    } catch {
+      setReportStatus('idle');
+      setAgentFailureTarget('report-generation');
+    }
   };
 
   const handleSaveDraft = () => {
@@ -263,6 +287,8 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
       link.remove();
       window.URL.revokeObjectURL(url);
       setExportNoticeOpen(true);
+    } catch {
+      setAgentFailureTarget('server-request');
     } finally {
       setDocxExporting(false);
     }
@@ -412,7 +438,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     <div style={{ padding: '48px 32px', borderRadius: 18, border: `2px dashed ${C.g200}`, textAlign: 'center', background: C.white }}>
       <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, marginBottom: 6 }}>{hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료'}</div>
       <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.</div>
-      <button type="button" onClick={handleVerify} disabled={status === 'loading'} style={{ border: 'none', borderRadius: 999, padding: '9px 14px', background: C.primary, color: C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 700, cursor: status === 'loading' ? 'wait' : 'pointer', boxShadow: `0 6px 14px ${C.primaryShadow}` }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
+      <button type="button" onClick={handleVerify} disabled={status === 'loading'} style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: C.primary, color: C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: status === 'loading' ? 'wait' : 'pointer', boxShadow: '0 10px 22px rgba(27, 94, 59, .24)' }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
     </div>
   );
 
@@ -498,7 +524,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
               <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, lineHeight: 1.12 }}>{recognizedRate}%</div>
             </div>
           </div>
-          {amountTooltip && <div style={{ position: 'absolute', ...tooltipPosition, zIndex: 1000, width: 238, padding: '10px 12px', borderRadius: 4, background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 8px 20px rgba(0,0,0,.12)', pointerEvents: 'none' }}>
+          {amountTooltip && <div style={{ position: 'absolute', ...tooltipPosition, zIndex: 1000, width: 238, padding: '10px 12px', borderRadius: 6, background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 8px 20px rgba(0,0,0,.12)', pointerEvents: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
               <span style={{ width: 9, height: 9, borderRadius: 99, background: amountTooltip.color, flexShrink: 0 }} />
               <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{amountTooltip.label}</div>
@@ -583,7 +609,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
             { id: 'appropriate', label: '적정' },
           ].map((item) => {
             const active = filter === item.id;
-            return <button key={item.id} type="button" onClick={() => setFilter(item.id as ResultFilter)} style={{ border: `1px solid ${active ? C.primary : C.g200}`, background: active ? C.primary : C.white, color: active ? C.white : C.g600, borderRadius: 999, padding: '5px 9px', fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>{item.label}</button>;
+            return <button key={item.id} type="button" onClick={() => setFilter(item.id as ResultFilter)} style={{ border: active ? 'none' : `1px solid ${C.g200}`, background: active ? C.primary : C.white, color: active ? C.white : C.g600, borderRadius: 999, padding: '7px 13px', fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: active ? '0 9px 18px rgba(27, 94, 59, .22)' : '0 7px 16px rgba(31, 55, 43, .08)' }}>{item.label}</button>;
           })}
         </div>
       </div>
@@ -601,7 +627,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
           </thead>
           <tbody>
             {filteredCategories.map((item) => {
-              const selected = item.categoryId === selectedCategory.categoryId;
+              const selected = item.categoryId === selectedCategory?.categoryId;
               const meta = decisionMeta[item.decision];
               const risk = riskMeta[item.riskLevel];
               return <tr key={item.categoryId} onClick={() => setSelectedCategoryId(item.categoryId)} style={{ cursor: 'pointer' }}>
@@ -629,7 +655,13 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     </Card>;
   };
 
-  const renderEvidenceBlock = (item: CategoryValidationResult) => {
+  const renderEvidenceBlock = (item: CategoryValidationResult | null) => {
+    if (!item) {
+      return <Card style={{ padding: '18px 20px' }}>
+        <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>선택 항목 없음</div>
+        <div style={{ fontSize: 12, color: C.g400, lineHeight: 1.6, marginTop: 6 }}>표시할 항목별 검증 결과가 없습니다. 증빙과 사용내역서를 업로드한 뒤 다시 검증해 주세요.</div>
+      </Card>;
+    }
     const meta = decisionMeta[item.decision];
     return <Card style={{ padding: '18px 20px', border: `1px solid ${meta.border}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 14 }}>
@@ -756,17 +788,18 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     };
     const current = decisionMetaByStatus[sheReviewDecision];
     const reviewButtonStyle = (color: string, active: boolean): CSSProperties => ({
-      border: `1px solid ${color}`,
+      border: active ? 'none' : `1px solid ${C.g200}`,
       borderRadius: 999,
-      padding: '8px 13px',
+      padding: '9px 18px',
       minWidth: 82,
       background: active ? color : C.white,
-      color: active ? C.white : color,
+      color: active ? C.white : C.g600,
       fontFamily: 'inherit',
       fontSize: 13,
       fontWeight: 900,
       cursor: 'pointer',
       textAlign: 'center',
+      boxShadow: active ? '0 10px 22px rgba(27, 94, 59, .22)' : '0 7px 16px rgba(31, 55, 43, .08)',
     });
 
     return (
@@ -788,8 +821,18 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     );
   };
 
-  const renderDashboard = () => (
-    <div className="screen-enter">
+  const renderDashboard = () => {
+    if (categories.length === 0) {
+      return <div className="screen-enter">
+        <Card style={{ padding: '24px 26px' }}>
+          <div style={{ fontSize: 16, fontWeight: 900, color: C.g800 }}>검증 결과가 없습니다</div>
+          <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginTop: 8 }}>표시할 항목별 검증 결과가 없습니다. 사용내역서와 증빙 자료를 확인한 뒤 다시 검증해 주세요.</div>
+          <Button size="sm" onClick={handleVerify} disabled={status === 'loading'} style={{ marginTop: 16 }}>{status === 'loading' ? '분석 중...' : '재검증하기'}</Button>
+        </Card>
+      </div>;
+    }
+
+    return <div className="screen-enter">
       <Card style={{ padding: '1px 5px', marginBottom: 8, background: C.soft, boxShadow: 'none' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <div>
@@ -805,8 +848,8 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
         {renderEvidenceBlock(selectedCategory)}
       </div>
       {renderActionList(issues)}
-    </div>
-  );
+    </div>;
+  };
 
   const reportInputStyle: CSSProperties = {
     width: '100%',
@@ -896,17 +939,22 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
       editing: { label: '초안 편집 가능', color: C.warn, bg: C.warnBg, description: '검증 결과를 기반으로 생성된 초안입니다. 담당자 검토 후 저장해 주세요.' },
       saved: { label: '저장됨', color: C.ok, bg: '#F4FBF6', description: savedAt ? `마지막 저장: ${savedAt}` : '저장된 초안입니다.' },
     }[reportWorkflowStatus];
+    const reportActionButtonStyle: CSSProperties = {
+      fontSize: 13,
+      padding: '9px 14px',
+      boxShadow: `0 6px 14px ${C.primaryShadow}`,
+    };
 
     return <div className="screen-enter">
       <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 생성</div>
-            <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{canGenerateReport ? '검증 대시보드의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '유효성 검증을 먼저 완료해야 보고서를 생성할 수 있습니다.'}</div>
+            <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{canGenerateReport ? '유효성 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '유효성 검증을 먼저 완료해야 보고서를 생성할 수 있습니다.'}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-            <Button size="lg" onClick={handleReportGenerate} disabled={!canGenerateReport || reportStatus === 'generating'}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
-            <Button size="lg" variant="outline" onClick={handleDocxExport} disabled={reportStatus !== 'done' || !reportDraft || docxExporting}>{docxExporting ? '추출 중...' : 'DOCX 추출'}</Button>
+            <Button size="sm" onClick={handleReportGenerate} disabled={!canGenerateReport || reportStatus === 'generating'} style={reportActionButtonStyle}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
+            <Button size="sm" variant="outline" onClick={handleDocxExport} disabled={reportStatus !== 'done' || !reportDraft || docxExporting} style={reportActionButtonStyle}>{docxExporting ? '추출 중...' : 'DOCX 추출'}</Button>
           </div>
         </div>
         {reportStatus === 'generating' && <div style={{ marginTop: 16 }}>
@@ -927,7 +975,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
             <div style={{ display: 'inline-flex', marginTop: 8, ...chipStyle(reportWorkflowMeta.color, reportWorkflowMeta.bg) }}>{reportWorkflowMeta.label}</div>
             <div style={{ fontSize: 12, color: C.g400, marginTop: 8 }}>{reportWorkflowMeta.description}</div>
           </div>
-          <Button size="sm" variant="outline" onClick={handleSaveDraft}>저장</Button>
+          <Button size="sm" variant="outline" onClick={handleSaveDraft} style={reportActionButtonStyle}>저장</Button>
         </div>
         {renderReportEditor()}
       </Card>}
@@ -942,6 +990,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     {activeTab === 'dashboard' && status === 'done' && renderDashboard()}
     {activeTab === 'report' && renderReport()}
     <CenterModal open={exportNoticeOpen} title="DOCX 추출" body="편집된 보고서를 DOCX 파일로 생성했습니다." actionLabel="확인" onAction={() => setExportNoticeOpen(false)} />
+    <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
     <Modal open={manualSupplementOpen} onClose={() => setManualSupplementOpen(false)} maxWidth={560} zIndex={980}>
       <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
         <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>보완 요청 알림 작성</div>

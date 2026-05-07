@@ -12,6 +12,7 @@ import type { ContractInfo, EvidenceCategory, EvidenceFile } from '../../types/d
 interface UploadScreenProps {
     contractName: string;
     contractMeta: ContractInfo | null;
+    initialFiles?: Record<EvidenceCategory, EvidenceFile[]>;
     requireUsageStatementFirst?: boolean;
     onUploadCountChange?: (count: number) => void;
     onFilesAdded?: (files: EvidenceFile[]) => void;
@@ -33,8 +34,8 @@ const UPLOAD_ZONES: Array<{
     { key: 'other_document', label: '기타 자료', hint: '추가 확인 자료를\n제출해 주세요.' },
 ];
 const OTHER_DOCUMENT_TYPES = ['지급대장', '점검일지', '선임확인서', '기타'];
-const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst = false, onUploadCountChange, onFilesAdded, onMatchComplete, compact = false, hideUsageStatementZone = false }: UploadScreenProps) => {
-    const [files, setFiles] = useState<Record<EvidenceCategory, EvidenceFile[]>>({ receipt: [], site_photo: [], usage_statement: [], tax_invoice: [], other_document: [] });
+const UploadScreen = ({ contractName, contractMeta, initialFiles, requireUsageStatementFirst = false, onUploadCountChange, onFilesAdded, onMatchComplete, compact = false, hideUsageStatementZone = false }: UploadScreenProps) => {
+    const [files, setFiles] = useState<Record<EvidenceCategory, EvidenceFile[]>>(initialFiles || { receipt: [], site_photo: [], usage_statement: [], tax_invoice: [], other_document: [] });
     const [loading, setLoading] = useState(false);
     const [matchDone, setMatchDone] = useState(false);
     const [siteModalFiles, setSiteModalFiles] = useState<EvidenceFile[]>([]);
@@ -46,6 +47,10 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
         labels: string[];
         kind: EvidenceCategory;
     }> | null>(null);
+    useEffect(() => {
+        if (initialFiles)
+            setFiles(initialFiles);
+    }, [initialFiles]);
     useEffect(() => {
         if (!classificationToast || classificationToast.length === 0)
             return;

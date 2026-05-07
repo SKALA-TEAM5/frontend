@@ -1,6 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
 import { C } from '../../lib/theme';
-import { SITE_DESCRIPTION_SEED } from '../../lib/evidence-utils';
 import Button from '../../components/ui/Button';
 import FileThumb from '../../components/ui/FileThumb';
 import Modal from '../../components/ui/Modal';
@@ -16,11 +15,11 @@ interface PhotoDescriptionModalProps {
 }
 export const PhotoDescriptionModal = ({ open, files = [], initialValues = {}, onClose, onSave, title = '현장사진 설명 입력' }: PhotoDescriptionModalProps) => {
     const [values, setValues] = useState<Record<string, string>>({});
-    const initialSignature = files.map((file) => `${file.id || file.name}:${initialValues[file.name] || SITE_DESCRIPTION_SEED[file.name] || ''}`).join('||');
+    const initialSignature = files.map((file) => `${file.id || file.name}:${initialValues[file.name] || ''}`).join('||');
     useEffect(() => {
         if (open) {
             const next: Record<string, string> = {};
-            files.forEach((file) => { next[file.name] = (initialValues[file.name] || SITE_DESCRIPTION_SEED[file.name] || '').slice(0, PHOTO_DESCRIPTION_MAX_LENGTH); });
+            files.forEach((file) => { next[file.name] = (initialValues[file.name] || '').slice(0, PHOTO_DESCRIPTION_MAX_LENGTH); });
             setValues(next);
         }
     }, [open, initialSignature]);
@@ -52,4 +51,3 @@ export const PhotoDescriptionModal = ({ open, files = [], initialValues = {}, on
       </div>
     </Modal>);
 };
-

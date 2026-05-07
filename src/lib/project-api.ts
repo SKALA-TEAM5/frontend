@@ -207,6 +207,12 @@ export const createProject = async (input: NewProjectInput) => {
   return projectDetailToSummary(response.data.project);
 };
 
+export const deleteProject = async (projectId: string) => {
+  await apiFetch<null>(`/projects/${projectId}`, {
+    method: 'DELETE',
+  });
+};
+
 export const listProjectAssignees = async (projectId: string) => {
   const response = await apiFetch<ProjectAssigneeListResponse>(`/projects/${projectId}/assignees`);
   return response.data.assignees;

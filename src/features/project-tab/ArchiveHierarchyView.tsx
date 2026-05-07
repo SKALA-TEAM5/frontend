@@ -13,41 +13,17 @@ interface CategoryMeta {
 
 export type HierarchyEvidenceKind = FolderEvidenceCategory | 'misc';
 
-const EVIDENCE_SECTIONS: Array<{ id: FolderEvidenceCategory; label: string; requiredLabel: string }> = [
-  { id: 'receipt', label: '영수증', requiredLabel: '영수증' },
-  { id: 'site_photo', label: '사진', requiredLabel: '현장사진' },
-  { id: 'tax_invoice', label: '세금계산서', requiredLabel: '세금계산서' },
-  { id: 'other_document', label: '기타', requiredLabel: '기타 증빙' },
+const EVIDENCE_SECTIONS: Array<{ id: FolderEvidenceCategory; label: string }> = [
+  { id: 'receipt', label: '영수증' },
+  { id: 'site_photo', label: '사진' },
+  { id: 'tax_invoice', label: '세금계산서' },
+  { id: 'other_document', label: '기타' },
 ];
-
-const REQUIRED_EVIDENCE_BY_CATEGORY: Record<number, FolderEvidenceCategory[]> = {
-  1: ['receipt', 'tax_invoice', 'other_document'],
-  2: ['receipt', 'site_photo'],
-  3: ['receipt', 'other_document'],
-  4: ['receipt', 'site_photo', 'other_document'],
-  5: ['receipt', 'site_photo', 'tax_invoice', 'other_document'],
-  6: ['receipt', 'site_photo'],
-  7: ['receipt', 'tax_invoice', 'other_document'],
-  8: ['receipt', 'other_document'],
-  9: ['receipt', 'site_photo', 'tax_invoice'],
-};
-
-const REQUIRED_OTHER_DOCUMENTS_BY_CATEGORY: Record<number, string[]> = {
-  1: ['안전관리자 선임계', '임금 지급대장'],
-  3: ['보호구 지급대장'],
-  4: ['진단 계약서', '진단 결과보고서'],
-  5: ['교육 이수증', '참석자 명단'],
-  7: ['기술지도 계약서', '기술지도 결과보고서'],
-  8: ['전담조직 업무분장표', '인건비 산정 근거'],
-};
-
-const getRequiredEvidenceLabel = (kind: FolderEvidenceCategory, catId: number) => {
-  if (kind !== 'other_document') {
-    return EVIDENCE_SECTIONS.find((section) => section.id === kind)?.requiredLabel || '증빙';
-  }
-
-  const requiredDocuments = REQUIRED_OTHER_DOCUMENTS_BY_CATEGORY[catId];
-  return requiredDocuments?.length ? requiredDocuments.join(', ') : '기타 서류명 확인 필요';
+const REQUIRED_EVIDENCE_LABELS: Record<FolderEvidenceCategory, string> = {
+  receipt: '영수증',
+  site_photo: '현장사진',
+  tax_invoice: '세금계산서',
+  other_document: '기타 자료',
 };
 
 interface ArchiveHierarchyViewProps {
@@ -60,11 +36,12 @@ interface ArchiveHierarchyViewProps {
   onSelectUsageItem: (item: UsageLineItem) => void;
   onRemove: (kind: HierarchyEvidenceKind, catId: number, usageItemId: string, fileId: string) => void;
   onMove: (fromKind: HierarchyEvidenceKind, fromCatId: number, fromUsageItemId: string, toKind: HierarchyEvidenceKind, toCatId: number, file: EvidenceFile, toUsageItemId?: string) => void;
-  onUploadMissing: (kind: FolderEvidenceCategory, catId: number) => void;
+  onUpload: (kind: FolderEvidenceCategory, catId: number, usageItemId: string) => void;
   isProblemFile?: (file: EvidenceFile) => boolean;
+  getRequiredEvidence?: (kind: FolderEvidenceCategory, catId: number, usageItemId?: string) => string[];
 }
 
-export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, selectedUsageItemId, getFiles, onSelectCat, onSelectUsageItem, onRemove, onMove, onUploadMissing, isProblemFile }: ArchiveHierarchyViewProps) {
+export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, selectedUsageItemId, getFiles, onSelectCat, onSelectUsageItem, onRemove, onMove, onUpload, isProblemFile, getRequiredEvidence }: ArchiveHierarchyViewProps) {
   const [dragPayload, setDragPayload] = useState<{ kind: HierarchyEvidenceKind; catId: number; usageItemId: string; file: EvidenceFile } | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ file: EvidenceFile; x: number; y: number } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; file: EvidenceFile } | null>(null);
@@ -72,10 +49,7 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
   const [moveTargetUsageItemId, setMoveTargetUsageItemId] = useState(selectedUsageItemId);
   const [moveTargetKind, setMoveTargetKind] = useState<FolderEvidenceCategory>('receipt');
   const filteredItems = usageItems.filter((item) => item.categoryId === selectedCatId);
-  const activeItem = filteredItems.find((item) => item.id === selectedUsageItemId) || filteredItems[0] || usageItems[0];
-  const activeCategory = cats.find((cat) => cat.id === selectedCatId) || cats[0];
-  const requiredKinds = REQUIRED_EVIDENCE_BY_CATEGORY[selectedCatId] || ['receipt'];
-  const allActiveFiles = EVIDENCE_SECTIONS.flatMap((section) => getFiles(section.id, selectedCatId, activeItem?.id));
+  const activeItem = filteredItems.find((item) => item.id === selectedUsageItemId) || filteredItems[0];
 
   const dropInto = (kind: HierarchyEvidenceKind, catId: number) => {
     if (!dragPayload) return;
@@ -115,12 +89,16 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
 
   const renderFileRow = (kind: FolderEvidenceCategory, file: EvidenceFile) => {
     const problem = Boolean(isProblemFile?.(file));
+    const validation = file.visionValidation;
     return (
       <div key={file.id} draggable onMouseLeave={() => setHoverPreview(null)} onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ border: `1px solid ${problem ? '#FFCDD2' : C.g100}`, background: problem ? C.dangerBg : C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 18px', alignItems: 'center', gap: 6 }}>
           <div style={{ minWidth: 0 }}>
             <div title={file.name} onMouseEnter={(event) => openTooltip(file, event.currentTarget)} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
-            <div style={{ fontSize: 10, color: C.g400, marginTop: 2 }}>{file.uploadedAt || '날짜 미상'}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
+              {kind === 'site_photo' && validation && <span style={{ fontSize: 10, fontWeight: 900, color: validation.status === 'suitable' ? C.ok : C.danger, background: validation.status === 'suitable' ? '#F4FBF6' : C.dangerBg, borderRadius: 999, padding: '2px 6px', whiteSpace: 'nowrap' }}>{validation.status === 'suitable' ? '적합' : '부적합'}</span>}
+            </div>
           </div>
           <button type="button" onClick={(event) => { event.stopPropagation(); openMoveModal(kind, file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>이동</button>
           <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(kind, selectedCatId, activeItem?.id || selectedUsageItemId, file.id); }} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 14 }}>×</button>
@@ -162,17 +140,14 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
               {cats.map((cat) => {
                 const items = usageItems.filter((item) => item.categoryId === cat.id);
                 const count = EVIDENCE_SECTIONS.reduce((sum, section) => sum + getFiles(section.id, cat.id).length, 0);
-                const requiredKindsForCat = REQUIRED_EVIDENCE_BY_CATEGORY[cat.id] || [];
-                const missingCount = requiredKindsForCat.filter((kind) => getFiles(kind, cat.id).length === 0).length;
                 const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, cat.id).some((file) => isProblemFile?.(file)));
-                const flagged = missingCount > 0 || hasProblem;
                 const active = cat.id === selectedCatId;
                 return (
-                  <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${flagged ? '#FFE082' : active ? C.light : C.g100}`, background: flagged ? C.warnBg : active ? C.bg : C.white, borderRadius: 10, padding: '8px 9px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-                    <div style={{ fontSize: 12, fontWeight: 900, color: flagged ? C.warn : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{cat.short}</div>
+                  <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${hasProblem ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasProblem ? C.dangerBg : active ? C.bg : C.white, borderRadius: 10, padding: '8px 9px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: hasProblem ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{cat.short}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
                       <span style={{ fontSize: 10, color: C.g400, fontWeight: 800 }}>{items.length}개 세부</span>
-                      <span style={{ fontSize: 10, color: flagged ? C.warn : C.g400, fontWeight: 900 }}>{flagged ? `${missingCount}개 누락` : `${count}건`}</span>
+                      <span style={{ fontSize: 10, color: hasProblem ? C.danger : C.g400, fontWeight: 900 }}>{count}건</span>
                     </div>
                   </button>
                 );
@@ -196,34 +171,43 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
           </div>
 
           <div style={{ padding: 12, overflow: 'hidden', minWidth: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
-              <div style={{ minWidth: 0 }}>
-                <div title={activeItem?.name} style={{ fontSize: 15, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeItem?.name || activeCategory.short}</div>
-                <div style={{ fontSize: 11, color: C.g400, marginTop: 4 }}>{activeCategory.short}{activeItem ? ` · ${fmt(activeItem.amount)}` : ''}</div>
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 900, color: C.primary, background: C.bg, borderRadius: 999, padding: '5px 9px', whiteSpace: 'nowrap' }}>{allActiveFiles.length}개 파일</div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 9, maxHeight: 462, overflowY: 'auto', paddingRight: 4 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 9, maxHeight: 520, overflowY: 'auto', paddingRight: 4 }}>
               {EVIDENCE_SECTIONS.map((section) => {
                 const files = getFiles(section.id, selectedCatId, activeItem?.id);
-                const required = requiredKinds.includes(section.id);
-                const missing = required && files.length === 0;
-                const requiredEvidenceLabel = getRequiredEvidenceLabel(section.id, selectedCatId);
+                const hasUnsuitableSitePhoto = section.id === 'site_photo' && files.some((file) => isProblemFile?.(file));
+                const requiredEvidence = getRequiredEvidence?.(section.id, selectedCatId, activeItem?.id) || [];
+                const uploadButton = (compact = false) => (
+                  <button type="button" aria-label={`${section.label} 업로드`} onClick={() => onUpload(section.id, selectedCatId, activeItem?.id || selectedUsageItemId)} style={{ width: compact ? 24 : undefined, height: compact ? 24 : undefined, border: `1px solid ${C.light}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: compact ? 0 : '7px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {compact ? (
+                      <span aria-hidden="true" style={{ position: 'relative', width: 12, height: 12, display: 'inline-block' }}>
+                        <span style={{ position: 'absolute', left: 0, top: 5, width: 12, height: 2, borderRadius: 999, background: C.primary }} />
+                        <span style={{ position: 'absolute', left: 5, top: 0, width: 2, height: 12, borderRadius: 999, background: C.primary }} />
+                      </span>
+                    ) : '업로드'}
+                  </button>
+                );
                 return (
-                  <div key={section.id} onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(section.id, selectedCatId)} style={{ border: `1px solid ${missing ? '#FFE082' : C.g100}`, borderRadius: 12, background: missing ? '#FFFDF0' : '#FCFEFD', padding: 9 }}>
+                  <div key={section.id} onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(section.id, selectedCatId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 12, background: '#FCFEFD', padding: 9 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 900, color: missing ? C.warn : C.g800 }}>{section.label}</div>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{section.label}</span>
+                        {requiredEvidence.map((name) => (
+                          <span key={name} style={{ borderRadius: 999, padding: '3px 7px', background: '#FFF4D8', color: '#8A5A00', fontSize: 10, fontWeight: 900, whiteSpace: 'nowrap' }}>
+                            {name || REQUIRED_EVIDENCE_LABELS[section.id]} 제출 필요
+                          </span>
+                        ))}
+                        {hasUnsuitableSitePhoto && (
+                          <span style={{ borderRadius: 999, padding: '3px 7px', background: C.dangerBg, color: C.danger, fontSize: 10, fontWeight: 900, whiteSpace: 'nowrap' }}>
+                            현장사진 부적합
+                          </span>
+                        )}
+                      </div>
                       <div style={{ fontSize: 10, fontWeight: 900, color: C.g400 }}>{files.length}</div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {files.map((file) => renderFileRow(section.id, file))}
-                      {missing && (
-                        <button type="button" onClick={() => onUploadMissing(section.id, selectedCatId)} style={{ width: '100%', border: '1px dashed #F9C74F', borderRadius: 10, padding: '10px 8px', background: C.warnBg, color: C.warn, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, lineHeight: 1.45, textAlign: 'left' }}>
-                          {requiredEvidenceLabel}가 없습니다. 업로드하세요
-                        </button>
-                      )}
-                      {!missing && files.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 10, padding: '12px 8px', color: C.g400, fontSize: 11, textAlign: 'center' }}>선택 자료 없음</div>}
+                      {files.length > 0 && <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 2 }}>{uploadButton(true)}</div>}
+                      {files.length === 0 && <div style={{ minHeight: 54, border: `1px dashed ${C.g200}`, borderRadius: 10, padding: '10px 8px', display: 'grid', placeItems: 'center' }}>{uploadButton()}</div>}
                     </div>
                   </div>
                 );

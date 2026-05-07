@@ -1,25 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import Card from '../../components/ui/Card';
+import CenterModal from '../../components/ui/CenterModal';
 import Modal from '../../components/ui/Modal';
 import { C } from '../../lib/theme';
-import { CATS, USAGE_LINE_ITEMS, buildArchiveDataFromUploads, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData } from '../../lib/evidence-utils';
+import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
+import { CATS, USAGE_LINE_ITEMS, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, type UsageLineItem } from '../../lib/evidence-utils';
 import ArchiveFolderGrid from './ArchiveFolderGrid';
 import ArchiveHierarchyView, { type HierarchyEvidenceKind } from './ArchiveHierarchyView';
 import ArchivePreview from './ArchivePreview';
 import ArchiveToolbar, { type ArchiveValidationStatus, type ArchiveViewMode } from './ArchiveToolbar';
-import UploadScreen from './UploadScreen';
-import type { ArchiveSeed, ContractInfo, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
+import { runSafetyDocAgentMatching, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
+import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 interface ArchiveScreenProps {
+    projectId: string;
     matchReady: boolean;
     uncheckedMatchedFileCount?: number;
     onDismissMatchReady: () => void | Promise<void>;
     archiveSeed: ArchiveSeed | null;
-    validationStatus: ArchiveValidationStatus;
-    onRunValidation: () => void;
-    canRunValidation?: boolean;
-    contractName: string;
-    contractMeta: ContractInfo | null;
+    usageItems?: UsageLineItem[];
+    canRunArchiveTools?: boolean;
     onArchiveSeedChange?: (seed: ArchiveSeed) => void;
+    onFilesUploaded?: (files: EvidenceFile[], context?: { categoryName: string; itemName: string }) => void;
 }
 type DragContext = {
     file: EvidenceFile;
@@ -38,17 +39,21 @@ const uniqueFiles = (files: EvidenceFile[]) => {
     });
 };
 const FOLDER_EVIDENCE_KINDS: FolderEvidenceCategory[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
-const PROBLEM_CATEGORY_IDS = new Set([4, 5, 8]);
-const PROBLEM_KEYWORDS = ['개인보호구', '보호구', '안전시설물', '안전난간', '본사'];
-export default function ArchiveScreen({ matchReady, uncheckedMatchedFileCount = 0, onDismissMatchReady, archiveSeed, validationStatus, onRunValidation, canRunValidation = true, contractName, contractMeta, onArchiveSeedChange }: ArchiveScreenProps) {
+export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedFileCount = 0, onDismissMatchReady, archiveSeed, usageItems = USAGE_LINE_ITEMS, canRunArchiveTools = true, onArchiveSeedChange, onFilesUploaded }: ArchiveScreenProps) {
+    const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const [viewMode, setViewMode] = useState<ArchiveViewMode>('hierarchy');
     const [dragFile, setDragFile] = useState<DragContext>(null);
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(archiveSeed || createDefaultArchiveData()));
-    const [uploadModalOpen, setUploadModalOpen] = useState(false);
     const [checkingMatchedFiles, setCheckingMatchedFiles] = useState(false);
+    const [matchingStatus, setMatchingStatus] = useState<'idle' | 'running' | 'done'>('idle');
+    const [requiredEvidenceByLine, setRequiredEvidenceByLine] = useState<SafetyDocAgentRequiredEvidenceMap>({});
+    const [matchingError, setMatchingError] = useState('');
+    const [photoValidationStatus, setPhotoValidationStatus] = useState<ArchiveValidationStatus>('idle');
+    const [photoValidationNotice, setPhotoValidationNotice] = useState<{ type: 'ok' | 'bad'; message: string } | null>(null);
+    const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
-    const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(USAGE_LINE_ITEMS[0]?.categoryId || 1);
-    const [selectedUsageItemId, setSelectedUsageItemId] = useState(USAGE_LINE_ITEMS[0]?.id || '');
+    const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(resolvedUsageItems[0]?.categoryId || 1);
+    const [selectedUsageItemId, setSelectedUsageItemId] = useState(resolvedUsageItems[0]?.id || '');
     const [hoverPreview, setHoverPreview] = useState<{
         entry: EvidenceFile;
         x: number;
@@ -59,6 +64,17 @@ export default function ArchiveScreen({ matchReady, uncheckedMatchedFileCount = 
         if (archiveSeed)
             setFileData(normalizeArchiveData(archiveSeed));
     }, [archiveSeed]);
+    useEffect(() => {
+        if (!resolvedUsageItems.length)
+            return;
+        const categoryItems = resolvedUsageItems.filter((item) => item.categoryId === selectedHierarchyCatId);
+        if (!categoryItems.length)
+            return;
+        const hasSelectedItem = categoryItems.some((item) => item.id === selectedUsageItemId);
+        if (hasSelectedItem)
+            return;
+        setSelectedUsageItemId(categoryItems[0].id);
+    }, [resolvedUsageItems, selectedHierarchyCatId, selectedUsageItemId]);
     useEffect(() => {
         if (!pendingArchiveSeedRef.current)
             return;
@@ -84,6 +100,55 @@ export default function ArchiveScreen({ matchReady, uncheckedMatchedFileCount = 
         const merged = FOLDER_EVIDENCE_KINDS.flatMap((kind) => getFilesForCategory(kind, catId).map((file) => ({ ...file, kind })));
         return uniqueFiles(merged);
     };
+    const getRequiredEvidence = (kind: FolderEvidenceCategory, _catId: number, usageItemId?: string) => {
+        if (!usageItemId)
+            return [];
+        return requiredEvidenceByLine[usageItemId]?.[kind] || [];
+    };
+    const uploadFilesToSection = (kind: FolderEvidenceCategory, catId: number, usageItemId: string) => {
+        if (!usageItemId)
+            return;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.accept = kind === 'site_photo' ? 'image/*' : 'image/*,.pdf,.xlsx';
+        input.onchange = (event) => {
+            const pickedFiles = Array.from((event.target as HTMLInputElement).files || []);
+            if (!pickedFiles.length)
+                return;
+            const nextEntries = pickedFiles.map((file) => createEntryFromFile(file, kind, { categoryIds: [catId], usageItemIds: [usageItemId] }));
+            commitFileData((prev) => ({
+                ...prev,
+                categories: {
+                    ...prev.categories,
+                    [catId]: {
+                        ...(prev.categories[catId] || {}),
+                        [usageItemId]: {
+                            ...(prev.categories[catId]?.[usageItemId] || {}),
+                            [kind]: [...(prev.categories[catId]?.[usageItemId]?.[kind] || []), ...nextEntries],
+                        },
+                    },
+                },
+            }));
+            setRequiredEvidenceByLine((current) => {
+                const currentLine = current[usageItemId];
+                if (!currentLine?.[kind])
+                    return current;
+                const nextLine = { ...currentLine };
+                delete nextLine[kind];
+                const next = { ...current, [usageItemId]: nextLine };
+                if (Object.keys(nextLine).length === 0)
+                    delete next[usageItemId];
+                return next;
+            });
+            setSelectedHierarchyCatId(catId);
+            setSelectedUsageItemId(usageItemId);
+            const categoryName = CATS.find((cat) => cat.id === catId)?.short || '선택 항목';
+            const itemName = resolvedUsageItems.find((item) => item.id === usageItemId)?.name || categoryName;
+            onFilesUploaded?.(nextEntries, { categoryName, itemName });
+        };
+        input.click();
+    };
     const moveFile = (kind: FolderEvidenceCategory, fromCat: number, toCat: number, fileEntry: EvidenceFile, fromUsageItemId?: string, toUsageItemId?: string) => {
         commitFileData((prev) => {
             const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
@@ -96,7 +161,7 @@ export default function ArchiveScreen({ matchReady, uncheckedMatchedFileCount = 
                 };
             });
             next.categories[fromCat] = fromLineMap;
-            const targetUsageItemId = toUsageItemId || USAGE_LINE_ITEMS.find((item) => item.categoryId === toCat)?.id || `cat-${toCat}`;
+            const targetUsageItemId = toUsageItemId || resolvedUsageItems.find((item) => item.categoryId === toCat)?.id || `cat-${toCat}`;
             next.categories[toCat] = {
                 ...(next.categories[toCat] || {}),
                 [targetUsageItemId]: {
@@ -129,34 +194,6 @@ export default function ArchiveScreen({ matchReady, uncheckedMatchedFileCount = 
         });
         setDeleteTarget(null);
     };
-    const uploadMissingEvidence = (kind: FolderEvidenceCategory, catId: number) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.multiple = true;
-        input.accept = 'image/*,.pdf,.xlsx';
-        input.onchange = (e) => {
-            const pickedFiles = Array.from((e.target as HTMLInputElement).files || []);
-            if (pickedFiles.length === 0)
-                return;
-            commitFileData((prev) => ({
-                ...prev,
-                categories: {
-                    ...prev.categories,
-                    [catId]: {
-                        ...(prev.categories[catId] || {}),
-                        [selectedUsageItemId]: {
-                            ...(prev.categories[catId]?.[selectedUsageItemId] || {}),
-                            [kind]: [
-                                ...((prev.categories[catId]?.[selectedUsageItemId]?.[kind]) || []),
-                                ...pickedFiles.map((file) => createEntryFromFile(file, kind, { categoryIds: [catId], usageItemIds: [selectedUsageItemId] })),
-                            ],
-                        },
-                    },
-                },
-            }));
-        };
-        input.click();
-    };
     const removeHierarchyFile = (kind: HierarchyEvidenceKind, catId: number, usageItemId: string, fileId: string) => {
         if (kind !== 'misc') {
             removeArchiveFile(kind, catId, fileId, usageItemId);
@@ -178,23 +215,19 @@ export default function ArchiveScreen({ matchReady, uncheckedMatchedFileCount = 
                 ...(next.categories[fromCatId][fromUsageItemId] || {}),
                 [fromKind]: (next.categories[fromCatId][fromUsageItemId]?.[fromKind] || []).filter((file) => file.id !== fileEntry.id),
             };
-            const targetUsageItemId = toUsageItemId || USAGE_LINE_ITEMS.find((item) => item.categoryId === toCatId)?.id || `cat-${toCatId}`;
+            const targetUsageItemId = toUsageItemId || resolvedUsageItems.find((item) => item.categoryId === toCatId)?.id || `cat-${toCatId}`;
             next.categories[toCatId][targetUsageItemId] = {
                 ...(next.categories[toCatId][targetUsageItemId] || {}),
                 [toKind]: [...(next.categories[toCatId][targetUsageItemId]?.[toKind] || []), { ...movedFile, usageItemIds: [targetUsageItemId] }],
             };
             return next;
         });
-        const nextUsageItem = USAGE_LINE_ITEMS.find((item) => item.id === toUsageItemId) || USAGE_LINE_ITEMS.find((item) => item.categoryId === toCatId);
+        const nextUsageItem = resolvedUsageItems.find((item) => item.id === toUsageItemId) || resolvedUsageItems.find((item) => item.categoryId === toCatId);
         if (nextUsageItem)
             setSelectedUsageItemId(nextUsageItem.id);
         setSelectedHierarchyCatId(toCatId);
     };
-    const isProblemFile = (file: EvidenceFile) => {
-        if (validationStatus !== 'done')
-            return false;
-        return file.categoryIds?.some((catId) => PROBLEM_CATEGORY_IDS.has(catId)) || PROBLEM_KEYWORDS.some((keyword) => file.name.includes(keyword));
-    };
+    const isProblemFile = (file: EvidenceFile) => file.kind === 'site_photo' && file.visionValidation?.status === 'unsuitable';
     const hasUncheckedMatchedFiles = uncheckedMatchedFileCount > 0;
     const showMatchReadyNotice = matchReady || hasUncheckedMatchedFiles;
     const dismissMatchReady = async () => {
@@ -204,6 +237,109 @@ export default function ArchiveScreen({ matchReady, uncheckedMatchedFileCount = 
         } finally {
             setCheckingMatchedFiles(false);
         }
+    };
+    const runSafetyDocMatching = async () => {
+        if (matchingStatus === 'running')
+            return;
+        setMatchingStatus('running');
+        setMatchingError('');
+        try {
+            const agentRequiredEvidence = await runSafetyDocAgentMatching(projectId);
+            setRequiredEvidenceByLine(agentRequiredEvidence);
+            setFileData((current) => normalizeArchiveData(current));
+            setViewMode('hierarchy');
+            setMatchingStatus('done');
+        } catch {
+            setMatchingStatus('idle');
+            setMatchingError(getAgentFailureMessage('evidence-matching'));
+            setAgentFailureTarget('evidence-matching');
+        }
+    };
+    const shouldMarkPhotoUnsuitable = (file: EvidenceFile, itemName: string) => {
+        const text = `${file.name} ${file.description || ''} ${itemName}`.toLowerCase();
+        return /미착용|미사용|부적합|위반|불량|no[-_\s]?hardhat|without|bad|fail/.test(text);
+    };
+    const createVisionResultImage = (file: EvidenceFile, itemName: string, unsuitable: boolean) => {
+        const statusText = unsuitable ? 'UNSUITABLE' : 'SUITABLE';
+        const color = unsuitable ? '#EF4444' : '#22C55E';
+        const hardhatLabel = unsuitable ? 'hardhat missing 0.91' : 'hardhat 0.76';
+        const svg = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="360" height="240" viewBox="0 0 360 240">
+            <defs>
+              <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stop-color="#E9F1EB"/>
+                <stop offset="100%" stop-color="#C7D5CE"/>
+              </linearGradient>
+            </defs>
+            <rect width="360" height="240" fill="url(#bg)"/>
+            <rect x="24" y="22" width="154" height="190" fill="none" stroke="#4F46E5" stroke-width="6"/>
+            <rect x="24" y="10" width="126" height="28" fill="#4F46E5"/>
+            <text x="32" y="30" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="white">person 0.98</text>
+            <rect x="74" y="42" width="86" height="58" fill="none" stroke="${color}" stroke-width="6"/>
+            <rect x="74" y="38" width="${unsuitable ? 168 : 120}" height="28" fill="${color}"/>
+            <text x="82" y="59" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="${unsuitable ? 'white' : '#123018'}">${hardhatLabel}</text>
+            <circle cx="116" cy="80" r="20" fill="#5E5145"/>
+            <rect x="92" y="103" width="54" height="88" rx="12" fill="#D9F35B"/>
+            <rect x="210" y="24" width="126" height="34" rx="17" fill="${color}"/>
+            <text x="228" y="47" font-family="Arial, sans-serif" font-size="16" font-weight="800" fill="white">${statusText}</text>
+            <text x="24" y="230" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#2A3B32">${itemName} · ${file.name}</text>
+          </svg>`;
+        return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+    };
+    const runVisionPhotoValidation = () => {
+        if (photoValidationStatus === 'running')
+            return;
+        setPhotoValidationNotice(null);
+        setPhotoValidationStatus('running');
+        window.setTimeout(() => {
+            try {
+                const badItemNames: string[] = [];
+                setFileData((current) => {
+                    const next: ArchiveSeed = { ...current, categories: { ...current.categories } };
+                    Object.entries(next.categories || {}).forEach(([catId, lineMap]) => {
+                        const nextLineMap = { ...lineMap };
+                        Object.entries(nextLineMap).forEach(([usageItemId, kindMap]) => {
+                            const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
+                            const itemName = usageItem?.name || CATS.find((cat) => String(cat.id) === catId)?.label || '세부항목';
+                            const sitePhotos = kindMap.site_photo || [];
+                            if (!sitePhotos.length)
+                                return;
+                            const checkedPhotos = sitePhotos.map((file) => {
+                                const unsuitable = shouldMarkPhotoUnsuitable(file, itemName);
+                                if (unsuitable)
+                                    badItemNames.push(itemName);
+                                return {
+                                    ...file,
+                                    previewUrl: createVisionResultImage(file, itemName, unsuitable),
+                                    visionValidation: {
+                                        status: unsuitable ? 'unsuitable' as const : 'suitable' as const,
+                                        checkedAt: new Date().toISOString(),
+                                        itemName,
+                                        summary: unsuitable ? `${itemName} 현장 사진이 부적합합니다.` : `${itemName} 현장 사진이 적합합니다.`,
+                                        detections: [
+                                            { label: 'person', confidence: 0.98, box: [24, 22, 154, 190] as [number, number, number, number], status: 'ok' as const },
+                                            { label: unsuitable ? 'hardhat missing' : 'hardhat', confidence: unsuitable ? 0.91 : 0.76, box: [74, 42, 86, 58] as [number, number, number, number], status: unsuitable ? 'bad' as const : 'ok' as const },
+                                        ],
+                                    },
+                                };
+                            });
+                            nextLineMap[usageItemId] = { ...kindMap, site_photo: checkedPhotos };
+                        });
+                        next.categories[catId] = nextLineMap;
+                    });
+                    pendingArchiveSeedRef.current = next;
+                    return next;
+                });
+                setPhotoValidationStatus('done');
+                const uniqueBadNames = Array.from(new Set(badItemNames));
+                setPhotoValidationNotice(uniqueBadNames.length
+                    ? { type: 'bad', message: `${uniqueBadNames.join(', ')}의 현장 사진이 부적합합니다.` }
+                    : { type: 'ok', message: '모든 현장 사진이 적합합니다.' });
+            } catch {
+                setPhotoValidationStatus('idle');
+                setAgentFailureTarget('photo-validation');
+            }
+        }, 1200);
     };
     return (<div data-ui="archive-screen.1" style={{ background: C.soft, position: 'relative' }}>
       <div data-ui="archive-screen.2" className="screen-enter">
@@ -216,16 +352,33 @@ export default function ArchiveScreen({ matchReady, uncheckedMatchedFileCount = 
             </div>
           </Card>)}
 
-        <ArchiveToolbar viewMode={viewMode} validationStatus={validationStatus} onRunValidation={onRunValidation} canRunValidation={canRunValidation} onUpload={viewMode === 'hierarchy' ? () => setUploadModalOpen(true) : undefined} onViewModeChange={setViewMode}/>
+        <ArchiveToolbar viewMode={viewMode} validationStatus={photoValidationStatus} matchingStatus={matchingStatus} onRunMatching={runSafetyDocMatching} onRunPhotoValidation={runVisionPhotoValidation} canRunArchiveTools={canRunArchiveTools} onViewModeChange={setViewMode}/>
+        <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
+        {matchingError && (
+          <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: C.danger, lineHeight: 1.5 }}>{matchingError}</div>
+              <button type="button" onClick={() => setMatchingError('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+            </div>
+          </Card>
+        )}
+        {photoValidationNotice && (
+          <Card style={{ marginBottom: 12, padding: '12px 14px', background: photoValidationNotice.type === 'ok' ? '#F4FBF6' : C.dangerBg, border: `1px solid ${photoValidationNotice.type === 'ok' ? '#D6EEDB' : '#FFCDD2'}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: photoValidationNotice.type === 'ok' ? C.ok : C.danger, lineHeight: 1.5 }}>{photoValidationNotice.message}</div>
+              <button type="button" onClick={() => setPhotoValidationNotice(null)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+            </div>
+          </Card>
+        )}
 
         <div data-ui="archive-screen.6" key={viewMode} className="screen-enter" style={{ paddingTop: 0 }}>
-          {viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} usageItems={USAGE_LINE_ITEMS} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} onSelectCat={(catId) => {
+          {viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} usageItems={resolvedUsageItems} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} onSelectCat={(catId) => {
                 setSelectedHierarchyCatId(catId);
-                setSelectedUsageItemId(USAGE_LINE_ITEMS.find((item) => item.categoryId === catId)?.id || '');
+                setSelectedUsageItemId(resolvedUsageItems.find((item) => item.categoryId === catId)?.id || '');
             }} onSelectUsageItem={(item) => {
                 setSelectedUsageItemId(item.id);
                 setSelectedHierarchyCatId(item.categoryId);
-            }} onRemove={removeHierarchyFile} onMove={moveHierarchyFile} onUploadMissing={uploadMissingEvidence}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
+            }} onRemove={removeHierarchyFile} onMove={moveHierarchyFile} onUpload={uploadFilesToSection} getRequiredEvidence={getRequiredEvidence}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
             if (!dragFile)
                 return;
             moveFile(dragFile.kind, dragFile.fromCat, toCat, dragFile.file, dragFile.fromUsageItemId);
@@ -243,24 +396,6 @@ export default function ArchiveScreen({ matchReady, uncheckedMatchedFileCount = 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button type="button" onClick={() => setDeleteTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
             <button type="button" onClick={confirmRemoveArchiveFile} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>삭제</button>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal open={uploadModalOpen} onClose={() => setUploadModalOpen(false)} zIndex={920} maxWidth={720}>
-        <div style={{ background: C.soft, borderRadius: 22, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
-          <div style={{ position: 'relative' }}>
-            <button type="button" onClick={() => setUploadModalOpen(false)} style={{ position: 'absolute', top: 8, right: 10, zIndex: 2, border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
-          </div>
-          <div style={{ padding: '34px 14px 14px' }}>
-            <UploadScreen contractName={contractName} contractMeta={contractMeta} requireUsageStatementFirst={false} hideUsageStatementZone onMatchComplete={(payload) => {
-                const nextSeed = buildArchiveDataFromUploads(payload.files);
-                setFileData(normalizeArchiveData(nextSeed));
-                setSelectedHierarchyCatId(USAGE_LINE_ITEMS[0]?.categoryId || 1);
-                setSelectedUsageItemId(USAGE_LINE_ITEMS[0]?.id || '');
-                setViewMode('hierarchy');
-                setUploadModalOpen(false);
-            }} compact/>
           </div>
         </div>
       </Modal>

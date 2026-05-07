@@ -1,4 +1,4 @@
-import type { ArchiveCategoryMap, ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory, ReportRow, ValidationDashboardResult } from '../types/domain';
+import type { ArchiveCategoryMap, ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory, ValidationDashboardResult } from '../types/domain';
 
 interface CategoryMeta {
   id: number;
@@ -29,8 +29,6 @@ export const CATS: CategoryMeta[] = [
 ];
 
 export const USAGE_LINE_ITEMS: UsageLineItem[] = [];
-export const SITE_DESCRIPTION_SEED: Record<string, string> = {};
-export const REPORT_DATA: ReportRow[] = [];
 export const VALIDATION_DASHBOARD_RESULT: ValidationDashboardResult = {
   id: '',
   checkedAt: '',
