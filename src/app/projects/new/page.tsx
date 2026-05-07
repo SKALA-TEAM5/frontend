@@ -10,35 +10,6 @@ import { type BackendUserProfile } from '../../../lib/auth-api';
 import { type NewProjectInput, type ProjectSummary } from '../../../lib/project-data';
 import { createProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees } from '../../../lib/project-api';
 import { C } from '../../../lib/theme';
-import { workflowStorage } from '../../../lib/workflow-storage';
-import type { ArchiveSeed } from '../../../types/domain';
-
-interface ProjectManagerAccount {
-  name: string;
-  employeeNumber: string;
-  loginId: string;
-  password: string;
-}
-
-const MANAGER_STORAGE_KEY = 'sananbee.project.managers';
-const defaultManagers: string[] = [];
-
-const readManagers = () => {
-  if (typeof window === 'undefined') return defaultManagers;
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(MANAGER_STORAGE_KEY) || '[]') as ProjectManagerAccount[];
-    return Array.from(new Set([...defaultManagers, ...stored.map((manager) => manager.name)]));
-  } catch {
-    return defaultManagers;
-  }
-};
-
-const saveManagerAccount = (account: ProjectManagerAccount) => {
-  const stored = JSON.parse(window.localStorage.getItem(MANAGER_STORAGE_KEY) || '[]') as ProjectManagerAccount[];
-  window.localStorage.setItem(MANAGER_STORAGE_KEY, JSON.stringify([account, ...stored.filter((manager) => manager.employeeNumber !== account.employeeNumber)]));
-};
-
-const makePassword = (employeeNumber: string) => `Sanbee!${employeeNumber.replace(/\D/g, '').slice(-4) || '0000'}`;
 
 const cleanExtractedValue = (value: string) =>
   value
@@ -130,15 +101,15 @@ const initialForm: NewProjectInput = {
 
 const fieldStyle: React.CSSProperties = {
   width: '100%',
-  height: 42,
+  height: 38,
   boxSizing: 'border-box',
   padding: '0 12px',
-  borderRadius: 12,
+  borderRadius: 2,
   border: `1px solid ${C.g200}`,
-  background: C.white,
+  background: '#FBFDFC',
   color: C.g800,
   fontFamily: 'inherit',
-  fontSize: 14,
+  fontSize: 13,
   fontWeight: 800,
   outline: 'none',
 };
@@ -149,6 +120,12 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 900,
   color: C.g600,
   marginBottom: 7,
+};
+
+const actionButtonStyle: React.CSSProperties = {
+  fontSize: 13,
+  padding: '9px 14px',
+  boxShadow: `0 6px 14px ${C.primaryShadow}`,
 };
 
 const requiredFields: Array<keyof NewProjectInput> = [
@@ -168,12 +145,9 @@ const requiredFields: Array<keyof NewProjectInput> = [
 export default function NewProjectPage() {
   const router = useRouter();
   const [form, setForm] = useState<NewProjectInput>(initialForm);
-  const [managers, setManagers] = useState(defaultManagers);
+  const [managers, setManagers] = useState<string[]>([]);
   const [managerCandidates, setManagerCandidates] = useState<BackendUserProfile[]>([]);
   const [importableProjects, setImportableProjects] = useState<ProjectSummary[]>([]);
-  const [managerModalOpen, setManagerModalOpen] = useState(false);
-  const [managerDraft, setManagerDraft] = useState({ name: '', employeeNumber: '' });
-  const [createdManager, setCreatedManager] = useState<ProjectManagerAccount | null>(null);
   const [usageStatementFile, setUsageStatementFile] = useState<File | null>(null);
   const [usageStatementParseMessage, setUsageStatementParseMessage] = useState('');
   const [projectImportOpen, setProjectImportOpen] = useState(false);
@@ -181,7 +155,6 @@ export default function NewProjectPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setManagers(readManagers());
     listProjectManagerCandidates()
       .then((items) => {
         setManagerCandidates(items);
@@ -256,31 +229,6 @@ export default function NewProjectPage() {
     setError('');
   };
 
-  const createManager = () => {
-    const name = managerDraft.name.trim();
-    const employeeNumber = managerDraft.employeeNumber.trim().toUpperCase();
-    if (!name || !employeeNumber) {
-      setError('담당자 이름과 사번을 입력해 주세요.');
-      return;
-    }
-    const account: ProjectManagerAccount = {
-      name,
-      employeeNumber,
-      loginId: `PM${employeeNumber.replace(/[^A-Z0-9]/g, '')}`,
-      password: makePassword(employeeNumber),
-    };
-    saveManagerAccount(account);
-    setManagers((current) => Array.from(new Set([account.name, ...current])));
-    updateField('manager', account.name);
-    setCreatedManager(account);
-    setError('');
-  };
-
-  const copyAccount = async () => {
-    if (!createdManager) return;
-    await navigator.clipboard.writeText(`아이디: ${createdManager.loginId}\n비밀번호: ${createdManager.password}`);
-  };
-
   const submit = async () => {
     const missing = requiredFields.find((key) => !form[key].trim());
     if (missing) {
@@ -298,21 +246,6 @@ export default function NewProjectPage() {
       if (selectedManager) {
         await replaceProjectAssignees(project.id, [selectedManager.id]);
       }
-    if (usageStatementFile) {
-      const archiveSeed: ArchiveSeed = {
-        usage_statement: [{
-          id: `usage-${Date.now()}`,
-          name: usageStatementFile.name,
-          kind: 'usage_statement',
-          uploadedAt: new Date().toISOString().slice(0, 10),
-          uploadedBy: form.manager,
-          categoryIds: [],
-        }],
-        categories: {},
-      };
-      workflowStorage.setArchiveSeed(project.id, archiveSeed);
-      workflowStorage.setMatchReady(project.id, true);
-    }
       router.push(`/projects/${project.id}`);
     } catch (error) {
       setError(error instanceof Error ? error.message : '프로젝트 등록에 실패했습니다.');
@@ -322,15 +255,15 @@ export default function NewProjectPage() {
   return (
     <AppFrame title="새 프로젝트 등록" description="산안비 정산을 진행할 프로젝트 기본 정보를 등록합니다.">
       <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-      <Card style={{ padding: '22px 24px', width: '100%', maxWidth: 940 }}>
+      <Card style={{ padding: '18px 18px', width: '100%', maxWidth: 940 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start', marginBottom: 18 }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 900, color: C.g800 }}>새 프로젝트</div>
+          <div style={{ minWidth: 0, flex: '1 1 360px' }}>
+            <input value={form.constructionName} onChange={(event) => updateField('constructionName', event.target.value)} placeholder="새 프로젝트명을 입력하세요" aria-label="공사명" style={{ width: '100%', maxWidth: 520, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FBFDFC', color: C.g800, fontFamily: 'inherit', fontSize: 18, fontWeight: 900, padding: '9px 12px', outline: 'none', boxSizing: 'border-box' }} />
             <div style={{ fontSize: 13, color: C.g400, marginTop: 5 }}>등록 후 프로젝트 상세 화면에서 사용내역서와 증빙을 업로드할 수 있습니다.</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            <Button size="sm" variant="outline" onClick={() => setProjectImportOpen(true)}>불러오기</Button>
-            <Button size="sm" variant="outline" onClick={() => router.push('/projects')}>목록으로</Button>
+            <Button size="sm" variant="outline" onClick={() => setProjectImportOpen(true)} style={actionButtonStyle}>불러오기</Button>
+            <Button size="sm" variant="outline" onClick={() => router.push('/projects')} style={actionButtonStyle}>목록으로</Button>
           </div>
         </div>
 
@@ -338,10 +271,6 @@ export default function NewProjectPage() {
           <div>
             <label style={labelStyle}>프로젝트 번호</label>
             <input value={form.contractNumber} onChange={(event) => updateField('contractNumber', event.target.value)} placeholder="예: 2026-0001" style={fieldStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>공사명</label>
-            <input value={form.constructionName} onChange={(event) => updateField('constructionName', event.target.value)} placeholder="예: 성수 업무시설 증축공사" style={fieldStyle} />
           </div>
           <div>
             <label style={labelStyle}>건설업체</label>
@@ -361,7 +290,7 @@ export default function NewProjectPage() {
               <select value={form.manager} onChange={(event) => {
                 updateField('manager', event.target.value);
               }} style={fieldStyle}>
-                <option value="">담당자를 직접 선택해 주세요</option>
+                <option value="">담당자를 선택해 주세요</option>
                 {managers.map((manager) => <option key={manager} value={manager}>{manager}</option>)}
               </select>
             </div>
@@ -387,10 +316,9 @@ export default function NewProjectPage() {
             <input type="date" value={form.endDate} onChange={(event) => updateField('endDate', event.target.value)} style={fieldStyle} />
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
-            <label style={labelStyle}>사용내역서 업로드</label>
-            <label style={{ minHeight: 58, border: `1px dashed ${C.light}`, borderRadius: 14, background: C.bg, color: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '0 14px', cursor: 'pointer', fontSize: 13, fontWeight: 900 }}>
-              <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{usageStatementFile ? usageStatementFile.name : '사용내역서 파일을 선택해 주세요'}</span>
-              <span style={{ flexShrink: 0 }}>파일 선택</span>
+            <label style={labelStyle}>사용내역서 업로드 (선택)</label>
+            <label style={{ minHeight: 54, border: `1px dashed ${C.light}`, borderRadius: 2, background: C.bg, color: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 12, padding: '0 14px', cursor: 'pointer', fontSize: 13, fontWeight: 900 }}>
+              <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{usageStatementFile ? usageStatementFile.name : '드래그 또는 클릭해서 업로드'}</span>
               <input type="file" accept=".pdf,.xlsx,.xls,.csv,.txt,.png,.jpg,.jpeg" onChange={(event) => void handleUsageStatementFile(event.target.files?.[0] || null)} style={{ display: 'none' }} />
             </label>
             {usageStatementParseMessage && <div style={{ fontSize: 12, color: C.g600, fontWeight: 800, marginTop: 7 }}>{usageStatementParseMessage}</div>}
@@ -400,38 +328,11 @@ export default function NewProjectPage() {
         {error && <div style={{ marginTop: 14, fontSize: 13, fontWeight: 900, color: C.danger }}>{error}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 22 }}>
-          <Button size="md" variant="outline" onClick={resetForm}>초기화</Button>
-          <Button size="md" onClick={submit}>프로젝트 등록</Button>
+          <Button size="sm" variant="outline" onClick={resetForm} style={actionButtonStyle}>초기화</Button>
+          <Button size="sm" onClick={submit} style={actionButtonStyle}>프로젝트 등록</Button>
         </div>
       </Card>
       </div>
-      <Modal open={managerModalOpen} onClose={() => setManagerModalOpen(false)} maxWidth={520}>
-        <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>새 담당자 생성</div>
-          <div style={{ fontSize: 13, color: C.g400, lineHeight: 1.5, marginBottom: 16 }}>담당자 이름과 사번을 입력하면 프로젝트 담당자 로그인 계정이 생성됩니다.</div>
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div>
-              <label style={labelStyle}>담당자 이름</label>
-              <input value={managerDraft.name} onChange={(event) => setManagerDraft((current) => ({ ...current, name: event.target.value }))} placeholder="예: 최현장" style={fieldStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>사번</label>
-              <input value={managerDraft.employeeNumber} onChange={(event) => setManagerDraft((current) => ({ ...current, employeeNumber: event.target.value }))} placeholder="예: 240015" style={fieldStyle} />
-            </div>
-          </div>
-          {createdManager && (
-            <div style={{ marginTop: 16, borderRadius: 14, border: `1px solid ${C.g200}`, background: C.g100, padding: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: C.g600, marginBottom: 8 }}>생성된 로그인 정보</div>
-              <div style={{ fontSize: 14, color: C.g800, fontWeight: 900, lineHeight: 1.7 }}>아이디: {createdManager.loginId}<br />비밀번호: {createdManager.password}</div>
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-            <Button size="sm" variant="outline" onClick={() => setManagerModalOpen(false)}>닫기</Button>
-            {createdManager && <Button size="sm" variant="outline" onClick={copyAccount}>계정 정보 복사</Button>}
-            <Button size="sm" onClick={createManager}>담당자 생성</Button>
-          </div>
-        </div>
-      </Modal>
       <Modal open={projectImportOpen} onClose={() => setProjectImportOpen(false)} maxWidth={640}>
         <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
           <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>프로젝트 정보 불러오기</div>
@@ -459,7 +360,7 @@ export default function NewProjectPage() {
             )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 18 }}>
-            <Button size="sm" variant="outline" onClick={() => setProjectImportOpen(false)}>닫기</Button>
+            <Button size="sm" variant="outline" onClick={() => setProjectImportOpen(false)} style={actionButtonStyle}>닫기</Button>
           </div>
         </div>
       </Modal>

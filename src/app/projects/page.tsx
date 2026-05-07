@@ -14,16 +14,17 @@ import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDi
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
-  height: 42,
+  height: 38,
   boxSizing: 'border-box',
   padding: '0 12px',
-  borderRadius: 12,
+  borderRadius: 2,
   border: `1px solid ${C.g200}`,
   fontFamily: 'inherit',
-  fontSize: 14,
+  fontSize: 13,
+  fontWeight: 800,
   lineHeight: '20px',
   color: C.g800,
-  background: C.white,
+  background: '#FBFDFC',
 };
 
 const sortBarStyle: React.CSSProperties = {
@@ -88,7 +89,7 @@ export default function ProjectsPage() {
       title={user.role === 'project_manager' ? '담당 프로젝트 목록' : '전체 프로젝트 목록'}
       description={`${ROLE_LABELS[user.role]} 권한으로 조회 가능한 프로젝트입니다.`}
     >
-      <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
+      <Card style={{ padding: '16px 18px', marginBottom: 14 }}>
         <div
           data-ui="projects.1"
           style={{
@@ -128,7 +129,7 @@ export default function ProjectsPage() {
         {!loading && loadError && <Card style={{ padding: 24, textAlign: 'center', color: C.danger, fontWeight: 900 }}>{loadError}</Card>}
         {!loading && !loadError && visibleProjects.length === 0 && <Card style={{ padding: 24, textAlign: 'center', color: C.g400, fontWeight: 900 }}>조회된 프로젝트가 없습니다.</Card>}
         {visibleProjects.map((project) => (
-          <Card key={project.id} style={{ padding: '18px 20px' }}>
+          <Card key={project.id} style={{ padding: '16px 18px' }}>
             <div
               data-ui="projects.4"
               role="button"
@@ -144,12 +145,12 @@ export default function ProjectsPage() {
             >
               <div data-ui="projects.5" style={{ minWidth: 0 }}>
                 <div data-ui="projects.6" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-                  <div data-ui="projects.7" style={{ color: C.g800, fontSize: 20, fontWeight: 900 }}>{project.constructionName}</div>
-                  <span style={{ fontSize: 12, fontWeight: 900, color: PROJECT_STATUS_META[project.projectStatusCode].color, background: PROJECT_STATUS_META[project.projectStatusCode].bg, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
+                  <div data-ui="projects.7" style={{ color: C.g800, fontSize: 18, fontWeight: 900 }}>{project.constructionName}</div>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: PROJECT_STATUS_META[project.projectStatusCode].color, background: PROJECT_STATUS_META[project.projectStatusCode].bg, border: `1px solid ${C.g200}`, borderRadius: 2, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
                     {PROJECT_STATUS_META[project.projectStatusCode].label}
                   </span>
                   {project.uncheckedMatchedFileCount > 0 && (
-                    <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, background: C.bg, border: `1px solid ${C.light}`, borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, background: C.bg, border: `1px solid ${C.light}`, borderRadius: 2, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
                       미확인 매칭 {project.uncheckedMatchedFileCount}건
                     </span>
                   )}
