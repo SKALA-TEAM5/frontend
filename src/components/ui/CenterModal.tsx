@@ -4,26 +4,31 @@ import Modal from './Modal';
 interface CenterModalProps {
     open: boolean;
     title: string;
-    body: string;
+    body: React.ReactNode;
     actionLabel: string;
     onAction: () => void;
 }
 export default function CenterModal({ open, title, body, actionLabel, onAction, }: CenterModalProps) {
-    return (<Modal open={open} zIndex={920} maxWidth={420}>
+    return (<Modal open={open} zIndex={920} maxWidth={460}>
       <div data-ui="center-modal.1" style={{
             background: C.white,
-            borderRadius: 24,
-            boxShadow: '0 18px 40px rgba(0,0,0,.16)',
+            borderRadius: 6,
+            boxShadow: '0 18px 44px rgba(31, 55, 43, .14)',
             border: `1px solid ${C.g200}`,
-            padding: '28px 26px',
-            textAlign: 'center',
+            overflow: 'hidden',
         }}>
-        <div data-ui="center-modal.2" style={{ fontSize: 40, marginBottom: 10 }}>!</div>
-        <div data-ui="center-modal.3" style={{ fontSize: 24, fontWeight: 800, color: C.g800, marginBottom: 8 }}>{title}</div>
-        <div data-ui="center-modal.4" style={{ fontSize: 16, color: C.g400, lineHeight: 1.7, marginBottom: 18 }}>{body}</div>
-        <Button size="md" onClick={onAction}>
-          {actionLabel}
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '20px 22px 17px', borderBottom: `1px solid ${C.g100}` }}>
+          <div data-ui="center-modal.2" aria-hidden="true" style={{ width: 28, height: 28, borderRadius: 999, background: C.bg, color: C.primary, border: `1px solid ${C.g200}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto', fontSize: 16, fontWeight: 900, lineHeight: 1 }}>!</div>
+          <div style={{ minWidth: 0 }}>
+            <div data-ui="center-modal.3" style={{ fontSize: 18, fontWeight: 900, color: C.g800, lineHeight: 1.35, marginBottom: 6 }}>{title}</div>
+            <div data-ui="center-modal.4" style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>{body}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '14px 22px 18px', background: C.white }}>
+          <Button size="sm" onClick={onAction} style={{ minWidth: 84, boxShadow: 'none' }}>
+            {actionLabel}
+          </Button>
+        </div>
       </div>
     </Modal>);
 }
