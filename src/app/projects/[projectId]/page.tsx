@@ -7,7 +7,7 @@ import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
 import { EMPTY_PROJECT, getMonthlyUsageStatements, getProjectManagers, STATUS_META, type ProjectSummary } from '../../../lib/project-data';
-import { getProject, listProjectManagerCandidates, replaceProjectAssignees, type ProjectAssignee } from '../../../lib/project-api';
+import { getProject, listProjectManagerCandidates, markArchiveChecked, replaceProjectAssignees, type ProjectAssignee } from '../../../lib/project-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
 import { addActionNotification, closeResolvedActionNotificationsForProject } from '../../../lib/action-notifications';
 import { can } from '../../../lib/permissions';
@@ -223,8 +223,25 @@ export default function ProjectDetailPage() {
             requestedFiles: [],
             senderName: user.name,
             recipientRole: 'she_manager',
+            type: 'action_completed',
         });
         setActionCompletionSent(true);
+    };
+    const sendNewUploadNotification = (uploadedFiles: EvidenceFile[]) => {
+        if (user.role !== 'project_manager' || !uploadedFiles.length)
+            return;
+        const fileNames = uploadedFiles.map((file) => file.name);
+        addActionNotification({
+            projectId: project.id,
+            projectName: project.name,
+            categoryName: '새 업로드',
+            title: `새로운 파일 ${uploadedFiles.length}건 업로드`,
+            message: `${project.name}에 새로운 파일 ${uploadedFiles.length}건이 업로드되었습니다.`,
+            requestedFiles: fileNames,
+            senderName: user.name,
+            recipientRole: 'she_manager',
+            type: 'new_upload',
+        });
     };
     const openManagerModal = () => {
         const idsFromProject = project.assigneeUserIds || [];
@@ -264,6 +281,14 @@ export default function ProjectDetailPage() {
         } finally {
             setManagerSaving(false);
         }
+    };
+    const dismissArchiveMatchReady = async () => {
+        workflowStorage.setMatchReady(project.id, false);
+        setMatchReady(false);
+        if (project.uncheckedMatchedFileCount <= 0)
+            return;
+        await markArchiveChecked(project.id);
+        setProject((current) => ({ ...current, uncheckedMatchedFileCount: 0 }));
     };
     const managerModal = (<Modal open={managerModalOpen} onClose={() => setManagerModalOpen(false)} zIndex={960} maxWidth={560}>
       <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
@@ -511,7 +536,7 @@ export default function ProjectDetailPage() {
                 num: project.contractNumber,
                 period: project.period,
                 round: selectedStatement.label,
-            }} requireUsageStatementFirst={project.status === 'upload_pending' && !project.hasUploads} onUploadCountChange={setUploadCount} onMatchComplete={(payload: {
+            }} requireUsageStatementFirst={project.status === 'upload_pending' && !project.hasUploads} onUploadCountChange={setUploadCount} onFilesAdded={sendNewUploadNotification} onMatchComplete={(payload: {
                 files: Record<EvidenceCategory, EvidenceFile[]>;
             }) => {
                 const nextSeed = buildArchiveDataFromUploads(payload.files);
@@ -527,10 +552,7 @@ export default function ProjectDetailPage() {
                 updateTab('report');
             }}/>),
         report: (<VerifyScreen projectId={project.id} initialTab="report" initialStatus="done" contractName={`${project.name} · ${selectedStatement.label}`}/>),
-        archive: (<ArchiveScreen matchReady={matchReady} onDismissMatchReady={() => {
-                workflowStorage.setMatchReady(project.id, false);
-                setMatchReady(false);
-            }} archiveSeed={archiveSeed} validationStatus={selectedValidationStatus} onRunValidation={runArchiveValidation} onArchiveSeedChange={(nextSeed) => {
+        archive: (<ArchiveScreen matchReady={matchReady} uncheckedMatchedFileCount={project.uncheckedMatchedFileCount} onDismissMatchReady={dismissArchiveMatchReady} archiveSeed={archiveSeed} validationStatus={selectedValidationStatus} onRunValidation={runArchiveValidation} onArchiveSeedChange={(nextSeed) => {
                 workflowStorage.setArchiveSeed(project.id, nextSeed);
                 setArchiveSeed(nextSeed);
             }} canRunValidation={canRunValidation} contractName={project.name} contractMeta={{
@@ -585,6 +607,11 @@ export default function ProjectDetailPage() {
                   조치 요청
                 </span>
               ))}
+              {project.uncheckedMatchedFileCount > 0 && (
+                <button type="button" onClick={() => updateTab('archive')} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '4px 10px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  미확인 매칭 {project.uncheckedMatchedFileCount}건
+                </button>
+              )}
             </div>
             {projectInfoGrid}
           </div>}

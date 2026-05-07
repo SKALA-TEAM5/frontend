@@ -11,7 +11,8 @@ import UploadScreen from './UploadScreen';
 import type { ArchiveSeed, ContractInfo, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 interface ArchiveScreenProps {
     matchReady: boolean;
-    onDismissMatchReady: () => void;
+    uncheckedMatchedFileCount?: number;
+    onDismissMatchReady: () => void | Promise<void>;
     archiveSeed: ArchiveSeed | null;
     validationStatus: ArchiveValidationStatus;
     onRunValidation: () => void;
@@ -39,11 +40,12 @@ const uniqueFiles = (files: EvidenceFile[]) => {
 const FOLDER_EVIDENCE_KINDS: FolderEvidenceCategory[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
 const PROBLEM_CATEGORY_IDS = new Set([4, 5, 8]);
 const PROBLEM_KEYWORDS = ['개인보호구', '보호구', '안전시설물', '안전난간', '본사'];
-export default function ArchiveScreen({ matchReady, onDismissMatchReady, archiveSeed, validationStatus, onRunValidation, canRunValidation = true, contractName, contractMeta, onArchiveSeedChange }: ArchiveScreenProps) {
+export default function ArchiveScreen({ matchReady, uncheckedMatchedFileCount = 0, onDismissMatchReady, archiveSeed, validationStatus, onRunValidation, canRunValidation = true, contractName, contractMeta, onArchiveSeedChange }: ArchiveScreenProps) {
     const [viewMode, setViewMode] = useState<ArchiveViewMode>('hierarchy');
     const [dragFile, setDragFile] = useState<DragContext>(null);
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(archiveSeed || createDefaultArchiveData()));
     const [uploadModalOpen, setUploadModalOpen] = useState(false);
+    const [checkingMatchedFiles, setCheckingMatchedFiles] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
     const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(USAGE_LINE_ITEMS[0]?.categoryId || 1);
     const [selectedUsageItemId, setSelectedUsageItemId] = useState(USAGE_LINE_ITEMS[0]?.id || '');
@@ -193,12 +195,24 @@ export default function ArchiveScreen({ matchReady, onDismissMatchReady, archive
             return false;
         return file.categoryIds?.some((catId) => PROBLEM_CATEGORY_IDS.has(catId)) || PROBLEM_KEYWORDS.some((keyword) => file.name.includes(keyword));
     };
+    const hasUncheckedMatchedFiles = uncheckedMatchedFileCount > 0;
+    const showMatchReadyNotice = matchReady || hasUncheckedMatchedFiles;
+    const dismissMatchReady = async () => {
+        setCheckingMatchedFiles(true);
+        try {
+            await onDismissMatchReady();
+        } finally {
+            setCheckingMatchedFiles(false);
+        }
+    };
     return (<div data-ui="archive-screen.1" style={{ background: C.soft, position: 'relative' }}>
       <div data-ui="archive-screen.2" className="screen-enter">
-        {matchReady && (<Card style={{ marginBottom: 16, padding: '14px 18px', background: C.bg, border: `1px solid ${C.light}` }}>
+        {showMatchReadyNotice && (<Card style={{ marginBottom: 16, padding: '14px 18px', background: C.bg, border: `1px solid ${C.light}` }}>
             <div data-ui="archive-screen.3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div data-ui="archive-screen.4" style={{ fontSize: 15, fontWeight: 700, color: C.primary }}>매칭 검토가 완료되었습니다. 파일을 드래그해 다른 폴더로 이동할 수 있습니다.</div>
-              <button data-ui="archive-screen.5" onClick={onDismissMatchReady} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.g400, fontSize: 20 }}>x</button>
+              <div data-ui="archive-screen.4" style={{ fontSize: 15, fontWeight: 700, color: C.primary }}>
+                {hasUncheckedMatchedFiles ? `관리자가 아직 확인하지 않은 매칭 파일 ${uncheckedMatchedFileCount}건이 있습니다.` : '매칭 검토가 완료되었습니다. 파일을 드래그해 다른 폴더로 이동할 수 있습니다.'}
+              </div>
+              <button data-ui="archive-screen.5" onClick={() => void dismissMatchReady()} disabled={checkingMatchedFiles} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '7px 11px', background: C.white, cursor: checkingMatchedFiles ? 'not-allowed' : 'pointer', color: checkingMatchedFiles ? C.g400 : C.primary, fontFamily: 'inherit', fontSize: 12, fontWeight: 900 }}>{checkingMatchedFiles ? '확인 중' : '확인'}</button>
             </div>
           </Card>)}
 

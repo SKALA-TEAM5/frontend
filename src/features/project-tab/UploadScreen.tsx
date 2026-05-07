@@ -14,6 +14,7 @@ interface UploadScreenProps {
     contractMeta: ContractInfo | null;
     requireUsageStatementFirst?: boolean;
     onUploadCountChange?: (count: number) => void;
+    onFilesAdded?: (files: EvidenceFile[]) => void;
     onMatchComplete: (payload: {
         files: Record<EvidenceCategory, EvidenceFile[]>;
     }) => void;
@@ -32,7 +33,7 @@ const UPLOAD_ZONES: Array<{
     { key: 'other_document', label: '기타 자료', hint: '추가 확인 자료를\n제출해 주세요.' },
 ];
 const OTHER_DOCUMENT_TYPES = ['지급대장', '점검일지', '선임확인서', '기타'];
-const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst = false, onUploadCountChange, onMatchComplete, compact = false, hideUsageStatementZone = false }: UploadScreenProps) => {
+const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst = false, onUploadCountChange, onFilesAdded, onMatchComplete, compact = false, hideUsageStatementZone = false }: UploadScreenProps) => {
     const [files, setFiles] = useState<Record<EvidenceCategory, EvidenceFile[]>>({ receipt: [], site_photo: [], usage_statement: [], tax_invoice: [], other_document: [] });
     const [loading, setLoading] = useState(false);
     const [matchDone, setMatchDone] = useState(false);
@@ -79,6 +80,7 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
             const nextEntries = pickedFiles.map((file) => createEntryFromFile(file, key));
             setFiles((prev) => ({ ...prev, [key]: [...prev[key], ...nextEntries].slice(0, 12) }));
             showClassificationToast(nextEntries);
+            onFilesAdded?.(nextEntries);
         };
         inp.click();
     };
@@ -98,6 +100,7 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
         const nextEntries = droppedFiles.map((file) => createEntryFromFile(file, key));
         setFiles((prev) => ({ ...prev, [key]: [...prev[key], ...nextEntries].slice(0, 12) }));
         showClassificationToast(nextEntries);
+        onFilesAdded?.(nextEntries);
     };
     const removeFile = (key: EvidenceCategory, fileId: string) => {
         setFiles((prev) => ({ ...prev, [key]: prev[key].filter((file) => file.id !== fileId) }));
@@ -146,7 +149,7 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
           </div>
           {loading && <InlineLoader title="매칭 검토 화면을 준비하고 있어요" body={hideUsageStatementZone ? '업로드된 영수증, 현장사진, 세금계산서와 기타 자료를 항목별로 정리하고 있습니다.' : '업로드된 사용내역서, 영수증, 현장사진, 세금계산서와 기타 자료를 항목별로 정리하고 있습니다.'}/>}
           <CenterModal open={matchDone} title="매칭 검토가 완료되었습니다" body="분류가 완료되었습니다. 아카이브에서 확인하고 필요하면 폴더 간 이동으로 위치를 조정할 수 있습니다." actionLabel="아카이브로 이동" onAction={() => { setMatchDone(false); onMatchComplete({ files }); }}/>
-          <PhotoDescriptionModal open={siteModalFiles.length > 0} files={siteModalFiles} onClose={() => setSiteModalFiles([])} onSave={(values) => { const nextEntries = siteModalFiles.map((file) => ({ ...file, description: values[file.name] })); setFiles((prev) => ({ ...prev, site_photo: [...prev.site_photo, ...nextEntries].slice(0, 12) })); showClassificationToast(nextEntries); setSiteModalFiles([]); }}/>
+          <PhotoDescriptionModal open={siteModalFiles.length > 0} files={siteModalFiles} onClose={() => setSiteModalFiles([])} onSave={(values) => { const nextEntries = siteModalFiles.map((file) => ({ ...file, description: values[file.name] })); setFiles((prev) => ({ ...prev, site_photo: [...prev.site_photo, ...nextEntries].slice(0, 12) })); showClassificationToast(nextEntries); onFilesAdded?.(nextEntries); setSiteModalFiles([]); }}/>
           <Modal open={otherModalFiles.length > 0} onClose={() => setOtherModalFiles([])} zIndex={940} maxWidth={720}>
             <div style={{ background: C.white, borderRadius: 22, border: `1px solid ${C.g200}`, boxShadow: '0 18px 40px rgba(0,0,0,.16)', overflow: 'hidden' }}>
               <div style={{ padding: '18px 22px', borderBottom: `1px solid ${C.g100}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -186,6 +189,7 @@ const UploadScreen = ({ contractName, contractMeta, requireUsageStatementFirst =
                   const nextEntries = otherModalFiles.map((file) => ({ ...file, documentType: (otherDocumentTypes[file.id] || []).join(', ') }));
                   setFiles((prev) => ({ ...prev, other_document: [...prev.other_document, ...nextEntries].slice(0, 12) }));
                   showClassificationToast(nextEntries);
+                  onFilesAdded?.(nextEntries);
                   setOtherModalFiles([]);
                   setOtherDocumentTypes({});
                 }}>저장</Button>

@@ -21,11 +21,6 @@ export const toAppRole = (roleCode: BackendRoleCode): DevUserRole => {
   return 'she_manager';
 };
 
-export const toBackendRoleCode = (role: DevUserRole): BackendRoleCode => {
-  if (role === 'project_manager') return 'user';
-  return 'admin';
-};
-
 export const login = async (employeeNo: string, password: string) => {
   const response = await apiFetch<AuthResponse>('/auth/login', {
     method: 'POST',
@@ -33,20 +28,6 @@ export const login = async (employeeNo: string, password: string) => {
     body: {
       employeeNo,
       password,
-    },
-  });
-  return response.data;
-};
-
-export const signup = async (employeeNo: string, realName: string, password: string, role: DevUserRole) => {
-  const response = await apiFetch<AuthResponse>('/auth/signup', {
-    method: 'POST',
-    skipAuthRefresh: true,
-    body: {
-      employeeNo,
-      realName,
-      password,
-      roleCode: toBackendRoleCode(role),
     },
   });
   return response.data;

@@ -33,6 +33,7 @@ export interface ProjectSummary {
   status: ProjectStatus;
   hasUploads: boolean;
   hasActionRequest: boolean;
+  uncheckedMatchedFileCount: number;
   actionRequestDetails?: {
     title: string;
     reason: string;
@@ -107,6 +108,7 @@ export const EMPTY_PROJECT: ProjectSummary = {
   status: 'upload_pending',
   hasUploads: false,
   hasActionRequest: false,
+  uncheckedMatchedFileCount: 0,
   reportReady: false,
   recentActivity: '',
   participants: [],
@@ -253,6 +255,7 @@ export const createProject = (input: NewProjectInput) => {
     status: input.usageStatementFileName ? 'under_review' : 'upload_pending',
     hasUploads: Boolean(input.usageStatementFileName),
     hasActionRequest: false,
+    uncheckedMatchedFileCount: 0,
     reportReady: false,
     recentActivity: input.usageStatementFileName ? '신규 프로젝트가 등록되었고 사용내역서가 업로드되었습니다.' : '신규 프로젝트가 등록되었습니다.',
     participants: input.manager ? [input.manager] : [],

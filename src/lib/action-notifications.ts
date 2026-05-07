@@ -1,7 +1,10 @@
 import type { ActionRequestStatusCode } from './project-data';
 
+export type NotificationType = 'action_request' | 'action_completed' | 'new_upload';
+
 export interface ActionNotification {
   id: string;
+  type: NotificationType;
   projectId?: string;
   projectName: string;
   categoryName: string;
@@ -26,6 +29,7 @@ const readRaw = (): ActionNotification[] => {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     return raw ? (JSON.parse(raw) as ActionNotification[]).map((notification) => ({
       ...notification,
+      type: notification.type || inferNotificationType(notification),
       recipientRole: notification.recipientRole || 'project_manager',
     })) : [];
   } catch {
@@ -41,10 +45,17 @@ const writeRaw = (notifications: ActionNotification[]) => {
 
 export const getActionNotifications = () => readRaw();
 
-export const addActionNotification = (notification: Omit<ActionNotification, 'id' | 'createdAt' | 'createdAtMs' | 'read' | 'recipientRole'> & { recipientRole?: ActionNotification['recipientRole'] }) => {
+const inferNotificationType = (notification: Partial<ActionNotification>): NotificationType => {
+  if (notification.type) return notification.type;
+  if (notification.recipientRole === 'she_manager') return 'action_completed';
+  return 'action_request';
+};
+
+export const addActionNotification = (notification: Omit<ActionNotification, 'id' | 'createdAt' | 'createdAtMs' | 'read' | 'recipientRole' | 'type'> & { recipientRole?: ActionNotification['recipientRole']; type?: NotificationType }) => {
   const next: ActionNotification = {
     ...notification,
     id: `action-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: notification.type || inferNotificationType(notification),
     recipientRole: notification.recipientRole || 'project_manager',
     createdAt: new Date().toLocaleString('ko-KR'),
     createdAtMs: Date.now(),

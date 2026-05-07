@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { addActionNotification, markActionNotificationRead, updateActionNotificationStatus, type ActionNotification } from '../../lib/action-notifications';
+import { addActionNotification, markActionNotificationRead, updateActionNotificationStatus, type ActionNotification, type NotificationType } from '../../lib/action-notifications';
 import { useActionNotifications } from '../../lib/use-action-notifications';
 import { APP_THEMES, C, type AppThemeId, useAppTheme } from '../../lib/theme';
 import { ChevronIcon } from '../ui';
@@ -26,6 +26,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const [notificationQuery, setNotificationQuery] = useState('');
     const [notificationProjectFilter, setNotificationProjectFilter] = useState('all');
     const [notificationPeriodFilter, setNotificationPeriodFilter] = useState('all');
+    const [notificationTypeFilter, setNotificationTypeFilter] = useState<NotificationType | 'all'>('all');
     const [notificationStatusFilter, setNotificationStatusFilter] = useState<ActionRequestStatusCode | 'active'>('active');
     const [toastVisible, setToastVisible] = useState(true);
     const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
@@ -59,13 +60,20 @@ export default function AppFrame({ title, description, actions, mainClassName, c
     const navItems = user.role === 'she_manager'
         ? [{ href: '/dashboard', label: '대시보드' }, { href: '/projects', label: '전체 프로젝트' }]
         : [{ href: '/projects', label: '담당 프로젝트' }];
-    const hasCompletionNotification = (notification: ActionNotification) => notifications.some((item) => item.recipientRole === 'she_manager' && item.projectId === notification.projectId && item.categoryName === notification.categoryName && item.title === `${notification.categoryName} 조치 완료`);
+    const notificationTypeMeta: Record<NotificationType, { label: string; color: string; bg: string }> = {
+        action_request: { label: '조치 요청 알림', color: C.danger, bg: C.dangerBg },
+        action_completed: { label: '조치 완료 알림', color: C.ok, bg: '#F4FBF6' },
+        new_upload: { label: '새 업로드 알림', color: C.primary, bg: C.bg },
+    };
+    const getNotificationType = (notification: ActionNotification): NotificationType => notification.type || (notification.recipientRole === 'she_manager' ? 'action_completed' : 'action_request');
+    const hasCompletionNotification = (notification: ActionNotification) => notifications.some((item) => getNotificationType(item) === 'action_completed' && item.recipientRole === 'she_manager' && item.projectId === notification.projectId && item.categoryName === notification.categoryName && item.title === `${notification.categoryName} 조치 완료`);
     const getNotificationStatusCode = (notification: ActionNotification, completionSent = false): ActionRequestStatusCode => {
+        if (getNotificationType(notification) === 'new_upload') return 'open';
         if (notification.statusCode) return notification.statusCode;
         if (completionSent || notification.recipientRole === 'she_manager') return 'resolved';
         return 'open';
     };
-    const isActiveNotification = (notification: ActionNotification) => getNotificationStatusCode(notification, hasCompletionNotification(notification)) !== 'closed';
+    const isActiveNotification = (notification: ActionNotification) => getNotificationType(notification) === 'new_upload' ? !notification.read : getNotificationStatusCode(notification, hasCompletionNotification(notification)) !== 'closed';
     const activeRoleNotifications = roleNotifications.filter(isActiveNotification);
     const latestUnreadNotification = unreadNotifications.find(isActiveNotification);
     const sidebarNotificationCount = activeRoleNotifications.length;
@@ -84,8 +92,9 @@ export default function AppFrame({ title, description, actions, mainClassName, c
         const matchesQuery = !query || [notification.projectName, notification.categoryName, notification.title, notification.message, notification.senderName].some((value) => value.toLowerCase().includes(query));
         const matchesProject = notificationProjectFilter === 'all' || notification.projectName === notificationProjectFilter;
         const matchesPeriod = notificationPeriodFilter === 'all' || (notification.createdAtMs || 0) >= notificationPeriodStart;
+        const matchesType = notificationTypeFilter === 'all' || getNotificationType(notification) === notificationTypeFilter;
         const matchesStatus = notificationStatusFilter === 'active' ? statusCode !== 'closed' : statusCode === notificationStatusFilter;
-        return matchesQuery && matchesProject && matchesPeriod && matchesStatus;
+        return matchesQuery && matchesProject && matchesPeriod && matchesType && matchesStatus;
     });
     const openProject = (notification: ActionNotification, tab?: 'upload' | 'validation') => {
         if (!notification.projectId) return;
@@ -107,6 +116,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
             senderName: user.name,
             recipientRole: 'she_manager',
             statusCode: 'resolved',
+            type: 'action_completed',
         });
         updateActionNotificationStatus(notification.id, 'resolved');
         markActionNotificationRead(notification.id);
@@ -138,7 +148,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 24, fontWeight: 900, color: C.g800 }}>알림 내역</div>
-              <div style={{ fontSize: 13, color: C.g400, marginTop: 5 }}>{user.role === 'she_manager' ? '프로젝트 담당자가 보낸 조치 완료 알림을 확인하고 재검증할 수 있습니다.' : 'SHE 담당자가 보낸 조치 요청 알림을 확인하고 조치할 수 있습니다.'}</div>
+              <div style={{ fontSize: 13, color: C.g400, marginTop: 5 }}>{user.role === 'she_manager' ? '조치 완료 알림과 새 업로드 알림을 확인할 수 있습니다.' : 'SHE 담당자가 보낸 조치 요청 알림을 확인하고 조치할 수 있습니다.'}</div>
             </div>
             <button type="button" onClick={() => setActiveUtilityView(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '8px 12px', background: C.white, color: C.g600, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>이전 화면으로 돌아가기</button>
           </div>
@@ -156,6 +166,17 @@ export default function AppFrame({ title, description, actions, mainClassName, c
             </select>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12, maxWidth: '100%' }}>
+            <div role="tablist" aria-label="알림 유형 필터" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {(['all', 'action_request', 'action_completed', 'new_upload'] as Array<NotificationType | 'all'>).map((type) => {
+                const active = notificationTypeFilter === type;
+                const meta = type === 'all' ? { label: '전체 유형', color: C.primary, bg: C.bg } : notificationTypeMeta[type];
+                return (
+                  <button key={type} type="button" role="tab" aria-selected={active} onClick={() => setNotificationTypeFilter(type)} style={{ border: `1px solid ${active ? meta.color : C.g200}`, borderRadius: 999, padding: '7px 12px', background: active ? meta.bg : C.white, color: active ? meta.color : C.g600, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    {meta.label}
+                  </button>
+                );
+              })}
+            </div>
             <button type="button" onClick={() => setNotificationStatusFilter('active')} style={{ border: `1px solid ${notificationStatusFilter === 'active' ? C.primary : C.g200}`, borderRadius: 999, padding: '7px 12px', background: notificationStatusFilter === 'active' ? C.bg : C.white, color: notificationStatusFilter === 'active' ? C.primary : C.g600, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
               기본
             </button>
@@ -182,6 +203,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
               const actionStatusCode = getNotificationStatusCode(notification, completionSent);
               const actionStatusMeta = ACTION_REQUEST_STATUS_META[actionStatusCode];
               const actionStatusIndex = ACTION_REQUEST_STATUS_STEPS.indexOf(actionStatusCode);
+              const typeMeta = notificationTypeMeta[getNotificationType(notification)];
               return <div key={notification.id} style={{ padding: '15px 16px', borderBottom: `1px solid ${C.g100}`, background: notification.read ? C.white : '#FCFEFD' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 8 }}>
                 <button type="button" onClick={() => openProject(notification)} disabled={!notification.projectId} style={{ minWidth: 0, border: 'none', padding: 0, background: 'transparent', textAlign: 'left', fontFamily: 'inherit', cursor: notification.projectId ? 'pointer' : 'default' }}>
@@ -189,15 +211,16 @@ export default function AppFrame({ title, description, actions, mainClassName, c
                   <div style={{ fontSize: 12, color: C.g400, marginTop: 3 }}>{notification.projectName} · {notification.senderName} · {notification.createdAt}</div>
                 </button>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                  <span style={{ borderRadius: 999, padding: '4px 8px', background: actionStatusMeta.bg, color: actionStatusMeta.color, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }}>{actionStatusMeta.label}</span>
+                  <span style={{ borderRadius: 999, padding: '4px 8px', background: typeMeta.bg, color: typeMeta.color, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }}>{typeMeta.label}</span>
+                  {getNotificationType(notification) !== 'new_upload' && <span style={{ borderRadius: 999, padding: '4px 8px', background: actionStatusMeta.bg, color: actionStatusMeta.color, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }}>{actionStatusMeta.label}</span>}
                   <span style={{ borderRadius: 999, padding: '4px 8px', background: notification.read ? C.g100 : C.bg, color: notification.read ? C.g400 : C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }}>{notification.read ? '확인됨' : '미확인'}</span>
                 </div>
               </div>
               <button type="button" onClick={() => openProject(notification)} disabled={!notification.projectId} style={{ display: 'block', width: '100%', border: 'none', padding: 0, background: 'transparent', textAlign: 'left', fontFamily: 'inherit', cursor: notification.projectId ? 'pointer' : 'default' }}>
                 <div style={{ fontSize: 13, color: C.g800, lineHeight: 1.6 }}>{notification.message}</div>
               </button>
-              {notification.requestedFiles.length > 0 && <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.5, marginTop: 6 }}>요청 자료: {notification.requestedFiles.join(', ')}</div>}
-              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${ACTION_REQUEST_STATUS_STEPS.length}, minmax(0, 1fr))`, gap: 8, marginTop: 10 }}>
+              {notification.requestedFiles.length > 0 && <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.5, marginTop: 6 }}>{getNotificationType(notification) === 'new_upload' ? '업로드 파일' : '요청 자료'}: {notification.requestedFiles.join(', ')}</div>}
+              {getNotificationType(notification) !== 'new_upload' && <div style={{ display: 'grid', gridTemplateColumns: `repeat(${ACTION_REQUEST_STATUS_STEPS.length}, minmax(0, 1fr))`, gap: 8, marginTop: 10 }}>
                 {ACTION_REQUEST_STATUS_STEPS.map((statusCode, index) => {
                   const meta = ACTION_REQUEST_STATUS_META[statusCode];
                   const active = index === actionStatusIndex;
@@ -211,11 +234,11 @@ export default function AppFrame({ title, description, actions, mainClassName, c
                     </div>
                   );
                 })}
-              </div>
+              </div>}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 7, marginTop: 11 }}>
                 <button type="button" onClick={() => markActionNotificationRead(notification.id)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '7px 10px', background: C.white, color: C.g600, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>확인</button>
                 {user.role === 'she_manager' ? (
-                  <button type="button" onClick={() => openProject(notification, 'validation')} disabled={!notification.projectId} style={{ border: 'none', borderRadius: 999, padding: '7px 10px', background: C.primary, color: C.white, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: notification.projectId ? 'pointer' : 'not-allowed', opacity: notification.projectId ? 1 : 0.45 }}>유효성 검증</button>
+                  <button type="button" onClick={() => openProject(notification, 'validation')} disabled={!notification.projectId} style={{ border: 'none', borderRadius: 999, padding: '7px 10px', background: C.primary, color: C.white, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: notification.projectId ? 'pointer' : 'not-allowed', opacity: notification.projectId ? 1 : 0.45 }}>{getNotificationType(notification) === 'new_upload' ? '확인하기' : '유효성 검증'}</button>
                 ) : (
                   <>
                     <button type="button" onClick={() => openProject(notification, 'upload')} disabled={!notification.projectId || actionStatusCode === 'closed'} style={{ border: `1px solid ${C.primary}`, borderRadius: 999, padding: '7px 10px', background: C.white, color: C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: notification.projectId && actionStatusCode !== 'closed' ? 'pointer' : 'not-allowed', opacity: notification.projectId && actionStatusCode !== 'closed' ? 1 : 0.45 }}>조치하기</button>
@@ -338,7 +361,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
       </main>
       {latestUnreadNotification && toastVisible && <div style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 1200, width: 440, maxWidth: 'calc(100vw - 48px)', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 16, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: '20px 22px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
-          <div style={{ fontSize: 16, fontWeight: 900, color: C.g800 }}>{user.role === 'she_manager' ? '프로젝트 조치 완료' : 'SHE 담당자 조치 요청'}</div>
+          <div style={{ fontSize: 16, fontWeight: 900, color: C.g800 }}>{user.role === 'she_manager' ? notificationTypeMeta[getNotificationType(latestUnreadNotification)].label : 'SHE 담당자 조치 요청'}</div>
           <button type="button" onClick={() => setToastVisible(false)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
         </div>
         <div style={{ fontSize: 14, color: C.g600, lineHeight: 1.65 }}>{latestUnreadNotification.message}</div>
@@ -351,7 +374,7 @@ export default function AppFrame({ title, description, actions, mainClassName, c
               markActionNotificationRead(latestUnreadNotification.id);
               setActiveUtilityView(null);
               if (latestUnreadNotification.projectId) router.push(`/projects/${latestUnreadNotification.projectId}?tab=${user.role === 'she_manager' ? 'validation' : 'upload'}`);
-          }} style={{ border: `1px solid ${C.primary}`, borderRadius: 999, padding: '9px 13px', background: C.white, color: C.primary, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: latestUnreadNotification.projectId ? 'pointer' : 'not-allowed', opacity: latestUnreadNotification.projectId ? 1 : 0.45 }}>{user.role === 'she_manager' ? '유효성 검증' : '조치하기'}</button>
+          }} style={{ border: `1px solid ${C.primary}`, borderRadius: 999, padding: '9px 13px', background: C.white, color: C.primary, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: latestUnreadNotification.projectId ? 'pointer' : 'not-allowed', opacity: latestUnreadNotification.projectId ? 1 : 0.45 }}>{user.role === 'she_manager' ? getNotificationType(latestUnreadNotification) === 'new_upload' ? '확인하기' : '유효성 검증' : '조치하기'}</button>
           <button type="button" onClick={() => markActionNotificationRead(latestUnreadNotification.id)} style={{ border: 'none', borderRadius: 999, padding: '9px 13px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>확인</button>
         </div>
       </div>}

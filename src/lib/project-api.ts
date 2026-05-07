@@ -30,6 +30,7 @@ interface ProjectCardResponse {
   latestCumulativeProgressRate: number | string | null;
   status: ProjectStatusCode;
   hasActionRequest: boolean;
+  uncheckedMatchedFileCount: number;
 }
 
 interface ProjectDetailDataResponse {
@@ -50,6 +51,7 @@ interface ProjectDetailResponse {
   appropriatedAmount: number | string;
   status: ProjectStatusCode;
   assignees: ProjectAssignee[];
+  uncheckedMatchedFileCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -61,6 +63,11 @@ interface ProjectAssigneeListResponse {
 
 interface UserListResponse {
   items: BackendUserProfile[];
+}
+
+interface ArchiveMarkCheckedResponse {
+  projectId: number;
+  checkedLinkCount: number;
 }
 
 export interface ProjectListParams {
@@ -123,6 +130,7 @@ const emptyProjectBase = (id: number, name: string, status: ProjectStatusCode, h
   status: statusToUiStatus(status, hasActionRequest),
   hasUploads: false,
   hasActionRequest,
+  uncheckedMatchedFileCount: 0,
   reportReady: status === 'completed',
   recentActivity: '',
   participants: [],
@@ -135,6 +143,7 @@ export const projectCardToSummary = (project: ProjectCardResponse): ProjectSumma
   period: formatPeriod(project.constructionStartDate, project.constructionEndDate),
   progressRate: progressText(project.latestCumulativeProgressRate),
   participants: project.assigneeNames || [],
+  uncheckedMatchedFileCount: project.uncheckedMatchedFileCount || 0,
 });
 
 export const projectDetailToSummary = (project: ProjectDetailResponse): ProjectSummary => {
@@ -154,6 +163,7 @@ export const projectDetailToSummary = (project: ProjectDetailResponse): ProjectS
     recentActivity: project.updatedAt ? `프로젝트 정보가 ${project.updatedAt.slice(0, 10)}에 갱신되었습니다.` : '',
     participants: assigneeNames,
     assigneeUserIds: assignees.map((assignee) => assignee.userId),
+    uncheckedMatchedFileCount: project.uncheckedMatchedFileCount || 0,
   };
 };
 
@@ -213,4 +223,11 @@ export const replaceProjectAssignees = async (projectId: string, assigneeUserIds
 export const listProjectManagerCandidates = async () => {
   const response = await apiFetch<UserListResponse>('/users?roleCode=user');
   return response.data.items;
+};
+
+export const markArchiveChecked = async (projectId: string) => {
+  const response = await apiFetch<ArchiveMarkCheckedResponse>(`/projects/${projectId}/archive/mark-checked`, {
+    method: 'POST',
+  });
+  return response.data;
 };

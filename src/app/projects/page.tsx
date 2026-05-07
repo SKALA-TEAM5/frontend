@@ -148,6 +148,11 @@ export default function ProjectsPage() {
                   <span style={{ fontSize: 12, fontWeight: 900, color: PROJECT_STATUS_META[project.projectStatusCode].color, background: PROJECT_STATUS_META[project.projectStatusCode].bg, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
                     {PROJECT_STATUS_META[project.projectStatusCode].label}
                   </span>
+                  {project.uncheckedMatchedFileCount > 0 && (
+                    <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, background: C.bg, border: `1px solid ${C.light}`, borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
+                      미확인 매칭 {project.uncheckedMatchedFileCount}건
+                    </span>
+                  )}
                 </div>
                 <div data-ui="projects.8" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 10, marginBottom: 14 }}>
                   {[

@@ -41,9 +41,7 @@ npm run start
 
 ## 로그인
 
-로그인/회원가입은 백엔드 인증 API를 사용합니다.
-
-회원가입 완료 후에는 자동 로그인하지 않고 로그인 화면으로 돌아갑니다.
+로그인은 백엔드에 등록된 계정의 사번과 비밀번호를 사용합니다.
 
 ## 주요 기능
 
@@ -104,7 +102,6 @@ npm run start
 ```text
 src/app
   page.tsx                    로그인
-  signup/page.tsx             회원가입
   dashboard/page.tsx          SHE 담당자 대시보드
   projects/page.tsx           프로젝트 목록
   projects/[projectId]/page.tsx 프로젝트 상세

@@ -1,7 +1,6 @@
 'use client';
 
 import { FormEvent, KeyboardEvent, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
@@ -92,11 +91,6 @@ export default function LoginPage() {
 
         <div data-ui="login.5" style={{ marginTop: 18, padding: '12px 14px', borderRadius: 12, background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, lineHeight: 1.55 }}>
           백엔드 등록 계정의 사번과 비밀번호로 로그인해 주세요.
-        </div>
-        <div style={{ marginTop: 16, textAlign: 'center' }}>
-          <Link href="/signup" style={{ fontSize: 14, fontWeight: 900, color: C.primary, textDecoration: 'none' }}>
-            회원가입
-          </Link>
         </div>
       </Card>
     </main>

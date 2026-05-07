@@ -115,7 +115,7 @@ const widgetHelpText: Record<WidgetHelpId, string> = {
   openActionRequests: '아직 해결되지 않은 조치 요청 프로젝트 수를 보여줍니다.',
   risk: '검증 결과에서 정산 리스크가 있는 항목을 요약합니다.',
   missingUpload: '증빙 업로드가 아직 부족한 프로젝트를 확인합니다.',
-  unreadNotifications: '프로젝트 담당자가 보낸 미확인 조치 완료 알림을 보여줍니다.',
+  unreadNotifications: '프로젝트 담당자가 보낸 미확인 조치 완료 및 새 업로드 알림을 보여줍니다.',
   settlementProgress: '모든 프로젝트의 정산 진행률을 보여줍니다.',
   workload: '담당자별 프로젝트 부담과 조치 요청 부담을 보여줍니다.',
   myProjects: '내가 볼 수 있는 모든 프로젝트를 검색, 필터, 정렬해 보여줍니다.',
