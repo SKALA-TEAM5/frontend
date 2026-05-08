@@ -1,4 +1,4 @@
-import { apiFetch } from './api-client';
+import { apiFetch, apiUrl } from './api-client';
 import { CATS, createDefaultArchiveData, makeEntry, type UsageLineItem } from './evidence-utils';
 import type { MonthlyUsageStatementSummary } from './project-data';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../types/domain';
@@ -23,6 +23,65 @@ interface ProjectFileResponse {
   capturedAt: string | null;
   uploadedAt: string | null;
   linkedItemCount: number;
+}
+
+interface ProjectFileUploadResponse {
+  fileId: number;
+  originalFilename: string;
+  uploadedEvidenceTypeCode: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  uploadedAt: string | null;
+}
+
+interface ArchiveCategoryListResponse {
+  projectId: number;
+  uncheckedMatchedFileCount: number;
+  items: ArchiveCategoryResponse[];
+}
+
+interface ArchiveCategoryResponse {
+  categoryCode: string;
+  categoryName: string;
+  itemCount: number;
+  linkedFileCount: number;
+  linkCount: number;
+  uncheckedMatchedFileCount: number;
+  unsatisfiedRequirementCount: number;
+}
+
+interface ArchiveItemListResponse {
+  projectId: number;
+  categoryCode: string;
+  items: ArchiveItemResponse[];
+}
+
+interface ArchiveItemResponse {
+  itemId: number;
+  usageStatementId: number;
+  reportMonth: string | null;
+  usedOn: string | null;
+  itemName: string;
+  unit: string | null;
+  quantity: number | string | null;
+  unitPrice: number | string | null;
+  totalAmount: number | string | null;
+  remark: string | null;
+  pageNo: number | null;
+  linkedFileCount: number;
+  uncheckedMatchedFileCount: number;
+  unsatisfiedRequirementCount: number;
+}
+
+interface ItemEvidenceFilesResponse {
+  projectId: number;
+  itemId: number;
+  files: EvidenceFileResponse[];
+  requirements: RequirementResponse[];
+}
+
+interface EvidenceLinkResponse {
+  linkId: number;
 }
 
 interface SourceFileResponse {
@@ -143,6 +202,11 @@ const evidenceCodeToKind = (code?: string | null): FolderEvidenceCategory => {
   return 'other_document';
 };
 
+const kindToEvidenceCode = (kind: EvidenceCategory) => {
+  if (kind === 'tax_invoice') return 'tax_invoice';
+  return kind;
+};
+
 const projectFileCodeToKind = (code?: string | null): EvidenceCategory => {
   if (code === 'usage_statement') return 'usage_statement';
   if (code === 'receipt') return 'receipt';
@@ -150,6 +214,12 @@ const projectFileCodeToKind = (code?: string | null): EvidenceCategory => {
   if (code?.includes('photo')) return 'site_photo';
   return 'other_document';
 };
+
+const filePath = (projectId: string, fileId: number | string, action: 'preview' | 'download') => `/projects/${projectId}/files/${fileId}/${action}`;
+
+export const getProjectFilePreviewUrl = (projectId: string, fileId: number | string) => apiUrl(filePath(projectId, fileId, 'preview'));
+
+export const getProjectFileDownloadUrl = (projectId: string, fileId: number | string) => apiUrl(filePath(projectId, fileId, 'download'));
 
 export const createEmptyEvidenceBuckets = (): Record<EvidenceCategory, EvidenceFile[]> => ({
   receipt: [],
@@ -172,21 +242,40 @@ const putArchiveFile = (archive: ArchiveSeed, catId: number, usageItemId: string
 const sourceFileToEvidence = (sourceFile: SourceFileResponse): EvidenceFile =>
   makeEntry(sourceFile.originalFilename || '사용내역서', 'usage_statement', {
     id: `usage-statement-file-${sourceFile.fileId}`,
+    fileId: sourceFile.fileId,
     uploadedAt: formatDate(sourceFile.uploadedAt),
     uploadedBy: '',
     categoryIds: [],
     usageItemIds: [],
   });
 
-const evidenceFileToEntry = (file: EvidenceFileResponse, kind: EvidenceCategory, catId: number, usageItemId: string): EvidenceFile =>
+const evidenceFileToEntry = (projectId: string, file: EvidenceFileResponse, kind: EvidenceCategory, catId: number, usageItemId: string): EvidenceFile =>
   makeEntry(file.originalFilename || `file-${file.fileId}`, kind, {
     id: `evidence-link-${file.linkId || file.fileId}`,
+    fileId: file.fileId,
+    linkId: file.linkId,
     uploadedAt: formatDate(file.uploadedAt),
     uploadedBy: '',
     documentType: file.evidenceTypeName,
+    previewUrl: file.mimeType?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, file.fileId) : '',
     categoryIds: [catId],
     usageItemIds: [usageItemId],
   });
+
+const projectFileToEntry = (projectId: string, file: ProjectFileResponse | ProjectFileUploadResponse): EvidenceFile => {
+  const fileId = file.fileId;
+  const kind = projectFileCodeToKind(file.uploadedEvidenceTypeCode);
+  return makeEntry(file.originalFilename || `file-${fileId}`, kind, {
+    id: `project-file-${fileId}`,
+    fileId,
+    uploadedAt: formatDate(file.uploadedAt),
+    uploadedBy: '',
+    documentType: 'uploadedEvidenceTypeName' in file ? file.uploadedEvidenceTypeName : undefined,
+    previewUrl: file.mimeType?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, fileId) : '',
+    categoryIds: [],
+    usageItemIds: [],
+  });
+};
 
 const buildOverviewRows = (summaries: UsageStatementSummaryResponse[]) => {
   const rows = CATS.map((cat) => {
@@ -229,7 +318,7 @@ const buildStatementSummary = (statement: UsageStatementDetailResponse): Monthly
   };
 };
 
-const toArchiveData = (statement: UsageStatementDetailResponse): UsageStatementArchiveData => {
+const toArchiveData = (projectId: string, statement: UsageStatementDetailResponse): UsageStatementArchiveData => {
   const archiveSeed = createDefaultArchiveData();
   if (statement.sourceFile) {
     archiveSeed.usage_statement = [sourceFileToEvidence(statement.sourceFile)];
@@ -240,7 +329,7 @@ const toArchiveData = (statement: UsageStatementDetailResponse): UsageStatementA
     const usageItemId = String(item.itemId);
     (item.evidenceFiles || []).forEach((file) => {
       const kind = evidenceCodeToKind(file.evidenceTypeCode);
-      putArchiveFile(archiveSeed, catId, usageItemId, kind, evidenceFileToEntry(file, kind, catId, usageItemId));
+      putArchiveFile(archiveSeed, catId, usageItemId, kind, evidenceFileToEntry(projectId, file, kind, catId, usageItemId));
     });
     return {
       id: usageItemId,
@@ -261,43 +350,122 @@ const toArchiveData = (statement: UsageStatementDetailResponse): UsageStatementA
 export const getLatestUsageStatementArchive = async (projectId: string) => {
   const response = await apiFetch<LatestUsageStatementResponse>(`/projects/${projectId}/usage-statements/latest`);
   if (!response.data.statement) return null;
-  return toArchiveData(response.data.statement);
+  return toArchiveData(projectId, response.data.statement);
 };
 
 export const listProjectFiles = async (projectId: string) => {
   const response = await apiFetch<ProjectFileListResponse>(`/projects/${projectId}/files?size=200`);
   return response.data.items.reduce((buckets, file) => {
-    const kind = projectFileCodeToKind(file.uploadedEvidenceTypeCode);
-    buckets[kind].push(makeEntry(file.originalFilename || `file-${file.fileId}`, kind, {
-      id: `project-file-${file.fileId}`,
-      uploadedAt: formatDate(file.uploadedAt),
-      uploadedBy: '',
-      documentType: file.uploadedEvidenceTypeName,
-      categoryIds: [],
-      usageItemIds: [],
-    }));
+    const entry = projectFileToEntry(projectId, file);
+    buckets[entry.kind].push(entry);
     return buckets;
   }, createEmptyEvidenceBuckets());
 };
 
-export const runSafetyDocAgentMatching = async (projectId: string): Promise<SafetyDocAgentRequiredEvidenceMap> => {
-  const response = await apiFetch<SafetyDocAgentMatchResponse>(`/projects/${projectId}/safety-doc-agent/match`, {
+export const uploadProjectFile = async (projectId: string, file: File, kind: EvidenceCategory) => {
+  const formData = new FormData();
+  formData.set('evidenceTypeCode', kindToEvidenceCode(kind));
+  formData.set('file', file);
+  const response = await apiFetch<ProjectFileUploadResponse>(`/projects/${projectId}/files`, {
     method: 'POST',
+    body: formData,
   });
-
-  if (response.data.requiredEvidenceByLine) {
-    return response.data.requiredEvidenceByLine;
-  }
-
-  return (response.data.requirements || []).reduce<SafetyDocAgentRequiredEvidenceMap>((result, item) => {
-    const usageItemId = String(item.usageStatementItemId ?? item.itemId ?? '');
-    const kind = evidenceCodeToKind(item.evidenceTypeCode);
-    const requiredName = item.requiredFileName || item.requiredEvidenceName || item.requiredDocumentName || item.name || item.evidenceTypeName || '';
-    if (!usageItemId || !requiredName) return result;
-    result[usageItemId] = {
-      ...(result[usageItemId] || {}),
-      [kind]: [...(result[usageItemId]?.[kind] || []), requiredName],
-    };
-    return result;
-  }, {});
+  return projectFileToEntry(projectId, response.data);
 };
+
+export const deleteProjectFile = async (projectId: string, fileId: number | string) => {
+  await apiFetch<null>(`/projects/${projectId}/files/${fileId}`, {
+    method: 'DELETE',
+  });
+};
+
+export const linkEvidenceFile = async (projectId: string, itemId: string, fileId: number | string, kind: FolderEvidenceCategory) => {
+  const response = await apiFetch<EvidenceLinkResponse>(`/projects/${projectId}/usage-statement-items/${itemId}/evidence-files`, {
+    method: 'POST',
+    body: {
+      fileId: Number(fileId),
+      evidenceTypeCode: kindToEvidenceCode(kind),
+    },
+  });
+  return response.data;
+};
+
+export const moveEvidenceFileLink = async (projectId: string, linkId: number | string, targetItemId: string, kind: FolderEvidenceCategory) => {
+  const response = await apiFetch<EvidenceLinkResponse>(`/projects/${projectId}/evidence-file-links/${linkId}`, {
+    method: 'PATCH',
+    body: {
+      targetItemId: Number(targetItemId),
+      evidenceTypeCode: kindToEvidenceCode(kind),
+    },
+  });
+  return response.data;
+};
+
+export const deleteEvidenceFileLink = async (projectId: string, linkId: number | string) => {
+  await apiFetch<null>(`/projects/${projectId}/evidence-file-links/${linkId}`, {
+    method: 'DELETE',
+  });
+};
+
+export const listArchiveCategories = async (projectId: string) => {
+  const response = await apiFetch<ArchiveCategoryListResponse>(`/projects/${projectId}/archive/categories`);
+  return response.data.items;
+};
+
+export const listArchiveCategoryItems = async (projectId: string, categoryCode: string) => {
+  const response = await apiFetch<ArchiveItemListResponse>(`/projects/${projectId}/archive/categories/${categoryCode}/items`);
+  return response.data.items;
+};
+
+export const listItemEvidenceFiles = async (projectId: string, itemId: string) => {
+  const response = await apiFetch<ItemEvidenceFilesResponse>(`/projects/${projectId}/usage-statement-items/${itemId}/evidence-files`);
+  return response.data;
+};
+
+export const getProjectArchiveFromCategories = async (projectId: string): Promise<Pick<UsageStatementArchiveData, 'archiveSeed' | 'usageItems'>> => {
+  const categories = await listArchiveCategories(projectId);
+  const itemGroups = await Promise.all(categories.map((category) => listArchiveCategoryItems(projectId, category.categoryCode)));
+  const usageItems = itemGroups.flatMap((items, index) => items.map((item) => ({
+    id: String(item.itemId),
+    categoryId: categoryCodeToId(categories[index]?.categoryCode),
+    name: item.itemName || '-',
+    amount: toAmount(item.totalAmount),
+  }))).filter((item) => item.categoryId > 0);
+  const archiveSeed = createDefaultArchiveData();
+  const usageFiles = await listProjectFiles(projectId);
+  archiveSeed.usage_statement = usageFiles.usage_statement;
+  await Promise.all(usageItems.map(async (item) => {
+    const response = await listItemEvidenceFiles(projectId, item.id);
+    response.files.forEach((file) => {
+      const kind = evidenceCodeToKind(file.evidenceTypeCode);
+      putArchiveFile(archiveSeed, item.categoryId, item.id, kind, evidenceFileToEntry(projectId, file, kind, item.categoryId, item.id));
+    });
+  }));
+  return { archiveSeed, usageItems };
+};
+
+/*
+ * TODO: 백엔드에 POST /projects/{projectId}/safety-doc-agent/match API가 추가되면 복구합니다.
+ *
+ * export const runSafetyDocAgentMatching = async (projectId: string): Promise<SafetyDocAgentRequiredEvidenceMap> => {
+ *   const response = await apiFetch<SafetyDocAgentMatchResponse>(`/projects/${projectId}/safety-doc-agent/match`, {
+ *     method: 'POST',
+ *   });
+ *
+ *   if (response.data.requiredEvidenceByLine) {
+ *     return response.data.requiredEvidenceByLine;
+ *   }
+ *
+ *   return (response.data.requirements || []).reduce<SafetyDocAgentRequiredEvidenceMap>((result, item) => {
+ *     const usageItemId = String(item.usageStatementItemId ?? item.itemId ?? '');
+ *     const kind = evidenceCodeToKind(item.evidenceTypeCode);
+ *     const requiredName = item.requiredFileName || item.requiredEvidenceName || item.requiredDocumentName || item.name || item.evidenceTypeName || '';
+ *     if (!usageItemId || !requiredName) return result;
+ *     result[usageItemId] = {
+ *       ...(result[usageItemId] || {}),
+ *       [kind]: [...(result[usageItemId]?.[kind] || []), requiredName],
+ *     };
+ *     return result;
+ *   }, {});
+ * };
+ */

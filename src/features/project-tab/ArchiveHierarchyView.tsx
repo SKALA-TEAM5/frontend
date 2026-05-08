@@ -35,13 +35,15 @@ interface ArchiveHierarchyViewProps {
   onSelectCat: (catId: number) => void;
   onSelectUsageItem: (item: UsageLineItem) => void;
   onRemove: (kind: HierarchyEvidenceKind, catId: number, usageItemId: string, fileId: string) => void;
-  onMove: (fromKind: HierarchyEvidenceKind, fromCatId: number, fromUsageItemId: string, toKind: HierarchyEvidenceKind, toCatId: number, file: EvidenceFile, toUsageItemId?: string) => void;
+  onMove: (fromKind: HierarchyEvidenceKind, fromCatId: number, fromUsageItemId: string, toKind: HierarchyEvidenceKind, toCatId: number, file: EvidenceFile, toUsageItemId?: string) => void | Promise<void>;
   onUpload: (kind: FolderEvidenceCategory, catId: number, usageItemId: string) => void;
+  onPreviewFile?: (file: EvidenceFile) => void;
+  onDownloadFile?: (file: EvidenceFile) => void;
   isProblemFile?: (file: EvidenceFile) => boolean;
   getRequiredEvidence?: (kind: FolderEvidenceCategory, catId: number, usageItemId?: string) => string[];
 }
 
-export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, selectedUsageItemId, getFiles, onSelectCat, onSelectUsageItem, onRemove, onMove, onUpload, isProblemFile, getRequiredEvidence }: ArchiveHierarchyViewProps) {
+export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, selectedUsageItemId, getFiles, onSelectCat, onSelectUsageItem, onRemove, onMove, onUpload, onPreviewFile, onDownloadFile, isProblemFile, getRequiredEvidence }: ArchiveHierarchyViewProps) {
   const [dragPayload, setDragPayload] = useState<{ kind: HierarchyEvidenceKind; catId: number; usageItemId: string; file: EvidenceFile } | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ file: EvidenceFile; x: number; y: number } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; file: EvidenceFile } | null>(null);
@@ -92,7 +94,7 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
     const validation = file.visionValidation;
     return (
       <div key={file.id} draggable onMouseLeave={() => setHoverPreview(null)} onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ border: `1px solid ${problem ? '#FFCDD2' : C.g100}`, background: problem ? C.dangerBg : C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 18px', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto auto auto 18px', alignItems: 'center', gap: 6 }}>
           <div style={{ minWidth: 0 }}>
             <div title={file.name} onMouseEnter={(event) => openTooltip(file, event.currentTarget)} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, flexWrap: 'wrap' }}>
@@ -100,6 +102,8 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
               {kind === 'site_photo' && validation && <span style={{ fontSize: 10, fontWeight: 900, color: validation.status === 'suitable' ? C.ok : C.danger, background: validation.status === 'suitable' ? '#F4FBF6' : C.dangerBg, borderRadius: 999, padding: '2px 6px', whiteSpace: 'nowrap' }}>{validation.status === 'suitable' ? '적합' : '부적합'}</span>}
             </div>
           </div>
+          <button type="button" disabled={!file.fileId} onClick={(event) => { event.stopPropagation(); onPreviewFile?.(file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: file.fileId ? C.g600 : C.g400, cursor: file.fileId ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>보기</button>
+          <button type="button" disabled={!file.fileId} onClick={(event) => { event.stopPropagation(); onDownloadFile?.(file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: file.fileId ? C.g600 : C.g400, cursor: file.fileId ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>다운</button>
           <button type="button" onClick={(event) => { event.stopPropagation(); openMoveModal(kind, file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>이동</button>
           <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(kind, selectedCatId, activeItem?.id || selectedUsageItemId, file.id); }} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 14 }}>×</button>
         </div>

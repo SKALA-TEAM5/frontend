@@ -10,7 +10,7 @@ import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
 import { EMPTY_PROJECT, getMonthlyUsageStatements, getProjectManagers, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary } from '../../../lib/project-data';
 import { deleteProject, getProject, listProjectManagerCandidates, markArchiveChecked, replaceProjectAssignees, type ProjectAssignee } from '../../../lib/project-api';
-import { getLatestUsageStatementArchive, listProjectFiles } from '../../../lib/archive-api';
+import { getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, uploadProjectFile } from '../../../lib/archive-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
 import { addActionNotification, closeResolvedActionNotificationsForProject, resolveActionRequestNotificationsForProject } from '../../../lib/action-notifications';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
@@ -218,6 +218,36 @@ export default function ProjectDetailPage() {
         return [...withoutSameMonth, latestDbStatement].toSorted((a, b) => a.month.localeCompare(b.month));
     }, [fallbackMonthlyStatements, latestDbStatement]);
     const latestStatement = monthlyStatements[monthlyStatements.length - 1] || latestFallbackStatement;
+    const refreshArchiveData = async (targetProjectId: string) => {
+        const [latestData, archiveData] = await Promise.all([
+            getLatestUsageStatementArchive(targetProjectId).catch(() => null),
+            getProjectArchiveFromCategories(targetProjectId).catch(() => null),
+        ]);
+        if (latestData) {
+            const mergedArchiveSeed = archiveData?.archiveSeed || latestData.archiveSeed;
+            setArchiveSeed({
+                usage_statement: latestData.archiveSeed.usage_statement.length ? latestData.archiveSeed.usage_statement : mergedArchiveSeed.usage_statement,
+                categories: Object.keys(mergedArchiveSeed.categories || {}).length ? mergedArchiveSeed.categories : latestData.archiveSeed.categories,
+            });
+            setArchiveUsageItems(archiveData?.usageItems.length ? archiveData.usageItems : latestData.usageItems);
+            setDbOverviewUsageRows(latestData.overviewRows);
+            setLatestDbStatement(latestData.statementSummary);
+            setProject((current) => ({
+                ...current,
+                hasUploads: latestData.statementSummary.evidenceCount > 0 || Boolean(latestData.statementSummary.sourceFileName && latestData.statementSummary.sourceFileName !== '-'),
+                accumulatedAmount: latestData.statementSummary.cumulativeAmount,
+            }));
+            return;
+        }
+        if (archiveData) {
+            setArchiveSeed(archiveData.archiveSeed);
+            setArchiveUsageItems(archiveData.usageItems);
+            setProject((current) => ({
+                ...current,
+                hasUploads: Boolean(archiveData.archiveSeed.usage_statement.length || archiveData.usageItems.length || current.hasUploads),
+            }));
+        }
+    };
     const visibleHeaderHistoryItems = selectedHeaderHistoryDate === 'all'
         ? headerHistoryItems
         : headerHistoryItems.filter((item) => item.date === selectedHeaderHistoryDate);
@@ -271,37 +301,11 @@ export default function ProjectDetailPage() {
         setMatchReady(false);
         setActionGuideOpen(user.role === 'project_manager' && project.hasActionRequest);
         setActionCompletionSent(false);
-        const localUsageStatementData = readLocalUsageStatementData(project.id);
-        if (localUsageStatementData) {
-            setArchiveSeed(localUsageStatementData.archiveSeed);
-            setArchiveUsageItems(localUsageStatementData.usageItems);
-            setDbOverviewUsageRows(localUsageStatementData.overviewRows);
-            setLatestDbStatement(localUsageStatementData.statementSummary);
-            setProject((current) => ({
-                ...current,
-                hasUploads: true,
-                accumulatedAmount: localUsageStatementData.statementSummary.cumulativeAmount,
-            }));
-        }
-        getLatestUsageStatementArchive(project.id)
-            .then((data) => {
-                if (!alive || !data)
-                    return;
-                setArchiveSeed(data.archiveSeed);
-                setArchiveUsageItems(data.usageItems);
-                setDbOverviewUsageRows(data.overviewRows);
-                setLatestDbStatement(data.statementSummary);
-                setProject((current) => ({
-                    ...current,
-                    hasUploads: data.statementSummary.evidenceCount > 0 || Boolean(data.statementSummary.sourceFileName && data.statementSummary.sourceFileName !== '-'),
-                    accumulatedAmount: data.statementSummary.cumulativeAmount,
-                }));
-            })
+        refreshArchiveData(project.id)
             .catch(() => {
                 if (!alive)
                     return;
-                if (!localUsageStatementData)
-                    setArchiveSeed(null);
+                setArchiveSeed(null);
             });
         listProjectFiles(project.id)
             .then((files) => {
@@ -447,10 +451,44 @@ export default function ProjectDetailPage() {
                     setOcrFailureReason(ocrFailureReason);
                     return;
                 }
-                const usageStatementEntry = createEntryFromFile(pickedFile, 'usage_statement', { categoryIds: [], usageItemIds: [] });
-                const processedData = buildMvpUsageStatementArchiveData(project, usageStatementEntry, user.name);
                 setUsageUploadStage('ocr');
                 setUsageStatementPage(0);
+                uploadProjectFile(project.id, pickedFile, 'usage_statement')
+                    .then(async (uploadedEntry) => {
+                        const uploadedAt = uploadedEntry.uploadedAt || new Date().toISOString().slice(0, 10);
+                        const month = uploadedAt.slice(0, 7);
+                        const statementSummary: MonthlyUsageStatementSummary = {
+                            month,
+                            label: formatMonthLabel(month),
+                            sourceFileName: uploadedEntry.name,
+                            revisionNo: 1,
+                            documentWrittenDate: '-',
+                            uploadedAt,
+                            uploadedBy: user.name,
+                            parseStatus: '업로드 완료',
+                            validationStatus: '미검증',
+                            currentAmount: '0',
+                            cumulativeAmount: project.accumulatedAmount || '0',
+                            evidenceCount: 1,
+                            issueCount: 0,
+                        };
+                        setLatestDbStatement(statementSummary);
+                        setArchiveSeed((current) => ({
+                            usage_statement: [uploadedEntry, ...(current?.usage_statement || []).filter((file) => file.fileId !== uploadedEntry.fileId)],
+                            categories: current?.categories || {},
+                        }));
+                        setProject((current) => ({ ...current, hasUploads: true }));
+                        setSelectedMonth(month);
+                        setUsageUploadStage('classifying');
+                        await refreshArchiveData(project.id);
+                        setUsageUploadStage('idle');
+                        updateTab('archive');
+                    })
+                    .catch(() => {
+                        setUsageUploadStage('idle');
+                        setAgentFailureTarget('usage-classification');
+                    });
+                /*
                 const ocrTimer = window.setTimeout(() => {
                     try {
                         setLatestDbStatement(processedData.statementSummary);
@@ -485,6 +523,7 @@ export default function ProjectDetailPage() {
                     }
                 }, 1400);
                 usageUploadTimersRef.current = [ocrTimer, classifyTimer];
+                */
             } catch {
                 usageUploadTimersRef.current.forEach((timer) => window.clearTimeout(timer));
                 usageUploadTimersRef.current = [];

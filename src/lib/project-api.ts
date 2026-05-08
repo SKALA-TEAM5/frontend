@@ -213,11 +213,6 @@ export const deleteProject = async (projectId: string) => {
   });
 };
 
-export const listProjectAssignees = async (projectId: string) => {
-  const response = await apiFetch<ProjectAssigneeListResponse>(`/projects/${projectId}/assignees`);
-  return response.data.assignees;
-};
-
 export const replaceProjectAssignees = async (projectId: string, assigneeUserIds: number[]) => {
   const response = await apiFetch<ProjectAssigneeListResponse>(`/projects/${projectId}/assignees`, {
     method: 'PUT',

@@ -9,7 +9,7 @@ import ArchiveFolderGrid from './ArchiveFolderGrid';
 import ArchiveHierarchyView, { type HierarchyEvidenceKind } from './ArchiveHierarchyView';
 import ArchivePreview from './ArchivePreview';
 import ArchiveToolbar, { type ArchiveValidationStatus, type ArchiveViewMode } from './ArchiveToolbar';
-import { runSafetyDocAgentMatching, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
+import { deleteEvidenceFileLink, deleteProjectFile, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, uploadProjectFile, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 interface ArchiveScreenProps {
     projectId: string;
@@ -48,6 +48,8 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
     const [matchingStatus, setMatchingStatus] = useState<'idle' | 'running' | 'done'>('idle');
     const [requiredEvidenceByLine, setRequiredEvidenceByLine] = useState<SafetyDocAgentRequiredEvidenceMap>({});
     const [matchingError, setMatchingError] = useState('');
+    const [matchingNotice, setMatchingNotice] = useState('');
+    const [archiveActionError, setArchiveActionError] = useState('');
     const [photoValidationStatus, setPhotoValidationStatus] = useState<ArchiveValidationStatus>('idle');
     const [photoValidationNotice, setPhotoValidationNotice] = useState<{ type: 'ok' | 'bad'; message: string } | null>(null);
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
@@ -112,44 +114,78 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
         input.type = 'file';
         input.multiple = true;
         input.accept = kind === 'site_photo' ? 'image/*' : 'image/*,.pdf,.xlsx';
-        input.onchange = (event) => {
+        input.onchange = async (event) => {
             const pickedFiles = Array.from((event.target as HTMLInputElement).files || []);
             if (!pickedFiles.length)
                 return;
-            const nextEntries = pickedFiles.map((file) => createEntryFromFile(file, kind, { categoryIds: [catId], usageItemIds: [usageItemId] }));
-            commitFileData((prev) => ({
-                ...prev,
-                categories: {
-                    ...prev.categories,
-                    [catId]: {
-                        ...(prev.categories[catId] || {}),
-                        [usageItemId]: {
-                            ...(prev.categories[catId]?.[usageItemId] || {}),
-                            [kind]: [...(prev.categories[catId]?.[usageItemId]?.[kind] || []), ...nextEntries],
+            setArchiveActionError('');
+            try {
+                const nextEntries = await Promise.all(pickedFiles.map(async (file) => {
+                    const uploadedEntry = await uploadProjectFile(projectId, file, kind);
+                    if (!uploadedEntry.fileId)
+                        return createEntryFromFile(file, kind, { ...uploadedEntry, categoryIds: [catId], usageItemIds: [usageItemId] });
+                    const link = await linkEvidenceFile(projectId, usageItemId, uploadedEntry.fileId, kind);
+                    return {
+                        ...uploadedEntry,
+                        id: `evidence-link-${link.linkId}`,
+                        linkId: link.linkId,
+                        kind,
+                        previewUrl: uploadedEntry.previewUrl || (file.type.startsWith('image/') ? getProjectFilePreviewUrl(projectId, uploadedEntry.fileId) : ''),
+                        categoryIds: [catId],
+                        usageItemIds: [usageItemId],
+                    };
+                }));
+                commitFileData((prev) => ({
+                    ...prev,
+                    categories: {
+                        ...prev.categories,
+                        [catId]: {
+                            ...(prev.categories[catId] || {}),
+                            [usageItemId]: {
+                                ...(prev.categories[catId]?.[usageItemId] || {}),
+                                [kind]: [...(prev.categories[catId]?.[usageItemId]?.[kind] || []), ...nextEntries],
+                            },
                         },
                     },
-                },
-            }));
-            setRequiredEvidenceByLine((current) => {
-                const currentLine = current[usageItemId];
-                if (!currentLine?.[kind])
-                    return current;
-                const nextLine = { ...currentLine };
-                delete nextLine[kind];
-                const next = { ...current, [usageItemId]: nextLine };
-                if (Object.keys(nextLine).length === 0)
-                    delete next[usageItemId];
-                return next;
-            });
-            setSelectedHierarchyCatId(catId);
-            setSelectedUsageItemId(usageItemId);
-            const categoryName = CATS.find((cat) => cat.id === catId)?.short || '선택 항목';
-            const itemName = resolvedUsageItems.find((item) => item.id === usageItemId)?.name || categoryName;
-            onFilesUploaded?.(nextEntries, { categoryName, itemName });
+                }));
+                setRequiredEvidenceByLine((current) => {
+                    const currentLine = current[usageItemId];
+                    if (!currentLine?.[kind])
+                        return current;
+                    const nextLine = { ...currentLine };
+                    delete nextLine[kind];
+                    const next = { ...current, [usageItemId]: nextLine };
+                    if (Object.keys(nextLine).length === 0)
+                        delete next[usageItemId];
+                    return next;
+                });
+                setSelectedHierarchyCatId(catId);
+                setSelectedUsageItemId(usageItemId);
+                const categoryName = CATS.find((cat) => cat.id === catId)?.short || '선택 항목';
+                const itemName = resolvedUsageItems.find((item) => item.id === usageItemId)?.name || categoryName;
+                onFilesUploaded?.(nextEntries, { categoryName, itemName });
+            } catch (error) {
+                setArchiveActionError(error instanceof Error ? error.message : '파일 업로드에 실패했습니다.');
+            }
         };
         input.click();
     };
-    const moveFile = (kind: FolderEvidenceCategory, fromCat: number, toCat: number, fileEntry: EvidenceFile, fromUsageItemId?: string, toUsageItemId?: string) => {
+    const moveFile = async (kind: FolderEvidenceCategory, fromCat: number, toCat: number, fileEntry: EvidenceFile, fromUsageItemId?: string, toUsageItemId?: string) => {
+        const targetUsageItemId = toUsageItemId || resolvedUsageItems.find((item) => item.categoryId === toCat)?.id || `cat-${toCat}`;
+        setArchiveActionError('');
+        let movedLinkId = fileEntry.linkId;
+        try {
+            if (fileEntry.linkId) {
+                const link = await moveEvidenceFileLink(projectId, fileEntry.linkId, targetUsageItemId, kind);
+                movedLinkId = link.linkId || fileEntry.linkId;
+            } else if (fileEntry.fileId) {
+                const link = await linkEvidenceFile(projectId, targetUsageItemId, fileEntry.fileId, kind);
+                movedLinkId = link.linkId;
+            }
+        } catch (error) {
+            setArchiveActionError(error instanceof Error ? error.message : '파일 이동에 실패했습니다.');
+            return;
+        }
         commitFileData((prev) => {
             const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
             const fromLineMap = { ...(next.categories[fromCat] || {}) };
@@ -161,12 +197,11 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
                 };
             });
             next.categories[fromCat] = fromLineMap;
-            const targetUsageItemId = toUsageItemId || resolvedUsageItems.find((item) => item.categoryId === toCat)?.id || `cat-${toCat}`;
             next.categories[toCat] = {
                 ...(next.categories[toCat] || {}),
                 [targetUsageItemId]: {
                     ...(next.categories[toCat]?.[targetUsageItemId] || {}),
-                    [kind]: [...(next.categories[toCat]?.[targetUsageItemId]?.[kind] || []), { ...fileEntry, categoryIds: [toCat], usageItemIds: [targetUsageItemId] }],
+                    [kind]: [...(next.categories[toCat]?.[targetUsageItemId]?.[kind] || []), { ...fileEntry, id: movedLinkId ? `evidence-link-${movedLinkId}` : fileEntry.id, linkId: movedLinkId, categoryIds: [toCat], usageItemIds: [targetUsageItemId] }],
                 },
             };
             return next;
@@ -175,10 +210,24 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
     const removeArchiveFile = (kind: FolderEvidenceCategory, catId: number, fileId: string, usageItemId?: string) => {
         setDeleteTarget({ kind, catId, fileId, usageItemId });
     };
-    const confirmRemoveArchiveFile = () => {
+    const confirmRemoveArchiveFile = async () => {
         if (!deleteTarget)
             return;
         const { kind, catId, fileId, usageItemId } = deleteTarget;
+        const targetFile = usageItemId
+            ? fileData.categories?.[catId]?.[usageItemId]?.[kind]?.find((file) => file.id === fileId)
+            : Object.values(fileData.categories?.[catId] || {}).flatMap((line) => line[kind] || []).find((file) => file.id === fileId);
+        setArchiveActionError('');
+        try {
+            if (targetFile?.linkId) {
+                await deleteEvidenceFileLink(projectId, targetFile.linkId);
+            } else if (targetFile?.fileId) {
+                await deleteProjectFile(projectId, targetFile.fileId);
+            }
+        } catch (error) {
+            setArchiveActionError(error instanceof Error ? error.message : '파일 삭제에 실패했습니다.');
+            return;
+        }
         commitFileData((prev) => {
             const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
             const lineMap = { ...(next.categories[catId] || {}) };
@@ -200,13 +249,28 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
             return;
         }
     };
-    const moveHierarchyFile = (fromKind: HierarchyEvidenceKind, fromCatId: number, fromUsageItemId: string, toKind: HierarchyEvidenceKind, toCatId: number, fileEntry: EvidenceFile, toUsageItemId?: string) => {
+    const moveHierarchyFile = async (fromKind: HierarchyEvidenceKind, fromCatId: number, fromUsageItemId: string, toKind: HierarchyEvidenceKind, toCatId: number, fileEntry: EvidenceFile, toUsageItemId?: string) => {
         if (fromKind === toKind && fromCatId === toCatId && fromUsageItemId === toUsageItemId)
             return;
         if (fromKind === 'misc' || toKind === 'misc')
             return;
         const nextKind: EvidenceCategory = toKind;
-        const movedFile: EvidenceFile = { ...fileEntry, kind: nextKind, categoryIds: [toCatId] };
+        const targetUsageItemId = toUsageItemId || resolvedUsageItems.find((item) => item.categoryId === toCatId)?.id || `cat-${toCatId}`;
+        setArchiveActionError('');
+        let movedLinkId = fileEntry.linkId;
+        try {
+            if (fileEntry.linkId) {
+                const link = await moveEvidenceFileLink(projectId, fileEntry.linkId, targetUsageItemId, toKind);
+                movedLinkId = link.linkId || fileEntry.linkId;
+            } else if (fileEntry.fileId) {
+                const link = await linkEvidenceFile(projectId, targetUsageItemId, fileEntry.fileId, toKind);
+                movedLinkId = link.linkId;
+            }
+        } catch (error) {
+            setArchiveActionError(error instanceof Error ? error.message : '파일 이동에 실패했습니다.');
+            return;
+        }
+        const movedFile: EvidenceFile = { ...fileEntry, id: movedLinkId ? `evidence-link-${movedLinkId}` : fileEntry.id, linkId: movedLinkId, kind: nextKind, categoryIds: [toCatId] };
         commitFileData((prev) => {
             const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
             next.categories[fromCatId] = { ...(next.categories[fromCatId] || {}) };
@@ -215,7 +279,6 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
                 ...(next.categories[fromCatId][fromUsageItemId] || {}),
                 [fromKind]: (next.categories[fromCatId][fromUsageItemId]?.[fromKind] || []).filter((file) => file.id !== fileEntry.id),
             };
-            const targetUsageItemId = toUsageItemId || resolvedUsageItems.find((item) => item.categoryId === toCatId)?.id || `cat-${toCatId}`;
             next.categories[toCatId][targetUsageItemId] = {
                 ...(next.categories[toCatId][targetUsageItemId] || {}),
                 [toKind]: [...(next.categories[toCatId][targetUsageItemId]?.[toKind] || []), { ...movedFile, usageItemIds: [targetUsageItemId] }],
@@ -226,6 +289,16 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
         if (nextUsageItem)
             setSelectedUsageItemId(nextUsageItem.id);
         setSelectedHierarchyCatId(toCatId);
+    };
+    const openFilePreview = (file: EvidenceFile) => {
+        if (!file.fileId)
+            return;
+        window.open(getProjectFilePreviewUrl(projectId, file.fileId), '_blank', 'noopener,noreferrer');
+    };
+    const openFileDownload = (file: EvidenceFile) => {
+        if (!file.fileId)
+            return;
+        window.open(getProjectFileDownloadUrl(projectId, file.fileId), '_blank', 'noopener,noreferrer');
     };
     const isProblemFile = (file: EvidenceFile) => file.kind === 'site_photo' && file.visionValidation?.status === 'unsuitable';
     const hasUncheckedMatchedFiles = uncheckedMatchedFileCount > 0;
@@ -243,17 +316,34 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
             return;
         setMatchingStatus('running');
         setMatchingError('');
-        try {
-            const agentRequiredEvidence = await runSafetyDocAgentMatching(projectId);
+        setMatchingNotice('');
+        window.setTimeout(() => {
+            const buildExampleRequiredEvidence = () => {
+                const targets = resolvedUsageItems.slice(0, 3);
+                return targets.reduce<SafetyDocAgentRequiredEvidenceMap>((result, item, index) => {
+                    result[item.id] = index === 0
+                        ? { receipt: ['영수증'], tax_invoice: ['세금계산서'] }
+                        : index === 1
+                            ? { site_photo: ['현장사진'], other_document: ['거래명세서'] }
+                            : { other_document: ['지급대장'] };
+                    return result;
+                }, {});
+            };
+            const agentRequiredEvidence = buildExampleRequiredEvidence();
             setRequiredEvidenceByLine(agentRequiredEvidence);
             setFileData((current) => normalizeArchiveData(current));
             setViewMode('hierarchy');
             setMatchingStatus('done');
-        } catch {
-            setMatchingStatus('idle');
-            setMatchingError(getAgentFailureMessage('evidence-matching'));
-            setAgentFailureTarget('evidence-matching');
-        }
+            setMatchingNotice(Object.keys(agentRequiredEvidence).length
+                ? '백엔드 매칭 API가 아직 없어 예시 매칭 결과를 표시했습니다.'
+                : '백엔드 매칭 API가 아직 없고 표시할 사용내역서 세부 항목도 없습니다.');
+        }, 700);
+
+        /*
+         * TODO: 백엔드 API가 생기면 임시 예시 결과 대신 아래 호출을 복구합니다.
+         * const agentRequiredEvidence = await runSafetyDocAgentMatching(projectId);
+         * setRequiredEvidenceByLine(agentRequiredEvidence);
+         */
     };
     const shouldMarkPhotoUnsuitable = (file: EvidenceFile, itemName: string) => {
         const text = `${file.name} ${file.description || ''} ${itemName}`.toLowerCase();
@@ -362,6 +452,22 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
             </div>
           </Card>
         )}
+        {archiveActionError && (
+          <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: C.danger, lineHeight: 1.5 }}>{archiveActionError}</div>
+              <button type="button" onClick={() => setArchiveActionError('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+            </div>
+          </Card>
+        )}
+        {matchingNotice && (
+          <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.bg, border: `1px solid ${C.light}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: C.primary, lineHeight: 1.5 }}>{matchingNotice}</div>
+              <button type="button" onClick={() => setMatchingNotice('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+            </div>
+          </Card>
+        )}
         {photoValidationNotice && (
           <Card style={{ marginBottom: 12, padding: '12px 14px', background: photoValidationNotice.type === 'ok' ? '#F4FBF6' : C.dangerBg, border: `1px solid ${photoValidationNotice.type === 'ok' ? '#D6EEDB' : '#FFCDD2'}` }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -378,10 +484,10 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
             }} onSelectUsageItem={(item) => {
                 setSelectedUsageItemId(item.id);
                 setSelectedHierarchyCatId(item.categoryId);
-            }} onRemove={removeHierarchyFile} onMove={moveHierarchyFile} onUpload={uploadFilesToSection} getRequiredEvidence={getRequiredEvidence}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
+            }} onRemove={removeHierarchyFile} onMove={moveHierarchyFile} onUpload={uploadFilesToSection} onPreviewFile={openFilePreview} onDownloadFile={openFileDownload} getRequiredEvidence={getRequiredEvidence}/>) : (<ArchiveFolderGrid cats={CATS} viewMode={viewMode} dragFile={dragFile} getAllFilesForCategory={getAllFilesForCategory} isProblemFile={isProblemFile} onDropFile={(toCat) => {
             if (!dragFile)
                 return;
-            moveFile(dragFile.kind, dragFile.fromCat, toCat, dragFile.file, dragFile.fromUsageItemId);
+            void moveFile(dragFile.kind, dragFile.fromCat, toCat, dragFile.file, dragFile.fromUsageItemId);
             setDragFile(null);
         }} onSetDragFile={setDragFile} onRemove={removeArchiveFile} onPreview={(entry, x, y) => setHoverPreview({ entry, x, y })} onPreviewEnd={() => setHoverPreview(null)}/>)}
         </div>

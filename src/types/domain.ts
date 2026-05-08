@@ -6,6 +6,8 @@ export type FolderEvidenceCategory = Exclude<EvidenceCategory, 'usage_statement'
 
 export interface EvidenceFile {
   id: string;
+  fileId?: number | string;
+  linkId?: number | string;
   name: string;
   kind: EvidenceCategory;
   description?: string;
