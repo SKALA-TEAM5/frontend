@@ -19,6 +19,16 @@ interface ArchiveScreenProps {
     archiveSeed: ArchiveSeed | null;
     usageItems?: UsageLineItem[];
     canRunArchiveTools?: boolean;
+    actionRequestBadge?: {
+        label: string;
+        pulse?: boolean;
+        onClick: () => void;
+    };
+    reviewRequestButton?: {
+        label: string;
+        disabled?: boolean;
+        onClick: () => void;
+    };
     onArchiveSeedChange?: (seed: ArchiveSeed) => void;
     onFilesUploaded?: (files: EvidenceFile[], context?: { categoryName: string; itemName: string }) => void;
 }
@@ -39,7 +49,7 @@ const uniqueFiles = (files: EvidenceFile[]) => {
     });
 };
 const FOLDER_EVIDENCE_KINDS: FolderEvidenceCategory[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
-export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedFileCount = 0, onDismissMatchReady, archiveSeed, usageItems = USAGE_LINE_ITEMS, canRunArchiveTools = true, onArchiveSeedChange, onFilesUploaded }: ArchiveScreenProps) {
+export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedFileCount = 0, onDismissMatchReady, archiveSeed, usageItems = USAGE_LINE_ITEMS, canRunArchiveTools = true, actionRequestBadge, reviewRequestButton, onArchiveSeedChange, onFilesUploaded }: ArchiveScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const [viewMode, setViewMode] = useState<ArchiveViewMode>('hierarchy');
     const [dragFile, setDragFile] = useState<DragContext>(null);
@@ -347,34 +357,14 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
     };
     const shouldMarkPhotoUnsuitable = (file: EvidenceFile, itemName: string) => {
         const text = `${file.name} ${file.description || ''} ${itemName}`.toLowerCase();
+        if (/보호구|안전모|안전화|안전벨트|안전조끼|개인보호구/.test(text))
+            return true;
         return /미착용|미사용|부적합|위반|불량|no[-_\s]?hardhat|without|bad|fail/.test(text);
     };
-    const createVisionResultImage = (file: EvidenceFile, itemName: string, unsuitable: boolean) => {
-        const statusText = unsuitable ? 'UNSUITABLE' : 'SUITABLE';
-        const color = unsuitable ? '#EF4444' : '#22C55E';
-        const hardhatLabel = unsuitable ? 'hardhat missing 0.91' : 'hardhat 0.76';
-        const svg = `
-          <svg xmlns="http://www.w3.org/2000/svg" width="360" height="240" viewBox="0 0 360 240">
-            <defs>
-              <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
-                <stop offset="0%" stop-color="#E9F1EB"/>
-                <stop offset="100%" stop-color="#C7D5CE"/>
-              </linearGradient>
-            </defs>
-            <rect width="360" height="240" fill="url(#bg)"/>
-            <rect x="24" y="22" width="154" height="190" fill="none" stroke="#4F46E5" stroke-width="6"/>
-            <rect x="24" y="10" width="126" height="28" fill="#4F46E5"/>
-            <text x="32" y="30" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="white">person 0.98</text>
-            <rect x="74" y="42" width="86" height="58" fill="none" stroke="${color}" stroke-width="6"/>
-            <rect x="74" y="38" width="${unsuitable ? 168 : 120}" height="28" fill="${color}"/>
-            <text x="82" y="59" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="${unsuitable ? 'white' : '#123018'}">${hardhatLabel}</text>
-            <circle cx="116" cy="80" r="20" fill="#5E5145"/>
-            <rect x="92" y="103" width="54" height="88" rx="12" fill="#D9F35B"/>
-            <rect x="210" y="24" width="126" height="34" rx="17" fill="${color}"/>
-            <text x="228" y="47" font-family="Arial, sans-serif" font-size="16" font-weight="800" fill="white">${statusText}</text>
-            <text x="24" y="230" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#2A3B32">${itemName} · ${file.name}</text>
-          </svg>`;
-        return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+    const getPhotoValidationSummary = (itemName: string, unsuitable: boolean) => {
+        if (unsuitable && /보호구|안전모|안전화|안전벨트|안전조끼|개인보호구/.test(itemName))
+            return '보호구 구입 현장 사진이 부적합합니다.';
+        return unsuitable ? `${itemName} 현장 사진이 부적합합니다.` : `${itemName} 현장 사진이 적합합니다.`;
     };
     const runVisionPhotoValidation = () => {
         if (photoValidationStatus === 'running')
@@ -400,12 +390,12 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
                                     badItemNames.push(itemName);
                                 return {
                                     ...file,
-                                    previewUrl: createVisionResultImage(file, itemName, unsuitable),
+                                    previewUrl: file.previewUrl,
                                     visionValidation: {
                                         status: unsuitable ? 'unsuitable' as const : 'suitable' as const,
                                         checkedAt: new Date().toISOString(),
                                         itemName,
-                                        summary: unsuitable ? `${itemName} 현장 사진이 부적합합니다.` : `${itemName} 현장 사진이 적합합니다.`,
+                                        summary: getPhotoValidationSummary(itemName, unsuitable),
                                         detections: [
                                             { label: 'person', confidence: 0.98, box: [24, 22, 154, 190] as [number, number, number, number], status: 'ok' as const },
                                             { label: unsuitable ? 'hardhat missing' : 'hardhat', confidence: unsuitable ? 0.91 : 0.76, box: [74, 42, 86, 58] as [number, number, number, number], status: unsuitable ? 'bad' as const : 'ok' as const },
@@ -442,7 +432,7 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
             </div>
           </Card>)}
 
-        <ArchiveToolbar viewMode={viewMode} validationStatus={photoValidationStatus} matchingStatus={matchingStatus} onRunMatching={runSafetyDocMatching} onRunPhotoValidation={runVisionPhotoValidation} canRunArchiveTools={canRunArchiveTools} onViewModeChange={setViewMode}/>
+        <ArchiveToolbar viewMode={viewMode} validationStatus={photoValidationStatus} matchingStatus={matchingStatus} onRunMatching={runSafetyDocMatching} onRunPhotoValidation={runVisionPhotoValidation} canRunArchiveTools={canRunArchiveTools} actionRequestBadge={actionRequestBadge} reviewRequestButton={reviewRequestButton} onViewModeChange={setViewMode}/>
         <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
         {matchingError && (
           <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>

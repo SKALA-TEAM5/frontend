@@ -1,7 +1,7 @@
 import { apiFetch, apiUrl } from './api-client';
 import { CATS, createDefaultArchiveData, makeEntry, type UsageLineItem } from './evidence-utils';
 import type { MonthlyUsageStatementSummary } from './project-data';
-import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../types/domain';
+import type { ArchiveSeed, BackendEvidenceTypeCode, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../types/domain';
 
 interface LatestUsageStatementResponse {
   projectId: number;
@@ -15,7 +15,7 @@ interface ProjectFileListResponse {
 
 interface ProjectFileResponse {
   fileId: number;
-  uploadedEvidenceTypeCode: string;
+  uploadedEvidenceTypeCode: BackendEvidenceTypeCode | string;
   uploadedEvidenceTypeName: string;
   originalFilename: string;
   mimeType: string | null;
@@ -28,7 +28,7 @@ interface ProjectFileResponse {
 interface ProjectFileUploadResponse {
   fileId: number;
   originalFilename: string;
-  uploadedEvidenceTypeCode: string;
+  uploadedEvidenceTypeCode: BackendEvidenceTypeCode | string;
   mimeType: string | null;
   sizeBytes: number | null;
   uploadedAt: string | null;
@@ -87,7 +87,7 @@ interface EvidenceLinkResponse {
 interface SourceFileResponse {
   fileId: number;
   originalFilename: string;
-  evidenceTypeCode: string;
+  evidenceTypeCode: BackendEvidenceTypeCode | string;
   mimeType: string | null;
   sizeBytes: number | null;
   uploadedAt: string | null;
@@ -104,7 +104,7 @@ interface UsageStatementSummaryResponse {
 interface EvidenceFileResponse {
   linkId: number;
   fileId: number;
-  evidenceTypeCode: string;
+  evidenceTypeCode: BackendEvidenceTypeCode | string;
   evidenceTypeName: string;
   originalFilename: string;
   mimeType: string | null;
@@ -114,7 +114,7 @@ interface EvidenceFileResponse {
 }
 
 interface RequirementResponse {
-  evidenceTypeCode: string;
+  evidenceTypeCode: BackendEvidenceTypeCode | string;
   evidenceTypeName: string;
   satisfied: boolean;
 }
@@ -195,24 +195,61 @@ const categoryCodeToId = (categoryCode?: string | null) => {
   return match ? Number(match[0]) : 0;
 };
 
-const evidenceCodeToKind = (code?: string | null): FolderEvidenceCategory => {
+export const BACKEND_EVIDENCE_TYPE_CODES: BackendEvidenceTypeCode[] = [
+  'receipt',
+  'tax_invoice',
+  'tax_invoice_confirm',
+  'third_party_lookup',
+  'transaction_statement',
+  'site_photo',
+  'item_photo',
+  'wearing_photo',
+  'work_photo',
+  'appointment_report',
+  'pay_stub',
+  'work_log',
+  'daily_output_log',
+  'inspection_log',
+  'supply_ledger',
+  'inventory_ledger',
+  'edu_confirm',
+  'edu_attendance',
+  'transfer_confirm',
+  'health_checkup_result',
+  'health_checkup_contract',
+  'tech_guidance_contract',
+  'tech_guidance_report',
+  'tech_guidance_photo',
+  'usage_statement',
+  'analysis_table',
+  'purchase_detail',
+  'other_document',
+];
+
+const isBackendEvidenceTypeCode = (code?: string | null): code is BackendEvidenceTypeCode =>
+  Boolean(code && (BACKEND_EVIDENCE_TYPE_CODES as string[]).includes(code));
+
+export const backendEvidenceTypeToCategory = (code?: string | null): EvidenceCategory => {
+  if (!isBackendEvidenceTypeCode(code)) return 'other_document';
   if (code === 'receipt') return 'receipt';
-  if (code === 'site_photo') return 'site_photo';
-  if (code === 'tax_invoice' || code === 'tax_invoice_confirm') return 'tax_invoice';
+  if (code === 'usage_statement') return 'usage_statement';
+  if (code === 'tax_invoice' || code === 'tax_invoice_confirm' || code === 'third_party_lookup') return 'tax_invoice';
+  if (code === 'site_photo' || code === 'item_photo' || code === 'wearing_photo' || code === 'work_photo' || code === 'tech_guidance_photo') return 'site_photo';
   return 'other_document';
 };
 
-const kindToEvidenceCode = (kind: EvidenceCategory) => {
+const evidenceCodeToKind = (code?: string | null): FolderEvidenceCategory => {
+  const category = backendEvidenceTypeToCategory(code);
+  return category === 'usage_statement' ? 'other_document' : category;
+};
+
+const kindToEvidenceCode = (kind: EvidenceCategory): BackendEvidenceTypeCode => {
   if (kind === 'tax_invoice') return 'tax_invoice';
   return kind;
 };
 
 const projectFileCodeToKind = (code?: string | null): EvidenceCategory => {
-  if (code === 'usage_statement') return 'usage_statement';
-  if (code === 'receipt') return 'receipt';
-  if (code === 'tax_invoice' || code === 'tax_invoice_confirm') return 'tax_invoice';
-  if (code?.includes('photo')) return 'site_photo';
-  return 'other_document';
+  return backendEvidenceTypeToCategory(code);
 };
 
 const filePath = (projectId: string, fileId: number | string, action: 'preview' | 'download') => `/projects/${projectId}/files/${fileId}/${action}`;

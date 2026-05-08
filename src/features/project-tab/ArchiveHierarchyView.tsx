@@ -25,6 +25,14 @@ const REQUIRED_EVIDENCE_LABELS: Record<FolderEvidenceCategory, string> = {
   tax_invoice: '세금계산서',
   other_document: '기타 자료',
 };
+const badgeBaseStyle: React.CSSProperties = {
+  borderRadius: 999,
+  padding: '4px 8px',
+  fontSize: 11,
+  fontWeight: 900,
+  lineHeight: 1.2,
+  whiteSpace: 'nowrap',
+};
 
 interface ArchiveHierarchyViewProps {
   cats: CategoryMeta[];
@@ -94,15 +102,14 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
     const validation = file.visionValidation;
     return (
       <div key={file.id} draggable onMouseLeave={() => setHoverPreview(null)} onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ border: `1px solid ${problem ? '#FFCDD2' : C.g100}`, background: problem ? C.dangerBg : C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto auto auto 18px', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto auto 18px', alignItems: 'center', gap: 6 }}>
           <div style={{ minWidth: 0 }}>
             <div title={file.name} onMouseEnter={(event) => openTooltip(file, event.currentTarget)} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 10, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
-              {kind === 'site_photo' && validation && <span style={{ fontSize: 10, fontWeight: 900, color: validation.status === 'suitable' ? C.ok : C.danger, background: validation.status === 'suitable' ? '#F4FBF6' : C.dangerBg, borderRadius: 999, padding: '2px 6px', whiteSpace: 'nowrap' }}>{validation.status === 'suitable' ? '적합' : '부적합'}</span>}
+              {kind === 'site_photo' && validation && <span style={{ ...badgeBaseStyle, color: validation.status === 'suitable' ? C.ok : C.danger, background: validation.status === 'suitable' ? '#F4FBF6' : C.dangerBg, border: `1px solid ${validation.status === 'suitable' ? '#BFE6C8' : '#FFCDD2'}` }}>{validation.status === 'suitable' ? '적합' : '부적합'}</span>}
             </div>
           </div>
-          <button type="button" disabled={!file.fileId} onClick={(event) => { event.stopPropagation(); onPreviewFile?.(file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: file.fileId ? C.g600 : C.g400, cursor: file.fileId ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>보기</button>
           <button type="button" disabled={!file.fileId} onClick={(event) => { event.stopPropagation(); onDownloadFile?.(file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: file.fileId ? C.g600 : C.g400, cursor: file.fileId ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>다운</button>
           <button type="button" onClick={(event) => { event.stopPropagation(); openMoveModal(kind, file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>이동</button>
           <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(kind, selectedCatId, activeItem?.id || selectedUsageItemId, file.id); }} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 14 }}>×</button>
@@ -181,13 +188,11 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                 const hasUnsuitableSitePhoto = section.id === 'site_photo' && files.some((file) => isProblemFile?.(file));
                 const requiredEvidence = getRequiredEvidence?.(section.id, selectedCatId, activeItem?.id) || [];
                 const uploadButton = (compact = false) => (
-                  <button type="button" aria-label={`${section.label} 업로드`} onClick={() => onUpload(section.id, selectedCatId, activeItem?.id || selectedUsageItemId)} style={{ width: compact ? 24 : undefined, height: compact ? 24 : undefined, border: `1px solid ${C.light}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: compact ? 0 : '7px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {compact ? (
-                      <span aria-hidden="true" style={{ position: 'relative', width: 12, height: 12, display: 'inline-block' }}>
-                        <span style={{ position: 'absolute', left: 0, top: 5, width: 12, height: 2, borderRadius: 999, background: C.primary }} />
-                        <span style={{ position: 'absolute', left: 5, top: 0, width: 2, height: 12, borderRadius: 999, background: C.primary }} />
-                      </span>
-                    ) : '업로드'}
+                  <button type="button" aria-label={`${section.label} 업로드`} onClick={() => onUpload(section.id, selectedCatId, activeItem?.id || selectedUsageItemId)} style={{ width: compact ? 24 : 32, height: compact ? 24 : 32, border: `1px solid ${C.light}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span aria-hidden="true" style={{ position: 'relative', width: compact ? 12 : 14, height: compact ? 12 : 14, display: 'inline-block' }}>
+                      <span style={{ position: 'absolute', left: 0, top: compact ? 5 : 6, width: compact ? 12 : 14, height: 2, borderRadius: 999, background: C.primary }} />
+                      <span style={{ position: 'absolute', left: compact ? 5 : 6, top: 0, width: 2, height: compact ? 12 : 14, borderRadius: 999, background: C.primary }} />
+                    </span>
                   </button>
                 );
                 return (
@@ -196,12 +201,12 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                         <span style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{section.label}</span>
                         {requiredEvidence.map((name) => (
-                          <span key={name} style={{ borderRadius: 999, padding: '3px 7px', background: '#FFF4D8', color: '#8A5A00', fontSize: 10, fontWeight: 900, whiteSpace: 'nowrap' }}>
+                          <span key={name} style={{ ...badgeBaseStyle, background: '#FFF4D8', color: '#8A5A00', border: '1px solid #F2D59B' }}>
                             {name || REQUIRED_EVIDENCE_LABELS[section.id]} 제출 필요
                           </span>
                         ))}
                         {hasUnsuitableSitePhoto && (
-                          <span style={{ borderRadius: 999, padding: '3px 7px', background: C.dangerBg, color: C.danger, fontSize: 10, fontWeight: 900, whiteSpace: 'nowrap' }}>
+                          <span style={{ ...badgeBaseStyle, background: C.dangerBg, color: C.danger, border: '1px solid #FFCDD2' }}>
                             현장사진 부적합
                           </span>
                         )}
@@ -211,7 +216,7 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {files.map((file) => renderFileRow(section.id, file))}
                       {files.length > 0 && <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 2 }}>{uploadButton(true)}</div>}
-                      {files.length === 0 && <div style={{ minHeight: 54, border: `1px dashed ${C.g200}`, borderRadius: 10, padding: '10px 8px', display: 'grid', placeItems: 'center' }}>{uploadButton()}</div>}
+                      {files.length === 0 && <div style={{ minHeight: 54, border: `1px dashed ${C.g200}`, borderRadius: 10, padding: '10px 8px', display: 'grid', placeItems: 'center' }}>{uploadButton(true)}</div>}
                     </div>
                   </div>
                 );

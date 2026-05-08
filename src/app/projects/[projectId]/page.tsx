@@ -12,7 +12,8 @@ import { EMPTY_PROJECT, getMonthlyUsageStatements, getProjectManagers, STATUS_ME
 import { deleteProject, getProject, listProjectManagerCandidates, markArchiveChecked, replaceProjectAssignees, type ProjectAssignee } from '../../../lib/project-api';
 import { getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, uploadProjectFile } from '../../../lib/archive-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
-import { addActionNotification, closeResolvedActionNotificationsForProject, resolveActionRequestNotificationsForProject } from '../../../lib/action-notifications';
+import { addActionNotification, closeResolvedActionNotificationsForProject, markActionNotificationRead, resolveActionRequestNotificationsForProject } from '../../../lib/action-notifications';
+import { useActionNotifications } from '../../../lib/use-action-notifications';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
 import { can } from '../../../lib/permissions';
 import { useCurrentUser } from '../../../lib/dev-user';
@@ -22,6 +23,11 @@ import { CATS, createEntryFromFile, fmt, type UsageLineItem } from '../../../lib
 import type { ArchiveSeed, EvidenceFile } from '../../../types/domain';
 type DetailTab = 'overview' | 'validation' | 'report' | 'archive';
 type UsageUploadStage = 'idle' | 'ocr' | 'classifying';
+type PendingReviewUpload = {
+    file: EvidenceFile;
+    categoryName: string;
+    itemName: string;
+};
 const TABS: Array<{
     id: DetailTab;
     label: string;
@@ -140,6 +146,7 @@ export default function ProjectDetailPage() {
     }>();
     const searchParams = useSearchParams();
     const { user } = useCurrentUser();
+    const { visibleNotifications } = useActionNotifications(user);
     const projectId = params?.projectId || '';
     const [projectRevision, setProjectRevision] = useState(0);
     const [project, setProject] = useState<ProjectSummary>(EMPTY_PROJECT);
@@ -198,6 +205,7 @@ export default function ProjectDetailPage() {
     const [projectHeaderOpen, setProjectHeaderOpen] = useState(true);
     const [actionGuideOpen, setActionGuideOpen] = useState(false);
     const [actionCompletionSent, setActionCompletionSent] = useState(false);
+    const [pendingReviewUploads, setPendingReviewUploads] = useState<PendingReviewUpload[]>([]);
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
     const [managerModalOpen, setManagerModalOpen] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -254,12 +262,15 @@ export default function ProjectDetailPage() {
     const selectedStatement = monthlyStatements.find((statement) => statement.month === selectedMonth) || latestStatement;
     const hasUsageStatement = Boolean(latestDbStatement || archiveSeed?.usage_statement?.length || archiveUsageItems.length || dbOverviewUsageRows);
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
-    const canViewActionGuide = user.role === 'project_manager' && project.hasActionRequest;
+    const actionRequestNotificationsForProject = useMemo(() => visibleNotifications.filter((notification) => notification.type === 'action_request' && notification.projectId === project.id), [project.id, visibleNotifications]);
+    const activeActionRequestNotification = useMemo(() => actionRequestNotificationsForProject.find((notification) => notification.statusCode !== 'closed'), [actionRequestNotificationsForProject]);
+    const hasNotificationBackedActionRequest = actionRequestNotificationsForProject.length > 0;
+    const canViewActionGuide = user.role === 'project_manager' && Boolean(activeActionRequestNotification || (!hasNotificationBackedActionRequest && project.hasActionRequest));
     const canEditManagers = user.role === 'she_manager';
     const projectManagers = getProjectManagers(project);
     const managerCandidates = managerCandidateProfiles.map((manager) => manager.realName);
-    const shouldShowActionBadge = project.hasActionRequest;
-    const shouldPulseActionBadge = canViewActionGuide && !actionCompletionSent;
+    const shouldShowActionBadge = Boolean(activeActionRequestNotification || (!hasNotificationBackedActionRequest && project.hasActionRequest));
+    const shouldPulseActionBadge = canViewActionGuide && !actionCompletionSent && activeActionRequestNotification?.statusCode !== 'resolved';
     useEffect(() => {
         if (!projectId)
             return;
@@ -301,6 +312,7 @@ export default function ProjectDetailPage() {
         setMatchReady(false);
         setActionGuideOpen(user.role === 'project_manager' && project.hasActionRequest);
         setActionCompletionSent(false);
+        setPendingReviewUploads([]);
         refreshArchiveData(project.id)
             .catch(() => {
                 if (!alive)
@@ -376,51 +388,46 @@ export default function ProjectDetailPage() {
         setActiveTab(tab);
         router.replace(`/projects/${project.id}?tab=${tab}`);
     };
-    const completeActionRequestFromUpload = (uploadedFiles: EvidenceFile[], context?: { categoryName: string; itemName: string }) => {
-        if (!canViewActionGuide || actionCompletionSent || !uploadedFiles.length)
-            return;
-        const fileNames = uploadedFiles.map((file) => file.name);
-        const uploadTargetName = context?.itemName || context?.categoryName || '보완 자료';
-        addActionNotification({
-            projectId: project.id,
-            projectName: project.name,
-            categoryName: uploadTargetName,
-            title: `새로운 파일 ${uploadedFiles.length}건 업로드`,
-            message: `${user.name} 담당자가 ${project.name}의 ${uploadTargetName} 항목에 새 파일 ${uploadedFiles.length}건을 업로드했습니다.`,
-            requestedFiles: fileNames,
-            senderName: user.name,
-            recipientRole: 'she_manager',
-            type: 'new_upload',
-        });
-        resolveActionRequestNotificationsForProject(project.id);
-        setProject((current) => ({
-            ...current,
-            hasUploads: true,
-            hasActionRequest: false,
-            actionRequestDetails: current.actionRequestDetails ? { ...current.actionRequestDetails, statusCode: 'resolved' } : current.actionRequestDetails,
-        }));
-        setActionCompletionSent(true);
-    };
-    const sendNewUploadNotification = (uploadedFiles: EvidenceFile[], context?: { categoryName: string; itemName: string }) => {
+    const registerPendingReviewUploads = (uploadedFiles: EvidenceFile[], context?: { categoryName: string; itemName: string }) => {
         if (user.role !== 'project_manager' || !uploadedFiles.length)
             return;
-        if (canViewActionGuide && !actionCompletionSent) {
-            completeActionRequestFromUpload(uploadedFiles, context);
+        const categoryName = context?.categoryName || '선택 항목';
+        const itemName = context?.itemName || categoryName;
+        setPendingReviewUploads((current) => [
+            ...current,
+            ...uploadedFiles.map((file) => ({ file, categoryName, itemName })),
+        ]);
+    };
+    const sendReviewRequest = () => {
+        if (user.role !== 'project_manager' || !pendingReviewUploads.length)
             return;
-        }
-        const fileNames = uploadedFiles.map((file) => file.name);
-        const uploadTargetName = context?.itemName || context?.categoryName || '새 업로드';
+        const fileNames = pendingReviewUploads.map((upload) => upload.file.name);
+        const targetNames = Array.from(new Set(pendingReviewUploads.map((upload) => upload.itemName || upload.categoryName)));
+        const uploadTargetName = targetNames.length <= 1 ? (targetNames[0] || '새 업로드') : `${targetNames[0]} 외 ${targetNames.length - 1}건`;
         addActionNotification({
             projectId: project.id,
             projectName: project.name,
             categoryName: uploadTargetName,
-            title: `새로운 파일 ${uploadedFiles.length}건 업로드`,
-            message: `${user.name} 담당자가 ${project.name}의 ${uploadTargetName} 항목에 새 파일 ${uploadedFiles.length}건을 업로드했습니다.`,
+            title: `새로운 파일 ${pendingReviewUploads.length}건 업로드`,
+            message: `${user.name} 담당자가 ${project.name}의 ${uploadTargetName} 항목에 새 파일 ${pendingReviewUploads.length}건을 업로드했습니다.`,
             requestedFiles: fileNames,
             senderName: user.name,
             recipientRole: 'she_manager',
             type: 'new_upload',
         });
+        if (canViewActionGuide && !actionCompletionSent) {
+            resolveActionRequestNotificationsForProject(project.id);
+            setProject((current) => ({
+                ...current,
+                hasUploads: true,
+                hasActionRequest: false,
+                actionRequestDetails: current.actionRequestDetails ? { ...current.actionRequestDetails, statusCode: 'resolved' } : current.actionRequestDetails,
+            }));
+            setActionCompletionSent(true);
+        } else {
+            setProject((current) => ({ ...current, hasUploads: true }));
+        }
+        setPendingReviewUploads([]);
     };
     const openManagerModal = () => {
         const idsFromProject = project.assigneeUserIds || [];
@@ -635,22 +642,36 @@ export default function ProjectDetailPage() {
         </div>
       </div>
     </Modal>);
-    const actionGuideModal = canViewActionGuide && project.actionRequestDetails ? (
+    const actionGuideTitle = activeActionRequestNotification?.title || project.actionRequestDetails?.title || '조치 요청';
+    const actionGuideMessage = activeActionRequestNotification?.message || project.actionRequestDetails?.reason || '';
+    const actionGuideRequestedFiles = activeActionRequestNotification?.requestedFiles || [];
+    const actionGuideMeta = activeActionRequestNotification
+        ? `요청 ${activeActionRequestNotification.createdAt} · 담당 ${activeActionRequestNotification.recipientUserName || user.name}`
+        : project.actionRequestDetails
+            ? `요청 ${project.actionRequestDetails.requestedAt} · 담당 ${project.actionRequestDetails.assignee}`
+            : '';
+    const actionGuideModal = canViewActionGuide && (activeActionRequestNotification || project.actionRequestDetails) ? (
         <Modal open={actionGuideOpen} onClose={() => setActionGuideOpen(false)} zIndex={960} maxWidth={680}>
           <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
             <div style={{ padding: '20px 22px 16px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 900, color: C.danger }}>부족한 서류 안내</span>
-                  <span style={{ fontSize: 11, fontWeight: 900, color: C.g600, background: C.g100, borderRadius: 999, padding: '4px 8px' }}>기한 {project.actionRequestDetails.dueDate}</span>
+                  {project.actionRequestDetails?.dueDate && <span style={{ fontSize: 11, fontWeight: 900, color: C.g600, background: C.g100, borderRadius: 999, padding: '4px 8px' }}>기한 {project.actionRequestDetails.dueDate}</span>}
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, lineHeight: 1.35 }}>{project.actionRequestDetails.title}</div>
-                <div style={{ fontSize: 12, color: C.g400, fontWeight: 900, marginTop: 6 }}>요청 {project.actionRequestDetails.requestedAt} · 담당 {project.actionRequestDetails.assignee}</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, lineHeight: 1.35 }}>{actionGuideTitle}</div>
+                {actionGuideMeta && <div style={{ fontSize: 12, color: C.g400, fontWeight: 900, marginTop: 6 }}>{actionGuideMeta}</div>}
               </div>
               <button type="button" aria-label="부족한 서류 안내 닫기" onClick={() => setActionGuideOpen(false)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
             </div>
             <div style={{ padding: '18px 22px 20px' }}>
-              <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.7, marginBottom: 14 }}>{project.actionRequestDetails.reason}</div>
+              <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.7, marginBottom: 14 }}>{actionGuideMessage}</div>
+              {actionGuideRequestedFiles.length > 0 && <div style={{ border: `1px solid ${C.g100}`, borderRadius: 6, background: '#FCFEFD', padding: '12px 14px', display: 'grid', gap: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>요청 자료</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {actionGuideRequestedFiles.map((fileName) => <span key={fileName} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '4px 8px', fontSize: 12, fontWeight: 900 }}>{fileName}</span>)}
+                </div>
+              </div>}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
                 <button type="button" onClick={() => setActionGuideOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>닫기</button>
               </div>
@@ -849,7 +870,11 @@ export default function ProjectDetailPage() {
                 updateTab('report');
             }}/>),
         report: (<VerifyScreen projectId={project.id} initialTab="report" initialStatus="done" contractName={`${project.name} · ${selectedStatement.label}`}/>),
-        archive: (<ArchiveScreen projectId={project.id} matchReady={matchReady} uncheckedMatchedFileCount={project.uncheckedMatchedFileCount} onDismissMatchReady={dismissArchiveMatchReady} archiveSeed={archiveSeed} usageItems={archiveUsageItems} canRunArchiveTools={canRunArchiveTools} onFilesUploaded={sendNewUploadNotification}/>),
+        archive: (<ArchiveScreen projectId={project.id} matchReady={matchReady} uncheckedMatchedFileCount={project.uncheckedMatchedFileCount} onDismissMatchReady={dismissArchiveMatchReady} archiveSeed={archiveSeed} usageItems={archiveUsageItems} canRunArchiveTools={canRunArchiveTools} reviewRequestButton={user.role === 'project_manager' ? {
+                label: pendingReviewUploads.length > 0 ? `검토 요청 ${pendingReviewUploads.length}건` : '검토 요청',
+                disabled: pendingReviewUploads.length === 0,
+                onClick: sendReviewRequest,
+            } : undefined} onFilesUploaded={registerPendingReviewUploads}/>),
     };
     return (<AppFrame title={project.name} mainClassName={`project-detail-main-with-history${rightSidebarOpen ? '' : ' project-detail-main-right-closed'}`}>
       <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20, borderRadius: 6 }}>

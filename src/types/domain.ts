@@ -3,6 +3,35 @@ import type { ProjectStatus } from '../lib/project-data';
 
 export type EvidenceCategory = 'receipt' | 'site_photo' | 'usage_statement' | 'tax_invoice' | 'other_document';
 export type FolderEvidenceCategory = Exclude<EvidenceCategory, 'usage_statement'>;
+export type BackendEvidenceTypeCode =
+  | 'receipt'
+  | 'tax_invoice'
+  | 'tax_invoice_confirm'
+  | 'third_party_lookup'
+  | 'transaction_statement'
+  | 'site_photo'
+  | 'item_photo'
+  | 'wearing_photo'
+  | 'work_photo'
+  | 'appointment_report'
+  | 'pay_stub'
+  | 'work_log'
+  | 'daily_output_log'
+  | 'inspection_log'
+  | 'supply_ledger'
+  | 'inventory_ledger'
+  | 'edu_confirm'
+  | 'edu_attendance'
+  | 'transfer_confirm'
+  | 'health_checkup_result'
+  | 'health_checkup_contract'
+  | 'tech_guidance_contract'
+  | 'tech_guidance_report'
+  | 'tech_guidance_photo'
+  | 'usage_statement'
+  | 'analysis_table'
+  | 'purchase_detail'
+  | 'other_document';
 
 export interface EvidenceFile {
   id: string;
