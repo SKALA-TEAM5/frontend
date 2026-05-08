@@ -10,12 +10,13 @@ interface ProjectSortControlProps {
   direction: SortDirection;
   onFieldChange: (field: ProjectSortField) => void;
   onDirectionChange: (direction: SortDirection) => void;
+  compact?: boolean;
 }
 
 const sortFieldOptions = Object.keys(PROJECT_SORT_FIELD_LABELS) as ProjectSortField[];
 const sortDirectionOptions = Object.keys(SORT_DIRECTION_LABELS) as SortDirection[];
 
-export default function ProjectSortControl({ field, direction, onFieldChange, onDirectionChange }: ProjectSortControlProps) {
+export default function ProjectSortControl({ field, direction, onFieldChange, onDirectionChange, compact = false }: ProjectSortControlProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -44,22 +45,22 @@ export default function ProjectSortControl({ field, direction, onFieldChange, on
         style={{
           border: `1px solid ${open ? C.light : C.g200}`,
           borderRadius: 999,
-          padding: '8px 12px',
+          padding: compact ? '6px 10px' : '8px 12px',
           background: open ? C.bg : C.white,
           color: C.primary,
           fontFamily: 'inherit',
-          fontSize: 14,
+          fontSize: compact ? 12 : 14,
           fontWeight: 900,
           cursor: 'pointer',
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 7,
+          gap: compact ? 5 : 7,
           boxShadow: open ? `0 4px 12px ${C.primaryShadow}` : '0 1px 4px rgba(0,0,0,.05)',
         }}
       >
         <span>{direction === 'asc' ? '↑' : '↓'}</span>
         <span>{PROJECT_SORT_FIELD_LABELS[field]}</span>
-        <ChevronIcon direction={open ? 'up' : 'down'} size={15} color={C.primary} />
+        <ChevronIcon direction={open ? 'up' : 'down'} size={compact ? 13 : 15} color={C.primary} />
       </button>
       {open && (
         <div

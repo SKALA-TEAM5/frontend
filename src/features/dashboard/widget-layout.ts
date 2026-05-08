@@ -29,13 +29,13 @@ export const DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; label: string }> 
 ];
 
 export const DEFAULT_WIDGET_IDS = DASHBOARD_WIDGETS.map((widget) => widget.id);
-export const DASHBOARD_WIDGET_STORAGE_KEY = 'she.dashboard.visibleWidgets.v6';
-export const DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY = 'she.dashboard.widgetLayout.v6';
+export const DASHBOARD_WIDGET_STORAGE_KEY = 'she.dashboard.visibleWidgets.v7';
+export const DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY = 'she.dashboard.widgetLayout.v7';
 
 export const GRID_GAP = 14;
 export const GRID_ROW_GUIDE_HEIGHT = 130;
 export const GRID_EDIT_PADDING = 12;
-export const GRID_COLUMN_COUNT = 10;
+export const GRID_COLUMN_COUNT = 8;
 
 export const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
   projectStatus: { colSpan: 2, rowSpan: 1 },
@@ -46,7 +46,7 @@ export const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
   projectProgress: { colSpan: 3, rowSpan: 2 },
   workload: { colSpan: 2, rowSpan: 2 },
   myProjects: { colSpan: 6, rowSpan: 3 },
-  timeline: { colSpan: 10, rowSpan: 3 },
+  timeline: { colSpan: 8, rowSpan: 3 },
 };
 
 export const DEFAULT_WIDGET_LAYOUT: Record<DashboardWidgetId, WidgetPosition> = {
@@ -55,8 +55,8 @@ export const DEFAULT_WIDGET_LAYOUT: Record<DashboardWidgetId, WidgetPosition> = 
   missingUpload: { col: 5, row: 1 },
   sla: { col: 6, row: 1 },
   workload: { col: 1, row: 2 },
-  projectProgress: { col: 4, row: 2 },
-  recentActivity: { col: 7, row: 2 },
+  projectProgress: { col: 3, row: 2 },
+  recentActivity: { col: 6, row: 2 },
   myProjects: { col: 1, row: 4 },
   timeline: { col: 1, row: 7 },
 };
@@ -67,8 +67,8 @@ export const dashboardGridStyle: CSSProperties = {
   gridAutoRows: GRID_ROW_GUIDE_HEIGHT,
   gap: GRID_GAP,
   alignItems: 'stretch',
-  width: 'min(100%, 1440px)',
-  maxWidth: 1440,
+  width: 'min(100%, 1280px)',
+  maxWidth: 1180,
   alignSelf: 'center',
   minWidth: 0,
 };

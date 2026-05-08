@@ -8,6 +8,7 @@ interface PeriodFilterProps {
   onModeChange: (mode: PeriodMode) => void;
   onValueChange: (value: string) => void;
   inputStyle: CSSProperties;
+  compact?: boolean;
 }
 
 const options: Array<{ mode: Exclude<PeriodMode, 'all'>; label: string }> = [
@@ -17,7 +18,7 @@ const options: Array<{ mode: Exclude<PeriodMode, 'all'>; label: string }> = [
   { mode: 'custom', label: '직접입력' },
 ];
 
-export default function PeriodFilter({ mode, value, onModeChange, onValueChange, inputStyle }: PeriodFilterProps) {
+export default function PeriodFilter({ mode, value, onModeChange, onValueChange, inputStyle, compact = false }: PeriodFilterProps) {
   const updateMode = (nextMode: Exclude<PeriodMode, 'all'>) => {
     const toggledMode: PeriodMode = mode === nextMode ? 'all' : nextMode;
     onModeChange(toggledMode);
@@ -27,8 +28,8 @@ export default function PeriodFilter({ mode, value, onModeChange, onValueChange,
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: mode === 'custom' ? 'max-content minmax(150px, 220px)' : 'max-content', alignItems: 'center', gap: 10, width: 'fit-content', maxWidth: '100%' }}>
-      <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: mode === 'custom' ? `max-content minmax(${compact ? 120 : 150}px, ${compact ? 170 : 220}px)` : 'max-content', alignItems: 'center', gap: compact ? 6 : 10, width: 'fit-content', maxWidth: '100%' }}>
+      <div style={{ display: 'inline-flex', gap: compact ? 4 : 6, flexWrap: 'wrap' }}>
         {options.map((option) => {
           const active = mode === option.mode;
           return (
@@ -43,10 +44,10 @@ export default function PeriodFilter({ mode, value, onModeChange, onValueChange,
                 color: active ? C.primary : C.g600,
                 cursor: 'pointer',
                 fontFamily: 'inherit',
-                fontSize: 13,
+                fontSize: compact ? 11 : 13,
                 fontWeight: 900,
-                height: 38,
-                padding: '0 12px',
+                height: compact ? 30 : 38,
+                padding: compact ? '0 9px' : '0 12px',
                 whiteSpace: 'nowrap',
               }}
             >

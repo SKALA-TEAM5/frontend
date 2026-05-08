@@ -48,6 +48,15 @@ const fieldStyle: CSSProperties = {
   background: '#FBFDFC',
 };
 
+const compactFieldStyle: CSSProperties = {
+  ...fieldStyle,
+  height: 30,
+  padding: '0 9px',
+  borderRadius: 6,
+  fontSize: 11,
+  lineHeight: '16px',
+};
+
 const sortBarStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -129,7 +138,7 @@ const dashboardHeroStyle: CSSProperties = {
   margin: '0 -28px',
   overflow: 'hidden',
   border: `1px solid rgba(255,255,255,.52)`,
-  background: 'linear-gradient(90deg, rgba(24,45,51,.86), rgba(34,72,88,.38) 52%, rgba(116,86,199,.58)), url("https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?auto=format&fit=crop&w=1800&q=80") center 45% / cover',
+  background: 'linear-gradient(90deg, rgba(20,43,36,.9), rgba(30,77,60,.54) 48%, rgba(31,55,43,.18)), url("https://images.pexels.com/photos/32858871/pexels-photo-32858871.jpeg?auto=compress&cs=tinysrgb&w=1800") center 52% / cover',
   boxShadow: '0 14px 32px rgba(31,55,43,.11)',
 };
 
@@ -522,9 +531,6 @@ export default function DashboardPage() {
             <h1 style={{ margin: 0, color: C.white, fontSize: 23, lineHeight: 1.4, fontWeight: 900, textShadow: '0 4px 18px rgba(0,0,0,.32)' }}>
               검증 리스크와 조치 요청을<br />한 화면에서 통제하는 SHE 대시보드
             </h1>
-            <p style={{ margin: '8px 0 0', maxWidth: 670, color: 'rgba(255,255,255,.84)', fontSize: 12, fontWeight: 800, lineHeight: 1.6 }}>
-              프로젝트 진행 상태가 아니라 실제 운영에 필요한 검증 결과, 증빙 이슈, 조치 요청 상태, 담당자 업무량을 중심으로 구성했습니다.
-            </p>
           </div>
         </div>
       </section>
@@ -603,9 +609,9 @@ export default function DashboardPage() {
               { label: '완료', value: dashboardCounts.completed, color: '#2F5FB8', bg: '#EEF4FF' },
               { label: '중단', value: dashboardCounts.suspended, color: '#8A5A00', bg: '#FFF4D8' },
             ].map((item) => (
-              <div key={item.label} style={{ border: 'none', borderRadius: 8, padding: '9px 7px', minWidth: 0, textAlign: 'left', background: item.bg }}>
-                <div style={{ ...widgetLabelStyle, fontSize: 11, whiteSpace: 'nowrap' }}>{item.label}</div>
-                <div style={{ ...widgetValueStyle, fontSize: 22, color: item.color, marginTop: 4 }}>{item.value}</div>
+              <div key={item.label} style={{ border: 'none', borderRadius: 8, padding: '9px 7px', minWidth: 0, textAlign: 'center', background: item.bg, display: 'grid', justifyItems: 'center' }}>
+                <div style={{ ...widgetLabelStyle, fontSize: 11, whiteSpace: 'nowrap', textAlign: 'center' }}>{item.label}</div>
+                <div style={{ ...widgetValueStyle, fontSize: 22, color: item.color, marginTop: 4, textAlign: 'center' }}>{item.value}</div>
               </div>
             ))}
           </div>
@@ -615,7 +621,7 @@ export default function DashboardPage() {
         {visibleWidgetSet.has('recentActivity') && (
         <Card {...widgetFrameProps('recentActivity', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
           {renderWidgetRemoveButton('recentActivity')}
-          {renderPanelHeader('최근 활동', 'recentActivity', '이력')}
+          {renderPanelHeader('최근 활동', 'recentActivity')}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', paddingRight: 4, minHeight: 0 }}>
             {recentActivities.map((log) => (
               <Link key={`${log.project.id}-${log.date}-${log.action}`} href={`/projects/${log.project.id}`} style={{ textDecoration: 'none' }}>
@@ -644,9 +650,9 @@ export default function DashboardPage() {
               { id: 'dueSoon' as const, label: '3일 이내', value: slaSummary.dueSoon, color: C.warn, bg: '#FFF8F0' },
               { id: 'open' as const, label: '진행 중', value: slaSummary.open, color: C.primary, bg: C.bg },
             ].map((item) => (
-              <div key={item.id} onMouseEnter={() => item.value > 0 && setSlaTooltip(item.id)} onMouseLeave={() => setSlaTooltip(null)} style={{ position: 'relative', border: 'none', borderRadius: 8, background: item.bg, padding: '8px 6px', textAlign: 'left', minWidth: 0, cursor: item.value > 0 ? 'default' : 'auto' }}>
-                <div style={{ ...widgetLabelStyle, fontSize: 10, whiteSpace: 'nowrap' }}>{item.label}</div>
-                <div style={{ ...widgetValueStyle, fontSize: 20, color: item.color, marginTop: 4 }}>{item.value}</div>
+              <div key={item.id} onMouseEnter={() => item.value > 0 && setSlaTooltip(item.id)} onMouseLeave={() => setSlaTooltip(null)} style={{ position: 'relative', border: 'none', borderRadius: 8, background: item.bg, padding: '8px 6px', textAlign: 'center', minWidth: 0, cursor: item.value > 0 ? 'default' : 'auto', display: 'grid', justifyItems: 'center' }}>
+                <div style={{ ...widgetLabelStyle, fontSize: 10, whiteSpace: 'nowrap', textAlign: 'center' }}>{item.label}</div>
+                <div style={{ ...widgetValueStyle, fontSize: 20, color: item.color, marginTop: 4, textAlign: 'center' }}>{item.value}</div>
                 {slaTooltip === item.id && (
                   <div style={widgetTooltipStyle('sla', 340)}>
                     <div style={{ fontSize: 13, fontWeight: 900, color: item.color, marginBottom: 8 }}>{item.label} 프로젝트</div>
@@ -671,7 +677,7 @@ export default function DashboardPage() {
         {visibleWidgetSet.has('risk') && (
         <Card {...widgetFrameProps('risk', { padding: '18px 18px', overflow: 'visible' })}>
           {renderWidgetRemoveButton('risk')}
-          {renderPanelHeader('검증 리스크 요약', 'risk', '검증 완료 기준')}
+          {renderPanelHeader('검증 리스크 요약', 'risk')}
           {validatedRiskProjects.length === 0 ? (
             <div style={{ fontSize: 13, color: C.g400, fontWeight: 800, lineHeight: 1.5, marginTop: 10 }}>
               부적정 항목이 없습니다.
@@ -682,10 +688,10 @@ export default function DashboardPage() {
                 key={item.id}
                 onMouseEnter={() => setRiskTooltip(item.id)}
                 onMouseLeave={() => setRiskTooltip(null)}
-                style={{ position: 'relative', border: 'none', borderRadius: 8, background: item.id === 'error' ? '#FFF8F8' : '#FFF9EB', padding: '10px 12px', cursor: 'default' }}
+                style={{ position: 'relative', border: 'none', borderRadius: 8, background: item.id === 'error' ? '#FFF8F8' : '#FFF9EB', padding: '10px 12px', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
               >
-                <div style={widgetLabelStyle}>{item.label}</div>
-                <div style={{ ...widgetValueStyle, color: item.color }}>{item.count}건</div>
+                <div style={{ ...widgetLabelStyle, whiteSpace: 'nowrap' }}>{item.label}</div>
+                <div style={{ ...widgetValueStyle, color: item.color, fontSize: 20, marginTop: 0, whiteSpace: 'nowrap' }}>{item.count}건</div>
                 {riskTooltip === item.id && (
                   <div style={widgetTooltipStyle('risk', 330)}>
                     <div style={{ fontSize: 13, fontWeight: 900, color: item.color, marginBottom: 8 }}>{item.label} 세부 내용</div>
@@ -773,17 +779,29 @@ export default function DashboardPage() {
         <Card {...widgetFrameProps('workload', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
           {renderWidgetRemoveButton('workload')}
           {renderPanelHeader('담당자별 업무량', 'workload', '조치 요청/프로젝트')}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
             {managerWorkloads.map(([managerName, workload]) => (
-              <div key={managerName} style={{ display: 'grid', gridTemplateColumns: '50px minmax(0, 1fr) minmax(0, 1fr)', alignItems: 'stretch', gap: 4, border: `1px solid ${C.g200}`, borderRadius: 10, background: '#FCFEFD', padding: 5 }}>
-                <span style={{ alignSelf: 'center', fontSize: 12, fontWeight: 900, color: C.g800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{managerName}</span>
-                <div style={{ border: 'none', borderRadius: 8, background: workload.actionRequired ? '#FFF8F8' : '#EEF4FF', padding: '6px 7px', minWidth: 0 }}>
-                  <div style={{ fontSize: 9, fontWeight: 900, color: C.g400, whiteSpace: 'nowrap' }}>조치 요청</div>
-                  <div style={{ marginTop: 3, fontSize: 16, fontWeight: 900, color: workload.actionRequired ? C.danger : '#2F5FB8', lineHeight: 1 }}>{workload.actionRequired}건</div>
+              <div key={managerName} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 8, border: `1px solid ${workload.actionRequired ? '#F4CBCB' : C.g200}`, borderRadius: 10, background: workload.actionRequired ? 'linear-gradient(90deg, #FFF8F8 0%, #FCFEFD 58%)' : '#FCFEFD', padding: '8px 9px', boxShadow: '0 6px 14px rgba(31,55,43,.04)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '28px minmax(0,1fr)', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <div aria-hidden="true" style={{ width: 28, height: 28, borderRadius: 999, background: workload.actionRequired ? '#FFECEC' : C.bg, color: workload.actionRequired ? C.danger : C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>
+                    {managerName.slice(0, 1)}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: C.g800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{managerName}</div>
+                    <div style={{ marginTop: 2, fontSize: 10, fontWeight: 800, color: workload.actionRequired ? C.danger : C.g400, whiteSpace: 'nowrap' }}>
+                      {workload.actionRequired ? '확인 필요' : '조치 요청 없음'}
+                    </div>
+                  </div>
                 </div>
-                <div style={{ border: 'none', borderRadius: 8, background: workload.projectCount ? '#F4FBF6' : '#FFF4D8', padding: '6px 7px', minWidth: 0 }}>
-                  <div style={{ fontSize: 9, fontWeight: 900, color: C.g400, whiteSpace: 'nowrap' }}>담당 프로젝트</div>
-                  <div style={{ marginTop: 3, fontSize: 16, fontWeight: 900, color: workload.projectCount ? C.ok : '#8A5A00', lineHeight: 1 }}>{workload.projectCount}건</div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  <div title="조치 요청" style={{ minWidth: 48, border: `1px solid ${workload.actionRequired ? '#F4CBCB' : '#C8DAF8'}`, borderRadius: 999, background: workload.actionRequired ? '#FFF8F8' : '#EEF4FF', padding: '5px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 9, fontWeight: 900, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>요청</div>
+                    <div style={{ marginTop: 3, fontSize: 13, fontWeight: 900, color: workload.actionRequired ? C.danger : '#2F5FB8', lineHeight: 1 }}>{workload.actionRequired}건</div>
+                  </div>
+                  <div title="담당 프로젝트" style={{ minWidth: 48, border: `1px solid ${workload.projectCount ? C.g200 : '#F5D990'}`, borderRadius: 999, background: workload.projectCount ? '#F4FBF6' : '#FFF9EA', padding: '5px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 9, fontWeight: 900, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>프로젝트</div>
+                    <div style={{ marginTop: 3, fontSize: 13, fontWeight: 900, color: workload.projectCount ? C.ok : '#8A5A00', lineHeight: 1 }}>{workload.projectCount}건</div>
+                  </div>
                 </div>
               </div>
             ))}
@@ -794,7 +812,7 @@ export default function DashboardPage() {
         {visibleWidgetSet.has('timeline') && (
         <Card {...widgetFrameProps('timeline', { padding: '18px 18px', overflow: 'visible', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
           {renderWidgetRemoveButton('timeline')}
-          {renderPanelHeader('월별 프로젝트 타임라인', 'timeline', '공사 기간, 검증, 조치 요청, 보고서 생성')}
+          {renderPanelHeader('월별 프로젝트 타임라인', 'timeline')}
           {projectTimelineMonths.length === 0 ? (
             <div style={{ border: 'none', borderRadius: 8, background: '#FCFEFD', padding: 18, color: C.g400, fontSize: 13, fontWeight: 800 }}>
               표시할 프로젝트 기간 데이터가 없습니다.
@@ -843,26 +861,26 @@ export default function DashboardPage() {
         )}
 
         {visibleWidgetSet.has('myProjects') && (
-        <Card {...widgetFrameProps('myProjects', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' })}>
+        <Card {...widgetFrameProps('myProjects', { padding: '16px 16px', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' })}>
           {renderWidgetRemoveButton('myProjects')}
           {renderPanelHeader('내 프로젝트 리스트', 'myProjects', <Link href="/projects" style={{ fontSize: 12, fontWeight: 900, color: C.primary, textDecoration: 'none' }}>전체 목록</Link>)}
 
-          <div style={{ border: 'none', borderRadius: 8, padding: '6px 8px', background: '#FCFEFD', marginBottom: 6 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 6, alignItems: 'end' }}>
+          <div style={{ border: 'none', borderRadius: 6, padding: '4px 6px', background: '#FCFEFD', marginBottom: 5 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 5, alignItems: 'end' }}>
                 <div style={{ minWidth: 0 }}>
-                  <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={fieldStyle} />
+                  <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={fieldStyle} />
+                  <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={compactFieldStyle} />
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <select aria-label="관리자" value={manager} onChange={(event) => setManager(event.target.value)} style={fieldStyle}>
+                  <select aria-label="관리자" value={manager} onChange={(event) => setManager(event.target.value)} style={compactFieldStyle}>
                     {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '관리자' : item}</option>)}
                   </select>
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <select aria-label="상태" value={status} onChange={(event) => setStatus(event.target.value)} style={fieldStyle}>
+                  <select aria-label="상태" value={status} onChange={(event) => setStatus(event.target.value)} style={compactFieldStyle}>
                     {filterOptions.statuses.map((item) => <option key={item} value={item}>{item === filterOptions.statuses[0] ? '상태' : item}</option>)}
                   </select>
                 </div>
@@ -870,23 +888,23 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div data-ui="dash-sort" style={{ ...sortBarStyle, gap: 4, marginBottom: 8 }}>
-            <ProjectSortControl field={sortBy} direction={sortDirection} onFieldChange={setSortBy} onDirectionChange={setSortDirection} />
-            <PeriodFilter mode={periodMode} value={period} onModeChange={setPeriodMode} onValueChange={setPeriod} inputStyle={fieldStyle} />
+          <div data-ui="dash-sort" style={{ ...sortBarStyle, gap: 4, marginBottom: 6 }}>
+            <ProjectSortControl field={sortBy} direction={sortDirection} onFieldChange={setSortBy} onDirectionChange={setSortDirection} compact />
+            <PeriodFilter mode={periodMode} value={period} onModeChange={setPeriodMode} onValueChange={setPeriod} inputStyle={compactFieldStyle} compact />
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', paddingRight: 4, minHeight: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, overflowY: 'auto', paddingRight: 4, minHeight: 0 }}>
             {visibleProjects.map((project) => (
               <Link key={project.id} href={`/projects/${project.id}`} style={{ textDecoration: 'none' }}>
-                <div style={{ border: `1px solid ${C.g200}`, borderRadius: 8, padding: '11px 13px', background: "#f1fbf4" }}>
+                <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, padding: '8px 10px', background: "#f1fbf4" }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-                      <div style={{ color: C.g800, fontSize: 18, fontWeight: 900 }}>{project.constructionName}</div>
-                      <span style={{ fontSize: 12, fontWeight: 900, color: PROJECT_STATUS_META[project.projectStatusCode].color, background: PROJECT_STATUS_META[project.projectStatusCode].bg, border: 'none', borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <div style={{ color: C.g800, fontSize: 15, fontWeight: 900 }}>{project.constructionName}</div>
+                      <span style={{ fontSize: 10, fontWeight: 900, color: PROJECT_STATUS_META[project.projectStatusCode].color, background: PROJECT_STATUS_META[project.projectStatusCode].bg, border: 'none', borderRadius: 999, padding: '2px 7px', lineHeight: '14px', whiteSpace: 'nowrap' }}>
                         {PROJECT_STATUS_META[project.projectStatusCode].label}
                       </span>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '150px 140px 220px 90px', gap: 10, maxWidth: 640 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '120px 110px 180px 74px', gap: 7, maxWidth: 510 }}>
                       {[
                         ['프로젝트 번호', project.contractNumber],
                         ['관리자', project.manager],
@@ -894,8 +912,8 @@ export default function DashboardPage() {
                         ['공정률', project.progressRate],
                       ].map(([label, value]) => (
                         <div key={label} style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, color: C.g400, fontWeight: 800, marginBottom: 4 }}>{label}</div>
-                          <div style={{ fontSize: 14, color: C.g800, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+                          <div style={{ fontSize: 11, color: C.g400, fontWeight: 800, marginBottom: 3 }}>{label}</div>
+                          <div style={{ fontSize: 12, color: C.g800, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
                         </div>
                       ))}
                     </div>
