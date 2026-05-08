@@ -40,6 +40,19 @@ const badgeStyle = (color: string, bg = C.white): CSSProperties => ({
   whiteSpace: 'nowrap',
 });
 
+const completedStepStyle = {
+  border: '#D6D9D8',
+  background: '#F1F2F2',
+  color: '#7A7F7C',
+};
+
+const getActionStatusDescription = (statusCode: ActionRequestStatusCode, managerName: string) => {
+  if (statusCode === 'open') return `${managerName}님이 알림을 읽지 않았습니다.`;
+  if (statusCode === 'in_progress') return `${managerName}님이 알림을 확인했습니다.`;
+  if (statusCode === 'resolved') return `${managerName}님이 파일을 업로드했습니다.`;
+  return '유효성 검증이 완료됐습니다.';
+};
+
 const getActionStatusCode = (notification: ActionNotification): ActionRequestStatusCode =>
   notification.statusCode || 'open';
 
@@ -66,8 +79,8 @@ export default function NotificationsPage() {
   const [notificationStatusFilter, setNotificationStatusFilter] = useState<ActionRequestStatusCode | 'active'>('active');
 
   const receivedNotifications = useMemo(
-    () => visibleNotifications.filter((notification) => notification.type === 'new_upload'),
-    [visibleNotifications],
+    () => visibleNotifications.filter((notification) => user.role === 'she_manager' ? notification.type === 'new_upload' : notification.type === 'action_request'),
+    [user.role, visibleNotifications],
   );
 
   const sentNotifications = useMemo(
@@ -118,29 +131,7 @@ export default function NotificationsPage() {
     router.push(`/projects/${notification.projectId}?tab=${tab}`);
   };
 
-  const renderStatusBar = (notification: ActionNotification) => {
-    const actionStatusCode = getActionStatusCode(notification);
-    const actionStatusIndex = ACTION_REQUEST_STATUS_STEPS.indexOf(actionStatusCode);
-    return (
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${ACTION_REQUEST_STATUS_STEPS.length}, minmax(0, 1fr))`, gap: 8, marginTop: 10 }}>
-        {ACTION_REQUEST_STATUS_STEPS.map((statusCode, index) => {
-          const meta = ACTION_REQUEST_STATUS_META[statusCode];
-          const active = index === actionStatusIndex;
-          const done = index < actionStatusIndex;
-          return (
-            <div key={statusCode} style={{ minWidth: 0 }}>
-              <div style={{ height: 5, borderRadius: 99, background: active || done ? meta.color : C.g100, marginBottom: 6 }} />
-              <div style={{ fontSize: 11, fontWeight: active ? 900 : 800, color: active ? meta.color : done ? C.g600 : C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {meta.label}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const resultCount = notificationBox === 'received' ? uploadGroups.length : filteredNotifications.length;
+  const resultCount = notificationBox === 'received' && user.role === 'she_manager' ? uploadGroups.length : filteredNotifications.length;
 
   return (
     <AppFrame title="알림센터" description={user.role === 'she_manager' ? '보낸 조치 요청과 받은 새 파일 업로드 알림을 확인할 수 있습니다.' : 'SHE 담당자가 보낸 조치 요청 알림을 확인하고 조치할 수 있습니다.'}>
@@ -189,24 +180,74 @@ export default function NotificationsPage() {
 
           {notificationBox === 'sent' && filteredNotifications.map((notification) => {
             const actionStatusCode = getActionStatusCode(notification);
-            const actionStatusMeta = ACTION_REQUEST_STATUS_META[actionStatusCode];
+            const actionStatusIndex = ACTION_REQUEST_STATUS_STEPS.indexOf(actionStatusCode);
+            const managerName = notification.recipientUserName || '프로젝트 담당자';
             return (
               <div key={notification.id} style={{ padding: '15px 16px', borderBottom: `1px solid ${C.g100}`, background: C.white }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(360px, auto)', gap: 24, alignItems: 'start' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>{notification.categoryName}</div>
-                    <div style={{ fontSize: 12, color: C.g400, marginTop: 3 }}>{notification.projectName} · {notification.recipientUserName || '프로젝트 담당자'}에게 보냄 · {notification.createdAt}</div>
+                    <div style={{ fontSize: 12, color: C.g400, marginTop: 3 }}>{notification.projectName} · {managerName}에게 보냄 · {notification.createdAt}</div>
+                    <div style={{ fontSize: 13, color: C.g800, lineHeight: 1.6, marginTop: 8 }}>{notification.message}</div>
+                    {notification.requestedFiles.length > 0 && <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.5, marginTop: 6 }}>요청 자료: {notification.requestedFiles.join(', ')}</div>}
                   </div>
-                  <span style={badgeStyle(actionStatusMeta.color, actionStatusMeta.bg)}>{actionStatusMeta.label}</span>
+                  <div style={{ display: 'grid', justifyItems: 'center', gap: 18, minWidth: 0 }}>
+                    <div aria-label={`조치 상태 ${ACTION_REQUEST_STATUS_META[actionStatusCode].label}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 0, flexWrap: 'wrap', justifyContent: 'center' }}>
+                      {ACTION_REQUEST_STATUS_STEPS.map((statusCode, index) => {
+                        const meta = ACTION_REQUEST_STATUS_META[statusCode];
+                        const completed = index < actionStatusIndex;
+                        const current = index === actionStatusIndex;
+                        const pillBorder = current ? meta.color : completed ? completedStepStyle.border : C.g200;
+                        const pillBackground = current ? meta.bg : completed ? completedStepStyle.background : C.white;
+                        const pillColor = current ? meta.color : completed ? completedStepStyle.color : C.g400;
+                        return (
+                          <div key={statusCode} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                            {index > 0 && <span aria-hidden="true" style={{ width: 12, height: 1, background: completed ? completedStepStyle.border : C.g200, display: 'inline-block' }} />}
+                            <span title={meta.label} style={{ minWidth: 58, height: 32, borderRadius: 999, border: `1px solid ${pillBorder}`, background: pillBackground, color: pillColor, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 11, fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap', padding: '0 10px' }}>
+                              {meta.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: C.g600, lineHeight: 1.6, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {getActionStatusDescription(actionStatusCode, managerName)}
+                    </div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 13, color: C.g800, lineHeight: 1.6 }}>{notification.message}</div>
-                {notification.requestedFiles.length > 0 && <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.5, marginTop: 6 }}>요청 자료: {notification.requestedFiles.join(', ')}</div>}
-                {renderStatusBar(notification)}
               </div>
             );
           })}
 
-          {notificationBox === 'received' && uploadGroups.map((group) => {
+          {notificationBox === 'received' && user.role === 'project_manager' && filteredNotifications.map((notification) => {
+            const unread = !notification.read;
+            return (
+              <div key={notification.id} onClick={() => openProject(notification, 'archive')} style={{ padding: '15px 16px', borderBottom: `1px solid ${C.g100}`, background: unread ? '#FCFEFD' : C.white, cursor: notification.projectId ? 'pointer' : 'default' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: C.g800, lineHeight: 1.5 }}>{notification.title || notification.categoryName}</div>
+                    <div style={{ fontSize: 12, color: C.g400, fontWeight: 800, lineHeight: 1.6, marginTop: 3 }}>{notification.projectName} · {notification.createdAt}</div>
+                  </div>
+                  <span style={badgeStyle(unread ? C.primary : C.ok, unread ? C.bg : '#F4FBF6')}>{unread ? '안읽음' : '읽음'}</span>
+                </div>
+                <div style={{ fontSize: 13, color: C.g800, lineHeight: 1.6 }}>{notification.message}</div>
+                {notification.requestedFiles.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 9 }}>
+                    {notification.requestedFiles.slice(0, 3).map((fileName) => <span key={fileName} style={badgeStyle(C.g600, C.white)}>{fileName}</span>)}
+                    {notification.requestedFiles.length > 3 && <span style={badgeStyle(C.g600, C.white)}>외 {notification.requestedFiles.length - 3}건</span>}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 7, marginTop: 11 }}>
+                  <button type="button" onClick={(event) => {
+                    event.stopPropagation();
+                    openProject(notification, 'archive');
+                  }} disabled={!notification.projectId} style={{ ...pillButtonStyle(true), cursor: notification.projectId ? 'pointer' : 'not-allowed', opacity: notification.projectId ? 1 : 0.45 }}>확인하기</button>
+                </div>
+              </div>
+            );
+          })}
+
+          {notificationBox === 'received' && user.role === 'she_manager' && uploadGroups.map((group) => {
             const first = group[0];
             const targetSummary = summarizeTargets(group);
             const fileCount = group.reduce((sum, notification) => sum + notification.requestedFiles.length, 0);
