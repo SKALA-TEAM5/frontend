@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
+import InlineLoader from '../../components/ui/InlineLoader';
 import Modal from '../../components/ui/Modal';
 import { C } from '../../lib/theme';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
@@ -313,6 +314,22 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
     const isProblemFile = (file: EvidenceFile) => file.kind === 'site_photo' && file.visionValidation?.status === 'unsuitable';
     const hasUncheckedMatchedFiles = uncheckedMatchedFileCount > 0;
     const showMatchReadyNotice = matchReady || hasUncheckedMatchedFiles;
+    const archiveLoadingMessage = checkingMatchedFiles
+        ? {
+            title: '매칭 파일 확인을 반영하고 있어요',
+            body: '검토 완료 상태를 저장하고 아카이브 화면을 갱신하고 있습니다.',
+        }
+        : matchingStatus === 'running'
+            ? {
+                title: '증빙 매칭을 진행하고 있어요',
+                body: '사용내역서 세부 항목과 영수증, 현장사진, 세금계산서, 기타 자료를 서로 연결하고 있습니다.',
+            }
+            : photoValidationStatus === 'running'
+                ? {
+                    title: '현장사진을 검증하고 있어요',
+                    body: '업로드된 현장사진을 항목별로 확인하고 부적합 여부를 표시할 준비를 하고 있습니다.',
+                }
+                : null;
     const dismissMatchReady = async () => {
         setCheckingMatchedFiles(true);
         try {
@@ -433,6 +450,7 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
           </Card>)}
 
         <ArchiveToolbar viewMode={viewMode} validationStatus={photoValidationStatus} matchingStatus={matchingStatus} onRunMatching={runSafetyDocMatching} onRunPhotoValidation={runVisionPhotoValidation} canRunArchiveTools={canRunArchiveTools} actionRequestBadge={actionRequestBadge} reviewRequestButton={reviewRequestButton} onViewModeChange={setViewMode}/>
+        {archiveLoadingMessage && <InlineLoader title={archiveLoadingMessage.title} body={archiveLoadingMessage.body}/>}
         <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
         {matchingError && (
           <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>

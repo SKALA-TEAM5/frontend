@@ -61,6 +61,52 @@
   .screen-enter { animation: fadeUp 0.28s cubic-bezier(.22,1,.36,1) both; }
   @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
   @keyframes loadingSlide { from { transform:translateX(-140%); } to { transform:translateX(340%); } }
+  .inline-loader-shell {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    min-width: 0;
+  }
+  .inline-loader-content {
+    flex: 1;
+    min-width: 0;
+  }
+  .inline-loader-mascot {
+    width: 104px;
+    height: 104px;
+    flex: 0 0 104px;
+    background-image: url('/assets/loading-turtle-swim-strip.png');
+    background-repeat: no-repeat;
+    background-size: 700% 100%;
+    background-position: 0% 50%;
+    filter: drop-shadow(0 12px 18px rgba(31, 55, 43, .14));
+    animation: turtleSwim 1.8s steps(6, end) infinite, turtleFloat 1.8s ease-in-out infinite;
+  }
+  @keyframes turtleSwim {
+    from { background-position: 0% 50%; }
+    to { background-position: 100% 50%; }
+  }
+  @keyframes turtleFloat {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-4px) scale(1.02); }
+  }
+  @media (max-width: 640px) {
+    .inline-loader-shell {
+      align-items: flex-start;
+      gap: 14px;
+    }
+    .inline-loader-mascot {
+      width: 78px;
+      height: 78px;
+      flex-basis: 78px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .inline-loader-mascot {
+      animation: none;
+      background-position: 50% 50%;
+    }
+  }
   table { border-collapse: collapse; width: 100%; }
   th, td { padding: 11px 16px; text-align: left; font-size: 15px; }
   th { font-weight: 700; background: var(--c-soft); color: var(--c-g800); }
