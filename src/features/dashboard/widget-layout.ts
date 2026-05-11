@@ -2,11 +2,9 @@ import type { CSSProperties } from 'react';
 import { C } from '../../lib/theme';
 
 export type DashboardWidgetId =
-  | 'projectStatus'
-  | 'recentActivity'
-  | 'sla'
-  | 'risk'
-  | 'missingUpload'
+  | 'actionPipeline'
+  | 'actionQueue'
+  | 'decisionLog'
   | 'projectProgress'
   | 'workload'
   | 'myProjects'
@@ -17,11 +15,9 @@ export type WidgetPosition = { col: number; row: number };
 export type WidgetSize = { colSpan: number; rowSpan: number };
 
 export const DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; label: string }> = [
-  { id: 'projectStatus', label: '프로젝트 현황' },
-  { id: 'recentActivity', label: '최근 활동' },
-  { id: 'sla', label: '보완 요청 기한' },
-  { id: 'risk', label: '검증 리스크 요약' },
-  { id: 'missingUpload', label: '업로드 누락 체크' },
+  { id: 'actionPipeline', label: '조치 요청 파이프라인' },
+  { id: 'actionQueue', label: '처리 필요 조치 요청' },
+  { id: 'decisionLog', label: '최근 판단/요청 로그' },
   { id: 'projectProgress', label: '프로젝트 공정률' },
   { id: 'workload', label: '담당자별 업무량' },
   { id: 'myProjects', label: '내 프로젝트 현황' },
@@ -29,36 +25,32 @@ export const DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; label: string }> 
 ];
 
 export const DEFAULT_WIDGET_IDS = DASHBOARD_WIDGETS.map((widget) => widget.id);
-export const DASHBOARD_WIDGET_STORAGE_KEY = 'she.dashboard.visibleWidgets.v7';
-export const DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY = 'she.dashboard.widgetLayout.v7';
+export const DASHBOARD_WIDGET_STORAGE_KEY = 'she.dashboard.visibleWidgets.v18';
+export const DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY = 'she.dashboard.widgetLayout.v18';
 
 export const GRID_GAP = 14;
 export const GRID_ROW_GUIDE_HEIGHT = 130;
 export const GRID_EDIT_PADDING = 12;
-export const GRID_COLUMN_COUNT = 8;
+export const GRID_COLUMN_COUNT = 7;
 
 export const WIDGET_SIZES: Record<DashboardWidgetId, WidgetSize> = {
-  projectStatus: { colSpan: 2, rowSpan: 1 },
-  recentActivity: { colSpan: 3, rowSpan: 2 },
-  sla: { colSpan: 2, rowSpan: 1 },
-  risk: { colSpan: 2, rowSpan: 1 },
-  missingUpload: { colSpan: 1, rowSpan: 1 },
-  projectProgress: { colSpan: 3, rowSpan: 2 },
+  actionPipeline: { colSpan: 7, rowSpan: 1 },
+  actionQueue: { colSpan: 4, rowSpan: 3 },
+  decisionLog: { colSpan: 3, rowSpan: 3 },
+  projectProgress: { colSpan: 2, rowSpan: 1 },
   workload: { colSpan: 2, rowSpan: 2 },
-  myProjects: { colSpan: 6, rowSpan: 3 },
-  timeline: { colSpan: 8, rowSpan: 3 },
+  myProjects: { colSpan: 4, rowSpan: 3 },
+  timeline: { colSpan: 7, rowSpan: 3 },
 };
 
 export const DEFAULT_WIDGET_LAYOUT: Record<DashboardWidgetId, WidgetPosition> = {
-  projectStatus: { col: 1, row: 1 },
-  risk: { col: 3, row: 1 },
-  missingUpload: { col: 5, row: 1 },
-  sla: { col: 6, row: 1 },
-  workload: { col: 1, row: 2 },
-  projectProgress: { col: 3, row: 2 },
-  recentActivity: { col: 6, row: 2 },
-  myProjects: { col: 1, row: 4 },
-  timeline: { col: 1, row: 7 },
+  actionPipeline: { col: 1, row: 1 },
+  actionQueue: { col: 1, row: 2 },
+  decisionLog: { col: 5, row: 2 },
+  workload: { col: 5, row: 6 },
+  projectProgress: { col: 5, row: 5 },
+  myProjects: { col: 1, row: 5 },
+  timeline: { col: 1, row: 8 },
 };
 
 export const dashboardGridStyle: CSSProperties = {

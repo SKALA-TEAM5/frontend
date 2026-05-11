@@ -7,7 +7,7 @@ import Button from '../../components/ui/Button';
 import { AppFrame, ProjectSortControl } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { C } from '../../lib/theme';
-import { getDashboardCountsFromProjects, getProjectManagers, getSheFilterOptionsFromProjects, PROJECT_STATUS_META, type ProjectSummary } from '../../lib/project-data';
+import { ACTION_REQUEST_STATUS_META, ACTION_REQUEST_STATUS_STEPS, getDashboardCountsFromProjects, getProjectManagers, getSheFilterOptionsFromProjects, PROJECT_STATUS_META, type ActionRequestStatusCode, type ProjectSummary } from '../../lib/project-data';
 import { listProjects } from '../../lib/project-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
@@ -85,6 +85,21 @@ const widgetValueStyle: CSSProperties = {
   lineHeight: 1.15,
 };
 
+const workflowBadgeStyle = (color: string, bg: string, border = C.g200): CSSProperties => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: 24,
+  padding: '0 8px',
+  borderRadius: 999,
+  border: `1px solid ${border}`,
+  background: bg,
+  color,
+  fontSize: 10,
+  fontWeight: 900,
+  whiteSpace: 'nowrap',
+});
+
 const tooltipStyle: CSSProperties = {
   position: 'absolute',
   left: 0,
@@ -160,6 +175,8 @@ const dashboardPanelStyle: CSSProperties = {
 
 const dashboardPanelHeaderStyle: CSSProperties = {
   height: 38,
+  minHeight: 38,
+  flexShrink: 0,
   margin: '-18px -18px 14px',
   padding: '0 12px',
   display: 'flex',
@@ -173,11 +190,9 @@ const dashboardPanelHeaderStyle: CSSProperties = {
 };
 
 const widgetHelpText: Record<WidgetHelpId, string> = {
-  projectStatus: '접근 가능한 프로젝트의 진행 상태를 요약합니다.',
-  recentActivity: '최근 업로드, 요청, 보고서 수정과 같은 프로젝트 활동을 보여줍니다.',
-  sla: '조치 요청 등록 후 처리 기한까지 남은 시간을 보여줍니다.',
-  risk: '검증 결과에서 정산 리스크가 있는 항목을 요약합니다.',
-  missingUpload: '증빙 업로드가 아직 부족한 프로젝트를 확인합니다.',
+  actionPipeline: '조치 요청 발송부터 종결까지 현재 병목 단계를 보여줍니다.',
+  actionQueue: 'SHE 담당자가 우선 확인해야 하는 조치 요청과 새 업로드를 보여줍니다.',
+  decisionLog: '에이전트 판단과 조치 요청, 새 업로드 흐름의 최근 기록을 보여줍니다.',
   projectProgress: '프로젝트별 실제 공정률을 막대로 비교해 보여줍니다.',
   workload: '담당자별 프로젝트 부담과 조치 요청 부담을 보여줍니다.',
   myProjects: '내가 볼 수 있는 모든 프로젝트를 검색, 필터, 정렬해 보여줍니다.',
@@ -197,15 +212,12 @@ export default function DashboardPage() {
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
   const [sortBy, setSortBy] = useState<ProjectSortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [riskTooltip, setRiskTooltip] = useState<'error' | 'warn' | null>(null);
-  const [slaTooltip, setSlaTooltip] = useState<'overdue' | 'dueSoon' | 'open' | null>(null);
-  const [missingUploadTooltip, setMissingUploadTooltip] = useState(false);
   const [titleTooltip, setTitleTooltip] = useState<WidgetHelpId | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [visibleWidgetIds, setVisibleWidgetIds] = useState<DashboardWidgetId[]>(DEFAULT_WIDGET_IDS);
   const [draggedWidgetId, setDraggedWidgetId] = useState<DashboardWidgetId | null>(null);
   const [widgetLayout, setWidgetLayout] = useState<Record<DashboardWidgetId, WidgetPosition>>(DEFAULT_WIDGET_LAYOUT);
-  const { unreadNotifications: unreadSheNotifications } = useActionNotifications(user);
+  const { notifications: actionNotifications, unreadNotifications: unreadSheNotifications } = useActionNotifications(user);
   const dashboardGridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -311,63 +323,87 @@ export default function DashboardPage() {
     .sort((a, b) => new Date(b.date.replace(/\//g, '-')).getTime() - new Date(a.date.replace(/\//g, '-')).getTime())
     .slice(0, 4);
   const actionProjects = projects.filter((project) => project.status === 'action_required');
-  const todayTime = new Date(new Date().toDateString()).getTime();
-  const slaSummary = actionProjects.reduce(
-    (acc, project) => {
-      const dueTime = project.actionRequestDetails?.dueDate ? new Date(project.actionRequestDetails.dueDate).getTime() : 0;
-      if (!dueTime) {
-        acc.open += 1;
-        return acc;
-      }
-      const diffDays = Math.ceil((dueTime - todayTime) / 86400000);
-      if (diffDays < 0) acc.overdue += 1;
-      else if (diffDays <= 3) acc.dueSoon += 1;
-      else acc.open += 1;
-      return acc;
-    },
-    { overdue: 0, dueSoon: 0, open: 0 },
-  );
-  const slaRows = {
-    overdue: actionProjects.filter((project) => {
-      const dueTime = project.actionRequestDetails?.dueDate ? new Date(project.actionRequestDetails.dueDate).getTime() : 0;
-      return dueTime > 0 && Math.ceil((dueTime - todayTime) / 86400000) < 0;
-    }),
-    dueSoon: actionProjects.filter((project) => {
-      const dueTime = project.actionRequestDetails?.dueDate ? new Date(project.actionRequestDetails.dueDate).getTime() : 0;
-      const diffDays = dueTime ? Math.ceil((dueTime - todayTime) / 86400000) : 999;
-      return dueTime > 0 && diffDays >= 0 && diffDays <= 3;
-    }),
-    open: actionProjects.filter((project) => {
-      const dueTime = project.actionRequestDetails?.dueDate ? new Date(project.actionRequestDetails.dueDate).getTime() : 0;
-      if (!dueTime) return true;
-      return Math.ceil((dueTime - todayTime) / 86400000) > 3;
-    }),
-  };
-  const validatedRiskProjects: Array<{ status: 'error' | 'warn'; rowKey: string; projectName: string; statementLabel: string; cat: string; note: string }> = [];
-  const errorRows = validatedRiskProjects.filter((row) => row.status === 'error');
-  const warnRows = validatedRiskProjects.filter((row) => row.status === 'warn');
-  const riskEmptyText = validatedRiskProjects.length === 0
-    ? '유효성 검증을 완료했거나 리스크가 있는 프로젝트가 없습니다.'
-    : '부적정 항목이 없습니다.';
-  const riskCards = [
-    {
-      id: 'error' as const,
-      label: '부적정',
-      count: errorRows.length,
-      color: C.danger,
-      rows: errorRows,
-      emptyText: riskEmptyText,
-    },
-    {
-      id: 'warn' as const,
-      label: '조건부',
-      count: warnRows.length,
-      color: C.warn,
-      rows: warnRows,
-      emptyText: riskEmptyText,
-    },
-  ];
-  const missingUploadProjects = projects.filter((project) => !project.hasUploads || project.status === 'upload_pending');
+  const sentActionNotifications = actionNotifications
+    .filter((notification) => notification.type === 'action_request')
+    .sort((a, b) => b.createdAtMs - a.createdAtMs);
+  const newUploadNotifications = actionNotifications
+    .filter((notification) => notification.type === 'new_upload' && notification.recipientRole === 'she_manager')
+    .sort((a, b) => b.createdAtMs - a.createdAtMs);
+  const actionFallbackItems = actionProjects.map((project) => ({
+    id: `project-${project.id}`,
+    projectId: project.id,
+    projectName: project.constructionName,
+    categoryName: project.actionRequestDetails?.title || '보완 조치 요청',
+    title: project.actionRequestDetails?.title || '보완 조치 요청',
+    message: project.actionRequestDetails?.reason || '보완 자료 제출이 필요합니다.',
+    assignee: project.actionRequestDetails?.assignee || project.manager || '프로젝트 담당자',
+    statusCode: project.actionRequestDetails?.statusCode || 'open' as ActionRequestStatusCode,
+    createdAt: project.actionRequestDetails?.requestedAt || '-',
+    requestedFiles: [] as string[],
+    isUpload: false,
+  }));
+  const actionQueueItems = [
+    ...sentActionNotifications.map((notification) => ({
+      id: notification.id,
+      projectId: notification.projectId || '',
+      projectName: notification.projectName,
+      categoryName: notification.categoryName,
+      title: notification.title || notification.categoryName,
+      message: notification.message,
+      assignee: notification.recipientUserName || '프로젝트 담당자',
+      statusCode: notification.statusCode || 'open' as ActionRequestStatusCode,
+      createdAt: notification.createdAt,
+      requestedFiles: notification.requestedFiles,
+      isUpload: false,
+    })),
+    ...newUploadNotifications.map((notification) => ({
+      id: notification.id,
+      projectId: notification.projectId || '',
+      projectName: notification.projectName,
+      categoryName: notification.categoryName,
+      title: notification.title || '새 파일 업로드',
+      message: notification.message,
+      assignee: notification.senderName || '프로젝트 담당자',
+      statusCode: 'resolved' as ActionRequestStatusCode,
+      createdAt: notification.createdAt,
+      requestedFiles: notification.requestedFiles,
+      isUpload: true,
+    })),
+  ].slice(0, 6);
+  const resolvedActionQueueItems = actionQueueItems.length ? actionQueueItems : actionFallbackItems;
+  const pipelineCounts = ACTION_REQUEST_STATUS_STEPS.reduce((acc, statusCode) => {
+    acc[statusCode] = sentActionNotifications.filter((notification) => (notification.statusCode || 'open') === statusCode).length;
+    return acc;
+  }, {} as Record<ActionRequestStatusCode, number>);
+  if (sentActionNotifications.length === 0) {
+    actionFallbackItems.forEach((item) => {
+      pipelineCounts[item.statusCode] += 1;
+    });
+  }
+  const activePipelineIndex = ACTION_REQUEST_STATUS_STEPS.findIndex((statusCode) => pipelineCounts[statusCode] > 0);
+  const decisionLogRows = [
+    ...sentActionNotifications.map((notification) => ({
+      id: notification.id,
+      title: notification.title || `${notification.categoryName} 조치 요청`,
+      meta: `${notification.projectName} · ${notification.recipientUserName || '프로젝트 담당자'}에게 보냄 · ${notification.createdAt}`,
+      badge: '조치 요청',
+      tone: 'danger' as const,
+    })),
+    ...newUploadNotifications.map((notification) => ({
+      id: notification.id,
+      title: notification.message || `${notification.categoryName} 새 파일 업로드`,
+      meta: `${notification.projectName} · ${notification.createdAt}`,
+      badge: '새 업로드',
+      tone: 'ok' as const,
+    })),
+    ...recentActivities.map((activity) => ({
+      id: `activity-${activity.project.id}-${activity.action}`,
+      title: activity.action,
+      meta: `${activity.project.constructionName} · ${activity.actor}`,
+      badge: '활동',
+      tone: 'neutral' as const,
+    })),
+  ].slice(0, 5);
   const managerWorkloads = Array.from(
     projects.reduce((map, project) => {
       const projectManagers = project.participants.length > 0 ? project.participants : getProjectManagers(project);
@@ -521,7 +557,6 @@ export default function DashboardPage() {
       -
     </button>
   ) : null;
-
   return (
     <AppFrame title="프로젝트 대시보드" mainClassName="dashboard-main">
       <div style={dashboardPageStyle}>
@@ -538,7 +573,7 @@ export default function DashboardPage() {
       <section style={dashboardKpiBandStyle}>
         {[
           { label: '전체 프로젝트', value: projects.length, meta: `진행 중 ${dashboardCounts.active}`, bg: '#1F6F5F' },
-          { label: '조치 요청 프로젝트', value: actionProjects.length, meta: `기한 임박 ${slaSummary.dueSoon}`, bg: '#2FA084' },
+          { label: '조치 요청 프로젝트', value: actionProjects.length, meta: '처리 필요', bg: '#2FA084' },
           { label: '검증 완료', value: projects.filter((project) => project.reportReady).length, meta: '보고서 생성 가능', bg: '#67af85' },
           { label: '미확인 알림', value: unreadSheNotifications.length, meta: 'SHE 기준', bg: '#98c8b2' },
         ].map((item) => (
@@ -599,149 +634,99 @@ export default function DashboardPage() {
             <div style={{ fontSize: 14, color: C.g400 }}>대시보드 편집에서 필요한 위젯을 선택해 주세요.</div>
           </Card>
         )}
-        {visibleWidgetSet.has('projectStatus') && (
-        <Card {...widgetFrameProps('projectStatus', { padding: '18px 18px', overflow: 'visible' })}>
-          {renderWidgetRemoveButton('projectStatus')}
-          {renderPanelHeader('프로젝트 현황', 'projectStatus', '운영 상태')}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
-            {[
-              { label: '진행 중', value: dashboardCounts.active, color: '#176B45', bg: '#E7F5EC' },
-              { label: '완료', value: dashboardCounts.completed, color: '#2F5FB8', bg: '#EEF4FF' },
-              { label: '중단', value: dashboardCounts.suspended, color: '#8A5A00', bg: '#FFF4D8' },
-            ].map((item) => (
-              <div key={item.label} style={{ border: 'none', borderRadius: 8, padding: '9px 7px', minWidth: 0, textAlign: 'center', background: item.bg, display: 'grid', justifyItems: 'center' }}>
-                <div style={{ ...widgetLabelStyle, fontSize: 11, whiteSpace: 'nowrap', textAlign: 'center' }}>{item.label}</div>
-                <div style={{ ...widgetValueStyle, fontSize: 22, color: item.color, marginTop: 4, textAlign: 'center' }}>{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-        )}
-
-        {visibleWidgetSet.has('recentActivity') && (
-        <Card {...widgetFrameProps('recentActivity', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
-          {renderWidgetRemoveButton('recentActivity')}
-          {renderPanelHeader('최근 활동', 'recentActivity')}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', paddingRight: 4, minHeight: 0 }}>
-            {recentActivities.map((log) => (
-              <Link key={`${log.project.id}-${log.date}-${log.action}`} href={`/projects/${log.project.id}`} style={{ textDecoration: 'none' }}>
-                <div style={{ padding: '10px 12px', background: '#FBFDFC', border: 'none', borderRadius: 8, lineHeight: 1.5 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: C.g400, fontWeight: 800 }}>
-                    <span>{log.date}</span>
-                    <span>·</span>
-                    <span>{log.actor}</span>
+        {visibleWidgetSet.has('actionPipeline') && (
+        <Card {...widgetFrameProps('actionPipeline', { padding: '18px 18px', overflow: 'visible' })}>
+          {renderWidgetRemoveButton('actionPipeline')}
+          {renderPanelHeader('조치 요청 파이프라인', 'actionPipeline', '요청 발송부터 종결까지')}
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${ACTION_REQUEST_STATUS_STEPS.length}, minmax(0, 1fr))`, alignItems: 'start', gap: 0, marginTop: -2 }}>
+            {ACTION_REQUEST_STATUS_STEPS.map((statusCode, index) => {
+              const meta = ACTION_REQUEST_STATUS_META[statusCode];
+              const count = pipelineCounts[statusCode] || 0;
+              const current = activePipelineIndex >= 0 && index === activePipelineIndex;
+              return (
+                <div key={statusCode} style={{ position: 'relative', display: 'grid', justifyItems: 'center', textAlign: 'center', gap: 4, padding: '0 8px', minWidth: 0 }}>
+                  {index < ACTION_REQUEST_STATUS_STEPS.length - 1 && <span aria-hidden="true" style={{ position: 'absolute', top: 14, left: 'calc(50% + 22px)', right: 'calc(-50% + 22px)', height: 2, background: current ? `linear-gradient(90deg, ${meta.color}, ${C.g200})` : C.g200 }} />}
+                  <div style={{ width: 30, height: 30, borderRadius: 999, border: `2px solid ${current ? meta.color : C.g200}`, background: current ? meta.color : count ? meta.bg : C.white, color: current ? C.white : count ? meta.color : C.g400, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 900, position: 'relative', zIndex: 1 }}>
+                    {count}
                   </div>
-                  <div style={{ fontSize: 13, color: C.g800, fontWeight: 800, marginTop: 3 }}>
-                    {log.action}
+                  <div style={{ fontSize: 11, fontWeight: 900, color: current ? meta.color : C.g800, whiteSpace: 'nowrap' }}>{meta.label}</div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.g400, lineHeight: 1.25 }}>
+                    {statusCode === 'open' ? '담당자 확인 대기' : statusCode === 'in_progress' ? '보완자료 준비 중' : statusCode === 'resolved' ? 'SHE 재검토 대기' : '승인 및 보고서 반영'}
                   </div>
                 </div>
-              </Link>
-            ))}
-          </div>
-        </Card>
-        )}
-        {visibleWidgetSet.has('sla') && (
-        <Card {...widgetFrameProps('sla', { padding: '18px 18px', overflow: 'visible' })}>
-          {renderWidgetRemoveButton('sla')}
-          {renderPanelHeader('보완 요청 기한', 'sla', '조치 요청 기준')}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 6 }}>
-            {[
-              { id: 'overdue' as const, label: '기한 초과', value: slaSummary.overdue, color: C.danger, bg: '#FFF5F5' },
-              { id: 'dueSoon' as const, label: '3일 이내', value: slaSummary.dueSoon, color: C.warn, bg: '#FFF8F0' },
-              { id: 'open' as const, label: '진행 중', value: slaSummary.open, color: C.primary, bg: C.bg },
-            ].map((item) => (
-              <div key={item.id} onMouseEnter={() => item.value > 0 && setSlaTooltip(item.id)} onMouseLeave={() => setSlaTooltip(null)} style={{ position: 'relative', border: 'none', borderRadius: 8, background: item.bg, padding: '8px 6px', textAlign: 'center', minWidth: 0, cursor: item.value > 0 ? 'default' : 'auto', display: 'grid', justifyItems: 'center' }}>
-                <div style={{ ...widgetLabelStyle, fontSize: 10, whiteSpace: 'nowrap', textAlign: 'center' }}>{item.label}</div>
-                <div style={{ ...widgetValueStyle, fontSize: 20, color: item.color, marginTop: 4, textAlign: 'center' }}>{item.value}</div>
-                {slaTooltip === item.id && (
-                  <div style={widgetTooltipStyle('sla', 340)}>
-                    <div style={{ fontSize: 13, fontWeight: 900, color: item.color, marginBottom: 8 }}>{item.label} 프로젝트</div>
-                    <div style={tooltipListStyle}>
-                      {slaRows[item.id].slice(0, 4).map((project) => (
-                        <div key={project.id} style={tooltipItemStyle}>
-                          <div style={{ fontWeight: 900, color: C.g800 }}>{project.actionRequestDetails?.title || '보완 조치 요청'}</div>
-                          <div style={{ color: C.g800 }}>{project.constructionName}</div>
-                          <div>{project.actionRequestDetails?.reason || '보완 자료 제출이 필요합니다.'}</div>
-                          <div style={{ fontWeight: 900 }}>{project.actionRequestDetails?.assignee || project.manager} · 기한 {project.actionRequestDetails?.dueDate || '미정'}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
         )}
 
-        {visibleWidgetSet.has('risk') && (
-        <Card {...widgetFrameProps('risk', { padding: '18px 18px', overflow: 'visible' })}>
-          {renderWidgetRemoveButton('risk')}
-          {renderPanelHeader('검증 리스크 요약', 'risk')}
-          {validatedRiskProjects.length === 0 ? (
-            <div style={{ fontSize: 13, color: C.g400, fontWeight: 800, lineHeight: 1.5, marginTop: 10 }}>
-              부적정 항목이 없습니다.
-            </div>
-          ) : <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {riskCards.map((item) => (
-              <div
-                key={item.id}
-                onMouseEnter={() => setRiskTooltip(item.id)}
-                onMouseLeave={() => setRiskTooltip(null)}
-                style={{ position: 'relative', border: 'none', borderRadius: 8, background: item.id === 'error' ? '#FFF8F8' : '#FFF9EB', padding: '10px 12px', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
-              >
-                <div style={{ ...widgetLabelStyle, whiteSpace: 'nowrap' }}>{item.label}</div>
-                <div style={{ ...widgetValueStyle, color: item.color, fontSize: 20, marginTop: 0, whiteSpace: 'nowrap' }}>{item.count}건</div>
-                {riskTooltip === item.id && (
-                  <div style={widgetTooltipStyle('risk', 330)}>
-                    <div style={{ fontSize: 13, fontWeight: 900, color: item.color, marginBottom: 8 }}>{item.label} 세부 내용</div>
-                    <div style={tooltipListStyle}>
-                      {item.rows.length === 0 ? (
-                        <div style={{ fontSize: 13, color: C.g400, lineHeight: 1.5 }}>{item.emptyText}</div>
-                      ) : item.rows.slice(0, 3).map((row) => (
-                        <div key={row.rowKey} style={tooltipItemStyle}>
-                          <div style={{ fontWeight: 900, color: C.g800 }}>{row.projectName}</div>
-                          <div style={{ fontWeight: 900 }}>{row.statementLabel} · {row.cat}</div>
-                          <div>{row.note}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+        {visibleWidgetSet.has('actionQueue') && (
+        <Card {...widgetFrameProps('actionQueue', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' })}>
+          {renderWidgetRemoveButton('actionQueue')}
+          {renderPanelHeader('처리 필요 조치 요청', 'actionQueue', '상태와 기한 기준')}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
+            {resolvedActionQueueItems.length === 0 ? (
+              <div style={{ border: 'none', borderRadius: 8, background: '#FCFEFD', padding: 16, color: C.g400, fontSize: 13, fontWeight: 800 }}>
+                처리할 조치 요청이 없습니다.
               </div>
-            ))}
-          </div>}
-        </Card>
-        )}
-
-        {visibleWidgetSet.has('missingUpload') && (
-        <Card {...widgetFrameProps('missingUpload', { padding: '18px 18px', overflow: 'visible', display: 'flex', flexDirection: 'column' })}>
-          {renderWidgetRemoveButton('missingUpload')}
-          {renderPanelHeader('업로드 누락', 'missingUpload')}
-          <div style={{ flex: 1, display: 'grid', placeItems: 'center' }}>
-            <div
-              onMouseEnter={() => setMissingUploadTooltip(true)}
-              onMouseLeave={() => setMissingUploadTooltip(false)}
-              style={{ display: 'inline-flex', alignItems: 'baseline', position: 'relative', cursor: 'default', width: 'fit-content' }}
-            >
-              <div style={{ fontSize: 30, fontWeight: 900, lineHeight: 1, color: missingUploadProjects.length ? C.warn : C.ok }}>{missingUploadProjects.length}</div>
-              <div style={{ fontSize: 20, fontWeight: 900, color: missingUploadProjects.length ? C.warn : C.ok, marginLeft: 4 }}>개</div>
-              {missingUploadTooltip && (
-                <div style={widgetTooltipStyle('missingUpload', 320)}>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: missingUploadProjects.length ? C.warn : C.ok, marginBottom: 8 }}>업로드 누락 세부 내용</div>
-                  <div style={tooltipListStyle}>
-                    {missingUploadProjects.length === 0 ? (
-                      <div style={{ fontSize: 13, color: C.g400, lineHeight: 1.5 }}>누락된 프로젝트가 없습니다.</div>
-                    ) : missingUploadProjects.slice(0, 4).map((project) => (
-                      <div key={project.id} style={tooltipItemStyle}>
-                        <div style={{ fontWeight: 900, color: C.g800 }}>{project.constructionName}</div>
-                        <div>{project.manager}</div>
+            ) : resolvedActionQueueItems.map((item) => {
+              const itemStatusMeta = ACTION_REQUEST_STATUS_META[item.statusCode];
+              const itemCardBorder = itemStatusMeta.color;
+              const itemCardBackground = itemStatusMeta.bg;
+              const content = (
+                <div style={{ border: `1px solid ${itemCardBorder}`, borderRadius: 8, background: itemCardBackground, padding: '11px 12px' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }}>{item.title}</span>
+                      <span style={item.isUpload ? workflowBadgeStyle(C.primary, C.bg, C.g200) : workflowBadgeStyle(ACTION_REQUEST_STATUS_META[item.statusCode].color, ACTION_REQUEST_STATUS_META[item.statusCode].bg, ACTION_REQUEST_STATUS_META[item.statusCode].color)}>
+                        {item.isUpload ? '새 업로드' : ACTION_REQUEST_STATUS_META[item.statusCode].label}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 5, fontSize: 11, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {item.projectName} · {item.assignee} · {item.createdAt}
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800, color: C.g600, lineHeight: 1.5 }}>
+                      {item.message}
+                    </div>
+                    {item.requestedFiles.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+                        {item.requestedFiles.slice(0, 3).map((fileName) => <span key={fileName} style={workflowBadgeStyle(C.g600, C.white, C.g200)}>{fileName}</span>)}
+                        {item.requestedFiles.length > 3 && <span style={workflowBadgeStyle(C.g600, C.white, C.g200)}>외 {item.requestedFiles.length - 3}건</span>}
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
+              );
+              return item.projectId ? (
+                <Link key={item.id} href={`/projects/${item.projectId}?tab=archive`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                  {content}
+                </Link>
+              ) : <div key={item.id}>{content}</div>;
+            })}
+          </div>
+        </Card>
+        )}
+
+        {visibleWidgetSet.has('decisionLog') && (
+        <Card {...widgetFrameProps('decisionLog', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
+          {renderWidgetRemoveButton('decisionLog')}
+          {renderPanelHeader('최근 판단/요청 로그', 'decisionLog', '에이전트와 사용자 활동')}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
+            {decisionLogRows.length === 0 ? (
+              <div style={{ border: 'none', borderRadius: 8, background: '#FCFEFD', padding: 14, color: C.g400, fontSize: 13, fontWeight: 800 }}>
+                최근 판단 또는 요청 로그가 없습니다.
+              </div>
+            ) : decisionLogRows.map((row) => (
+              <div key={row.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 8, background: '#FCFEFD', padding: '10px 11px', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.title}</div>
+                  <div style={{ marginTop: 3, fontSize: 11, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.meta}</div>
+                </div>
+                <span style={row.tone === 'danger' ? workflowBadgeStyle(C.danger, C.dangerBg, '#FFCDD2') : row.tone === 'ok' ? workflowBadgeStyle(C.primary, C.bg, C.g200) : workflowBadgeStyle(C.g600, C.white, C.g200)}>
+                  {row.badge}
+                </span>
+              </div>
+            ))}
           </div>
         </Card>
         )}
