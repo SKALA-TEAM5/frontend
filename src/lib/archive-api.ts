@@ -8,6 +8,23 @@ interface LatestUsageStatementResponse {
   statement: UsageStatementDetailResponse | null;
 }
 
+interface UsageStatementListResponse {
+  projectId: number;
+  items: UsageStatementListItemResponse[];
+}
+
+interface UsageStatementListItemResponse {
+  id: number;
+  reportMonth: string | null;
+  revisionNo: number | null;
+  documentWrittenDate: string | null;
+  cumulativeProgressRate: number | string | null;
+  summaryCount: number;
+  itemCount: number;
+  linkedEvidenceFileCount: number;
+  unsatisfiedRequirementCount: number;
+}
+
 interface ProjectFileListResponse {
   projectId: number;
   items: ProjectFileResponse[];
@@ -388,6 +405,28 @@ export const getLatestUsageStatementArchive = async (projectId: string) => {
   const response = await apiFetch<LatestUsageStatementResponse>(`/projects/${projectId}/usage-statements/latest`);
   if (!response.data.statement) return null;
   return toArchiveData(projectId, response.data.statement);
+};
+
+export const getUsageStatementArchiveByMonth = async (projectId: string, year: number, month: number) => {
+  const response = await apiFetch<{ projectId: number; statement: UsageStatementDetailResponse }>(
+    `/projects/${projectId}/usage-statements/by-month?year=${year}&month=${month}`,
+  );
+  return toArchiveData(projectId, response.data.statement);
+};
+
+export const listUsageStatementArchives = async (projectId: string) => {
+  const response = await apiFetch<UsageStatementListResponse>(`/projects/${projectId}/usage-statements`);
+  const items = response.data.items || [];
+  const archives = await Promise.all(items.map(async (item) => {
+    const reportMonth = item.reportMonth?.slice(0, 7);
+    if (!reportMonth) return null;
+    const [yearText, monthText] = reportMonth.split('-');
+    const year = Number(yearText);
+    const month = Number(monthText);
+    if (!Number.isFinite(year) || !Number.isFinite(month)) return null;
+    return getUsageStatementArchiveByMonth(projectId, year, month).catch(() => null);
+  }));
+  return archives.filter((item): item is UsageStatementArchiveData => Boolean(item));
 };
 
 export const listProjectFiles = async (projectId: string) => {

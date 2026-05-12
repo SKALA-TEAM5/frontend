@@ -2,12 +2,11 @@ import { C } from './theme';
 import type { AppUser } from './permissions';
 
 export type ProjectStatus =
-  | 'upload_pending'
-  | 'under_review'
-  | 'action_required'
+  | 'draft'
+  | 'upload_completed'
+  | 'approved'
+  | 'supplement_required'
   | 'supplement_uploaded'
-  | 'drafting_report'
-  | 'completed';
 
 export type ActionRequestStatusCode = 'open' | 'in_progress' | 'resolved' | 'closed';
 export type ProjectStatusCode = 'active' | 'completed' | 'suspended';
@@ -103,7 +102,7 @@ export const EMPTY_PROJECT: ProjectSummary = {
   accumulatedAmount: '',
   usageRate: '',
   projectStatusCode: 'active',
-  status: 'upload_pending',
+  status: 'draft',
   hasUploads: false,
   hasActionRequest: false,
   uncheckedMatchedFileCount: 0,
@@ -113,12 +112,11 @@ export const EMPTY_PROJECT: ProjectSummary = {
 };
 
 export const STATUS_META: Record<ProjectStatus, { label: string; color: string; bg: string }> = {
-  upload_pending: { label: '업로드 전', color: C.g600, bg: C.g100 },
-  under_review: { label: '검토 중', color: C.primary, bg: C.bg },
-  action_required: { label: '조치 요청', color: C.danger, bg: C.dangerBg },
+  draft: { label: '임시저장', color: C.g600, bg: C.g100 },
+  upload_completed: { label: '업로드 완료', color: C.primary, bg: C.bg },
+  approved: { label: '승인', color: C.ok, bg: '#F4FBF6' },
+  supplement_required: { label: '보완 요청', color: C.danger, bg: C.dangerBg },
   supplement_uploaded: { label: '보완 완료', color: C.ok, bg: '#F4FBF6' },
-  drafting_report: { label: '보고서 작성 중', color: '#7B4CE2', bg: '#F5F0FF' },
-  completed: { label: '최종 완료', color: C.ok, bg: '#EEF9F1' },
 };
 
 export const PROJECT_STATUS_META: Record<ProjectStatusCode, { label: string; color: string; bg: string }> = {
@@ -139,30 +137,7 @@ export const ACTION_REQUEST_STATUS_STEPS: ActionRequestStatusCode[] = ['open', '
 const splitManagerNames = (value: string) =>
   value.split(',').map((manager) => manager.trim()).filter(Boolean);
 
-export const getAllProjects = (): ProjectSummary[] => [];
-
 export const getProjectManagers = (project: ProjectSummary) => splitManagerNames(project.manager);
-
-export const getProjectManagerCandidates = () => [];
-
-export const updateProjectManagers = (_projectId: string, _managers: string[]) => {};
-
-export const getAccessibleProjects = (_user: AppUser = CURRENT_USER) => [];
-
-export const getDashboardCounts = (user: AppUser = CURRENT_USER) => {
-  const projects = getAccessibleProjects(user);
-  return {
-    myProjects: projects.length,
-    active: projects.filter((project) => project.projectStatusCode === 'active').length,
-    completed: projects.filter((project) => project.projectStatusCode === 'completed').length,
-    suspended: projects.filter((project) => project.projectStatusCode === 'suspended').length,
-  };
-};
-
-export const getSheFilterOptions = (user: AppUser = CURRENT_USER) => {
-  const projects = getAccessibleProjects(user);
-  return getSheFilterOptionsFromProjects(projects);
-};
 
 export const getDashboardCountsFromProjects = (projects: ProjectSummary[]) => ({
   myProjects: projects.length,
@@ -174,13 +149,10 @@ export const getDashboardCountsFromProjects = (projects: ProjectSummary[]) => ({
 export const getSheFilterOptionsFromProjects = (projects: ProjectSummary[]) => {
   return {
     managers: ['전체', ...Array.from(new Set(projects.map((project) => project.manager).filter(Boolean)))],
-    statuses: ['전체', ...Array.from(new Set(projects.map((project) => PROJECT_STATUS_META[project.projectStatusCode].label)))],
+    statuses: ['전체', ...Array.from(new Set(projects.map((project) => STATUS_META[project.status].label)))],
   };
 };
 
 export const getProjectById = (_projectId: string, _user: AppUser = CURRENT_USER) => EMPTY_PROJECT;
-export const getDefaultProjectId = (_user: AppUser = CURRENT_USER) => '';
-export const getProjectByContractNumber = (contractNumber?: string | null) =>
-  getAccessibleProjects().find((project) => project.contractNumber === contractNumber) || getAccessibleProjects()[0] || EMPTY_PROJECT;
 
 export const getMonthlyUsageStatements = (_projectId: string): MonthlyUsageStatementSummary[] => [];

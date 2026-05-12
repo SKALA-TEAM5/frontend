@@ -44,6 +44,7 @@ interface ArchiveHierarchyViewProps {
   onSelectUsageItem: (item: UsageLineItem) => void;
   onRemove: (kind: HierarchyEvidenceKind, catId: number, usageItemId: string, fileId: string) => void;
   onMove: (fromKind: HierarchyEvidenceKind, fromCatId: number, fromUsageItemId: string, toKind: HierarchyEvidenceKind, toCatId: number, file: EvidenceFile, toUsageItemId?: string) => void | Promise<void>;
+  onMoveUsageItem: (usageItemId: string, toCatId: number) => void | Promise<void>;
   onUpload: (kind: FolderEvidenceCategory, catId: number, usageItemId: string) => void;
   onPreviewFile?: (file: EvidenceFile) => void;
   onDownloadFile?: (file: EvidenceFile) => void;
@@ -51,10 +52,12 @@ interface ArchiveHierarchyViewProps {
   getRequiredEvidence?: (kind: FolderEvidenceCategory, catId: number, usageItemId?: string) => string[];
 }
 
-export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, selectedUsageItemId, getFiles, onSelectCat, onSelectUsageItem, onRemove, onMove, onUpload, onPreviewFile, onDownloadFile, isProblemFile, getRequiredEvidence }: ArchiveHierarchyViewProps) {
+export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, selectedUsageItemId, getFiles, onSelectCat, onSelectUsageItem, onRemove, onMove, onMoveUsageItem, onUpload, onPreviewFile, onDownloadFile, isProblemFile, getRequiredEvidence }: ArchiveHierarchyViewProps) {
   const [dragPayload, setDragPayload] = useState<{ kind: HierarchyEvidenceKind; catId: number; usageItemId: string; file: EvidenceFile } | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ file: EvidenceFile; x: number; y: number } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; file: EvidenceFile } | null>(null);
+  const [moveUsageItemTarget, setMoveUsageItemTarget] = useState<UsageLineItem | null>(null);
+  const [moveUsageItemCatId, setMoveUsageItemCatId] = useState(selectedCatId);
   const [moveTargetCatId, setMoveTargetCatId] = useState(selectedCatId);
   const [moveTargetUsageItemId, setMoveTargetUsageItemId] = useState(selectedUsageItemId);
   const [moveTargetKind, setMoveTargetKind] = useState<FolderEvidenceCategory>('receipt');
@@ -88,6 +91,15 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
     if (!moveTarget) return;
     onMove(moveTarget.kind, moveTarget.catId, selectedUsageItemId, moveTargetKind, moveTargetCatId, moveTarget.file, moveTargetUsageItemId);
     setMoveTarget(null);
+  };
+  const openMoveUsageItemModal = (item: UsageLineItem) => {
+    setMoveUsageItemTarget(item);
+    setMoveUsageItemCatId(item.categoryId);
+  };
+  const confirmMoveUsageItem = () => {
+    if (!moveUsageItemTarget) return;
+    onMoveUsageItem(moveUsageItemTarget.id, moveUsageItemCatId);
+    setMoveUsageItemTarget(null);
   };
   const moveTargetUsageItems = usageItems.filter((item) => item.categoryId === moveTargetCatId);
   const selectedMoveTargetUsageItem = moveTargetUsageItems.find((item) => item.id === moveTargetUsageItemId) || moveTargetUsageItems[0];
@@ -138,23 +150,23 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
 
   return (
     <div data-ui="archive-hierarchy-view.1" style={{ position: 'relative', width: '100%', minWidth: 0, overflow: 'visible' }}>
-      <section style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 14, overflow: 'visible', minWidth: 0 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, .72fr) minmax(180px, .9fr) minmax(0, 1.9fr)', borderBottom: `1px solid ${C.g100}`, background: '#FCFEFD', borderRadius: '14px 14px 0 0', minWidth: 0 }}>
-          <div style={{ padding: '10.5px 14px', borderRight: `1px solid ${C.g100}`, fontSize: 12, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>9개 항목</div>
-          <div style={{ padding: '10.5px 14px', borderRight: `1px solid ${C.g100}`, fontSize: 12, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>사용내역서 세부 항목</div>
-          <div style={{ padding: '10.5px 14px', fontSize: 12, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>파일보기</div>
+      <section style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden', minWidth: 0 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, .72fr) minmax(210px, .9fr) minmax(0, 2fr)', borderBottom: `1px solid ${C.g200}`, background: '#F7FBF8', minWidth: 0 }}>
+          <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 13, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>9개 항목</div>
+          <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 13, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>사용내역서 세부 항목</div>
+          <div style={{ padding: '12px 14px', fontSize: 13, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>파일보기</div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, .72fr) minmax(180px, .9fr) minmax(0, 1.9fr)', minHeight: 540, minWidth: 0 }}>
-          <div style={{ padding: 10, borderRight: `1px solid ${C.g100}`, overflow: 'hidden', minWidth: 0 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 540, overflowY: 'auto', paddingRight: 3 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, .72fr) minmax(210px, .9fr) minmax(0, 2fr)', minHeight: 560, minWidth: 0 }}>
+          <div style={{ padding: 12, borderRight: `1px solid ${C.g200}`, overflow: 'visible', minWidth: 0, background: '#FEFFFE' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, overflow: 'visible' }}>
               {cats.map((cat) => {
                 const items = usageItems.filter((item) => item.categoryId === cat.id);
                 const count = EVIDENCE_SECTIONS.reduce((sum, section) => sum + getFiles(section.id, cat.id).length, 0);
                 const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, cat.id).some((file) => isProblemFile?.(file)));
                 const active = cat.id === selectedCatId;
                 return (
-                  <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${hasProblem ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasProblem ? C.dangerBg : active ? C.bg : C.white, borderRadius: 10, padding: '8px 9px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                  <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${hasProblem ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasProblem ? C.dangerBg : active ? C.bg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
                     <div style={{ fontSize: 12, fontWeight: 900, color: hasProblem ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{cat.short}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
                       <span style={{ fontSize: 10, color: C.g400, fontWeight: 800 }}>{items.length}개 세부</span>
@@ -166,23 +178,37 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
             </div>
           </div>
 
-          <div style={{ padding: 10, borderRight: `1px solid ${C.g100}`, overflow: 'hidden', minWidth: 0 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 540, overflowY: 'auto', paddingRight: 3 }}>
-              {filteredItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 10, padding: 14, fontSize: 12, color: C.g400, textAlign: 'center' }}>OCR 항목이 없습니다</div>}
+          <div style={{ padding: 12, borderRight: `1px solid ${C.g200}`, overflow: 'hidden', minWidth: 0, background: '#FEFFFE' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 560, overflowY: 'auto', paddingRight: 3 }}>
+              {filteredItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 6, padding: 14, fontSize: 12, color: C.g400, textAlign: 'center', background: '#FCFEFD' }}>OCR 항목이 없습니다</div>}
               {filteredItems.map((item) => {
                 const active = item.id === activeItem.id;
                 return (
-                  <button key={item.id} type="button" onClick={() => onSelectUsageItem(item)} style={{ width: '100%', border: `1px solid ${active ? C.light : C.g100}`, background: active ? C.bg : C.white, borderRadius: 10, padding: '8px 9px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-                    <div title={item.name} style={{ fontSize: 12, fontWeight: 900, color: active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
-                    <div style={{ fontSize: 10, color: C.g400, fontWeight: 800, marginTop: 4 }}>{fmt(item.amount)}</div>
+                  <button key={item.id} type="button" onClick={() => onSelectUsageItem(item)} style={{ width: '100%', border: `1px solid ${active ? C.light : C.g100}`, background: active ? C.bg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'start', gap: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div title={item.name} style={{ fontSize: 12, fontWeight: 900, color: active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                        <div style={{ fontSize: 12, color: active ? C.primary : C.g800, fontWeight: 900, marginTop: 4 }}>{fmt(item.amount)}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openMoveUsageItemModal(item);
+                        }}
+                        style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px', alignSelf: 'center' }}
+                      >
+                        이동
+                      </button>
+                    </div>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div style={{ padding: 12, overflow: 'hidden', minWidth: 0 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 9, maxHeight: 520, overflowY: 'auto', paddingRight: 4 }}>
+          <div style={{ padding: 14, overflow: 'hidden', minWidth: 0, background: '#FBFDFC' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, maxHeight: 532, overflowY: 'auto', paddingRight: 4 }}>
               {EVIDENCE_SECTIONS.map((section) => {
                 const files = getFiles(section.id, selectedCatId, activeItem?.id);
                 const hasUnsuitableSitePhoto = section.id === 'site_photo' && files.some((file) => isProblemFile?.(file));
@@ -196,7 +222,7 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                   </button>
                 );
                 return (
-                  <div key={section.id} onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(section.id, selectedCatId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 12, background: '#FCFEFD', padding: 9 }}>
+                  <div key={section.id} onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(section.id, selectedCatId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 8, background: C.white, padding: 11 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                         <span style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{section.label}</span>
@@ -216,7 +242,7 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {files.map((file) => renderFileRow(section.id, file))}
                       {files.length > 0 && <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 2 }}>{uploadButton(true)}</div>}
-                      {files.length === 0 && <div style={{ minHeight: 54, border: `1px dashed ${C.g200}`, borderRadius: 10, padding: '10px 8px', display: 'grid', placeItems: 'center' }}>{uploadButton(true)}</div>}
+                      {files.length === 0 && <div style={{ minHeight: 58, border: `1px dashed ${C.g200}`, borderRadius: 6, padding: '10px 8px', background: '#FCFEFD', display: 'grid', placeItems: 'center' }}>{uploadButton(true)}</div>}
                     </div>
                   </div>
                 );
@@ -304,6 +330,48 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
             <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
               <button type="button" onClick={() => setMoveTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
               <button type="button" onClick={confirmMove} disabled={!moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: !moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId) ? 'not-allowed' : 'pointer', opacity: !moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId) ? 0.45 : 1 }}>이동</button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+      <Modal open={Boolean(moveUsageItemTarget)} onClose={() => setMoveUsageItemTarget(null)} zIndex={980} maxWidth={520}>
+        <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
+          <div style={{ padding: '22px 24px 16px', borderBottom: `1px solid ${C.g100}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: C.g800 }}>세부 항목 이동</div>
+                <div title={moveUsageItemTarget?.name || ''} style={{ fontSize: 13, color: C.g600, fontWeight: 800, marginTop: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{moveUsageItemTarget?.name}</div>
+                <div style={{ fontSize: 12, color: C.g400, fontWeight: 800, marginTop: 6 }}>연결된 파일도 함께 이동합니다.</div>
+              </div>
+              <button type="button" onClick={() => setMoveUsageItemTarget(null)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
+            </div>
+          </div>
+
+          <div style={{ padding: '18px 24px 20px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {cats.map((cat) => {
+                const active = moveUsageItemCatId === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setMoveUsageItemCatId(cat.id)}
+                    style={{ width: '100%', border: `1px solid ${active ? C.light : C.g200}`, borderRadius: 10, background: active ? C.bg : C.white, color: active ? C.primary : C.g800, padding: '10px 12px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, lineHeight: 1.35 }}
+                  >
+                    {cat.short}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: '16px 24px', background: '#FCFEFD', borderTop: `1px solid ${C.g100}` }}>
+            <div style={{ fontSize: 12, color: C.g400, fontWeight: 800 }}>
+              이동 후 새로운 9개 항목 아래에서 확인할 수 있습니다.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <button type="button" onClick={() => setMoveUsageItemTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+              <button type="button" onClick={confirmMoveUsageItem} disabled={!moveUsageItemTarget || moveUsageItemTarget.categoryId === moveUsageItemCatId} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: !moveUsageItemTarget || moveUsageItemTarget.categoryId === moveUsageItemCatId ? 'not-allowed' : 'pointer', opacity: !moveUsageItemTarget || moveUsageItemTarget.categoryId === moveUsageItemCatId ? 0.45 : 1 }}>이동</button>
             </div>
           </div>
         </div>

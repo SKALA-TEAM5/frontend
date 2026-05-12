@@ -3,9 +3,7 @@ export type UserRole = 'project_manager' | 'she_manager';
 export type Permission =
   | 'viewOwnProjects'
   | 'uploadEvidence'
-  | 'viewProjectStatus'
   | 'runValidation'
-  | 'requestReport'
   | 'reviewReport'
   | 'requestAction'
   | 'confirmFinalReport';
@@ -28,9 +26,7 @@ const ROLE_LEVEL: Record<UserRole, number> = {
 const PERMISSION_MIN_ROLE: Record<Permission, UserRole> = {
   viewOwnProjects: 'project_manager',
   uploadEvidence: 'project_manager',
-  viewProjectStatus: 'project_manager',
   runValidation: 'she_manager',
-  requestReport: 'she_manager',
   reviewReport: 'she_manager',
   requestAction: 'she_manager',
   confirmFinalReport: 'she_manager',

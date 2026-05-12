@@ -80,11 +80,24 @@ export interface ProjectListParams {
   size?: number;
 }
 
+export interface UpdateProjectInput {
+  contractNumber?: string;
+  constructionName?: string;
+  constructionCompany?: string;
+  representative?: string;
+  client?: string;
+  constructionAmount?: string;
+  appropriatedAmount?: string;
+  startDate?: string;
+  endDate?: string;
+  location?: string;
+  projectStatusCode?: ProjectStatusCode;
+}
+
 const statusToUiStatus = (status: ProjectStatusCode, hasActionRequest = false): ProjectStatus => {
-  if (hasActionRequest) return 'action_required';
-  if (status === 'completed') return 'completed';
-  if (status === 'suspended') return 'upload_pending';
-  return 'under_review';
+  if (hasActionRequest) return 'supplement_required';
+  if (status === 'completed') return 'approved';
+  return 'draft';
 };
 
 const formatDate = (value?: string | null) => value?.replace(/-/g, '/') || '';
@@ -131,7 +144,7 @@ const emptyProjectBase = (id: number, name: string, status: ProjectStatusCode, h
   hasUploads: false,
   hasActionRequest,
   uncheckedMatchedFileCount: 0,
-  reportReady: status === 'completed',
+  reportReady: status === 'completed' || hasActionRequest,
   recentActivity: '',
   participants: [],
 });
@@ -202,6 +215,26 @@ export const createProject = async (input: NewProjectInput) => {
       clientName: input.client,
       appropriatedAmount: Number(input.appropriatedAmount || input.constructionAmount),
       status: 'active',
+    },
+  });
+  return projectDetailToSummary(response.data.project);
+};
+
+export const updateProject = async (projectId: string, input: UpdateProjectInput) => {
+  const response = await apiFetch<ProjectDetailDataResponse>(`/projects/${projectId}`, {
+    method: 'PATCH',
+    body: {
+      contractNo: input.contractNumber,
+      constructionCompany: input.constructionCompany,
+      projectName: input.constructionName,
+      siteLocation: input.location,
+      representativeName: input.representative,
+      contractAmount: input.constructionAmount == null ? undefined : Number(input.constructionAmount),
+      constructionStartDate: input.startDate,
+      constructionEndDate: input.endDate,
+      clientName: input.client,
+      appropriatedAmount: input.appropriatedAmount == null ? undefined : Number(input.appropriatedAmount),
+      status: input.projectStatusCode,
     },
   });
   return projectDetailToSummary(response.data.project);

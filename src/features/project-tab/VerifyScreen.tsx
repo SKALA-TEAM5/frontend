@@ -5,11 +5,9 @@ import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import InlineLoader from '../../components/ui/InlineLoader';
 import Modal from '../../components/ui/Modal';
-import { addActionNotification } from '../../lib/action-notifications';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
-import { getProjectById } from '../../lib/project-data';
 import { C } from '../../lib/theme';
 import { VALIDATION_DASHBOARD_RESULT, fmt } from '../../lib/evidence-utils';
 import type { CategoryValidationResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
@@ -19,7 +17,9 @@ interface VerifyScreenProps {
   projectId?: string;
   initialStatus?: VerifyStatus;
   hideValidationIntro?: boolean;
+  canStartValidation?: boolean;
   onValidationApproved?: () => void;
+  onActionRequested?: (details: { title: string; reason: string; assignee: string; statusCode: 'open'; dueDate: string; requestedAt: string }) => void;
 }
 
 type VerifyStatus = 'idle' | 'loading' | 'done';
@@ -104,7 +104,7 @@ const renderCategoryTableName = (item: CategoryValidationResult) => {
   </>;
 };
 
-const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideValidationIntro = false, onValidationApproved }: VerifyScreenProps) => {
+const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
   const [filter, setFilter] = useState<ResultFilter>('all');
@@ -155,6 +155,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
   }, [initialStatus]);
 
   const handleVerify = () => {
+    if (!canStartValidation) return;
     clearVerifyTimer();
     try {
       setStatus('loading');
@@ -183,22 +184,6 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
   const handleSendActionNotification = (issue: ValidationIssue & { categoryName: string; decision: ValidationDecision; riskLevel: ValidationRiskLevel }) => {
     if (!can(user, 'requestAction')) return;
     const notificationKey = `${issue.categoryName}-${issue.title}`;
-    const isAmountCorrection = issue.title.includes('금액') || issue.description.includes('초과') || issue.requiredAction.includes('정정');
-    const message = isAmountCorrection
-      ? `${issue.categoryName} 항목에서 ${issue.title} 문제가 있습니다. 인정 범위를 초과하거나 사용내역서와 증빙 금액이 맞지 않으니 초과분을 정정해 주세요.`
-      : `${issue.categoryName} 항목에서 ${issue.title} 문제가 있습니다. ${issue.recommendedFiles.join(', ')} 자료를 제출해 주세요.`;
-    const targetProject = projectId ? getProjectById(projectId, user) : null;
-    addActionNotification({
-      projectId,
-      projectName: contractName,
-      categoryName: issue.categoryName,
-      title: issue.title,
-      message,
-      requestedFiles: issue.recommendedFiles,
-      senderName: user.name,
-      recipientUserName: targetProject?.manager,
-      statusCode: 'open',
-    });
     setSentActionKeys((prev) => prev.includes(notificationKey) ? prev : [...prev, notificationKey]);
   };
 
@@ -214,27 +199,32 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
       return;
     }
     issues.forEach((issue) => handleSendActionNotification(issue));
+    const firstIssue = issues[0];
+    onActionRequested?.({
+      title: firstIssue?.categoryName || '보완 요청',
+      reason: firstIssue ? `${firstIssue.categoryName} 항목에서 ${firstIssue.title} 문제가 있습니다. ${firstIssue.requiredAction}` : '제출 자료를 다시 확인해 주세요.',
+      assignee: '프로젝트 담당자',
+      statusCode: 'open',
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
+      requestedAt: new Date().toLocaleString('ko-KR'),
+    });
     setSheReviewDecision('supplement_requested');
   };
 
-  const handleManualSupplementSend = () => {
-    const message = manualSupplementText.trim();
-    if (!message) return;
-    const targetProject = projectId ? getProjectById(projectId, user) : null;
-    addActionNotification({
-      projectId,
-      projectName: contractName,
-      categoryName: '수기 보완 요청',
-      title: 'SHE 담당자 보완 요청',
-      message,
-      requestedFiles: [],
-      senderName: user.name,
-      recipientUserName: targetProject?.manager,
-      statusCode: 'open',
-    });
-    setManualSupplementText('');
-    setManualSupplementOpen(false);
-    setSheReviewDecision('supplement_requested');
+    const handleManualSupplementSend = () => {
+      const message = manualSupplementText.trim();
+      if (!message) return;
+      onActionRequested?.({
+        title: '보완 요청',
+        reason: message,
+        assignee: '프로젝트 담당자',
+        statusCode: 'open',
+        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
+        requestedAt: new Date().toLocaleString('ko-KR'),
+      });
+      setManualSupplementText('');
+      setManualSupplementOpen(false);
+      setSheReviewDecision('supplement_requested');
   };
 
   const renderProgress = () => (
@@ -256,9 +246,9 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
 
   const renderEmpty = () => (
     <div style={{ padding: '48px 32px', borderRadius: 18, border: `2px dashed ${C.g200}`, textAlign: 'center', background: C.white }}>
-      <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, marginBottom: 6 }}>{hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료'}</div>
-      <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.</div>
-      <button type="button" onClick={handleVerify} disabled={status === 'loading'} style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: C.primary, color: C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: status === 'loading' ? 'wait' : 'pointer', boxShadow: '0 10px 22px rgba(27, 94, 59, .24)' }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
+      <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, marginBottom: 6 }}>{canStartValidation ? (hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료') : '업로드 완료 대기'}</div>
+      <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>{canStartValidation ? '업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.' : '프로젝트 담당자가 업로드 완료를 눌러야 유효성 검증을 시작할 수 있습니다.'}</div>
+      <button type="button" onClick={handleVerify} disabled={status === 'loading' || !canStartValidation} style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: canStartValidation ? C.primary : C.g200, color: canStartValidation ? C.white : C.g400, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: status === 'loading' ? 'wait' : canStartValidation ? 'pointer' : 'not-allowed', boxShadow: canStartValidation ? '0 10px 22px rgba(27, 94, 59, .24)' : 'none' }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
     </div>
   );
 
@@ -284,7 +274,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
     const evidenceIssueBars = [
       { label: '문제 파일', count: categories.reduce((sum, item) => sum + item.evidenceSummary.problematicFiles.length, 0), color: C.danger },
       { label: '누락 자료', count: categories.reduce((sum, item) => sum + item.evidenceSummary.missingTypes.length, 0), color: C.warn },
-      { label: '조치 요청', count: issues.length, color: C.primary },
+      { label: '보완 요청', count: issues.length, color: C.primary },
     ];
     const maxEvidenceIssueCount = Math.max(1, ...evidenceIssueBars.map((item) => item.count));
     const highRiskRows = categories
@@ -306,7 +296,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
     const evidenceRows = [
       { label: '문제 파일', value: `${problematicFiles.length}건`, detail: problematicFiles.join(', ') || '문제 파일 없음', color: C.danger },
       { label: '누락 자료', value: `${missingEvidence.length}건`, detail: missingEvidence.join(', ') || '누락 자료 없음', color: C.warn },
-      { label: '조치 요청', value: `${issues.length}건`, detail: issues.map((issue) => `${issue.categoryName}: ${issue.title}`).join(', ') || '조치 요청 없음', color: C.primary },
+      { label: '보완 요청', value: `${issues.length}건`, detail: issues.map((issue) => `${issue.categoryName}: ${issue.title}`).join(', ') || '보완 요청 없음', color: C.primary },
     ];
     const renderWidgetTooltip = (source: NonNullable<SummaryWidgetTooltip>['source']) => {
       if (!summaryWidgetTooltip || summaryWidgetTooltip.source !== source) return null;
@@ -564,7 +554,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
               event.stopPropagation();
               handleSendActionNotification(issue);
             }} disabled={sent} style={{ border: `1px solid ${sent ? C.g200 : C.primary}`, borderRadius: 999, padding: '7px 12px', background: sent ? C.g100 : C.white, color: sent ? C.g400 : C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: sent ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
-              {sent ? '알림 전송됨' : '알림 보내기'}
+              {sent ? '요청 전송됨' : '요청 전송'}
             </button>
           );
           return <div key={`${issue.categoryName}-${issue.title}`} style={{ borderRadius: 12, border: `1px solid ${open ? meta.border : C.g200}`, background: open ? meta.bg : C.white, overflow: 'hidden' }}>
@@ -604,7 +594,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
     const decisionMetaByStatus: Record<SheReviewDecision, { label: string; color: string; bg: string; description: string }> = {
       pending: { label: '검토 대기', color: C.g600, bg: C.g100, description: 'AI 판단 결과와 근거를 확인한 뒤 승인하거나 프로젝트 담당자에게 보완 요청을 보낼 수 있습니다.' },
       approved: { label: '승인', color: C.ok, bg: '#F4FBF6', description: 'SHE 담당자가 검증 결과를 승인했습니다. 유효성 검증을 완료하고 보고서 탭으로 이동합니다.' },
-      supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 담당자 조치 목록의 보완 요청 알림을 전송했습니다.' },
+      supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 보완 요청 상태를 반영했습니다. 사용내역서 또는 증빙 자료를 수정한 뒤 다시 업로드 완료를 누르면 보완 완료 상태가 됩니다.' },
     };
     const current = decisionMetaByStatus[sheReviewDecision];
     const reviewButtonStyle = (color: string, active: boolean): CSSProperties => ({
@@ -679,12 +669,12 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
     <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
     <Modal open={manualSupplementOpen} onClose={() => setManualSupplementOpen(false)} maxWidth={560} zIndex={980}>
       <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
-        <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>보완 요청 알림 작성</div>
+        <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>보완 요청 작성</div>
         <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginBottom: 14 }}>담당자 조치 목록이 비어 있습니다. 프로젝트 담당자에게 보낼 보완 요청 내용을 직접 입력해 주세요.</div>
         <textarea value={manualSupplementText} onChange={(event) => setManualSupplementText(event.target.value)} placeholder="예: 사용내역서의 보호구 항목 증빙이 부족합니다. 지급대장과 착용 사진을 추가 제출해 주세요." style={{ width: '100%', minHeight: 140, resize: 'vertical', boxSizing: 'border-box', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '12px 14px', outline: 'none', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, lineHeight: 1.6 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
           <Button size="sm" variant="outline" onClick={() => setManualSupplementOpen(false)}>취소</Button>
-          <Button size="sm" onClick={handleManualSupplementSend} disabled={!manualSupplementText.trim()}>알림 보내기</Button>
+          <Button size="sm" onClick={handleManualSupplementSend} disabled={!manualSupplementText.trim()}>요청 전송</Button>
         </div>
       </div>
     </Modal>

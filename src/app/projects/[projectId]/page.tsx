@@ -5,24 +5,39 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Card from '../../../components/ui/Card';
 import CenterModal from '../../../components/ui/CenterModal';
 import Modal from '../../../components/ui/Modal';
+import ProjectInfoEditorModal from '../../../components/project/ProjectInfoEditorModal';
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
-import { EMPTY_PROJECT, getMonthlyUsageStatements, getProjectManagers, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary } from '../../../lib/project-data';
-import { deleteProject, getProject, listProjectManagerCandidates, markArchiveChecked, replaceProjectAssignees, type ProjectAssignee } from '../../../lib/project-api';
-import { getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, uploadProjectFile } from '../../../lib/archive-api';
+import { EMPTY_PROJECT, getProjectManagers, STATUS_META, type MonthlyUsageStatementSummary, type ProjectStatus, type ProjectSummary } from '../../../lib/project-data';
+import { deleteProject, getProject, listProjectManagerCandidates, markArchiveChecked, replaceProjectAssignees, updateProject, type ProjectAssignee, type UpdateProjectInput } from '../../../lib/project-api';
+import { getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
-import { addActionNotification, closeResolvedActionNotificationsForProject, markActionNotificationRead, resolveActionRequestNotificationsForProject } from '../../../lib/action-notifications';
-import { useActionNotifications } from '../../../lib/use-action-notifications';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
 import { can } from '../../../lib/permissions';
 import { useCurrentUser } from '../../../lib/dev-user';
 import ArchiveScreen from '../../../features/project-tab/ArchiveScreen';
 import VerifyScreen from '../../../features/project-tab/VerifyScreen';
 import ReportScreen from '../../../features/project-tab/ReportScreen';
-import { CATS, createEntryFromFile, fmt, type UsageLineItem } from '../../../lib/evidence-utils';
+import { CATS, createEntryFromFile, type UsageLineItem } from '../../../lib/evidence-utils';
 import type { ArchiveSeed, EvidenceFile } from '../../../types/domain';
-type DetailTab = 'overview' | 'validation' | 'report' | 'archive';
+type DetailTab = 'overview' | 'validation' | 'report';
+type UsageStatementInfoDraft = UpdateProjectInput & {
+    contractNumber: string;
+    constructionName: string;
+    constructionCompany: string;
+    representative: string;
+    client: string;
+    constructionAmount: string;
+    appropriatedAmount: string;
+    startDate: string;
+    endDate: string;
+    location: string;
+    progressRate: string;
+    revisionNo: string;
+    uploadedAt: string;
+    documentWrittenDate: string;
+};
 type UsageUploadStage = 'idle' | 'ocr' | 'classifying';
 type HistoryEventKind = 'upload' | 'review' | 'action' | 'validation' | 'report' | 'project';
 type HeaderHistoryItem = {
@@ -40,16 +55,16 @@ type PendingReviewUpload = {
     categoryName: string;
     itemName: string;
 };
+type SharedWorkflowStatus = 'draft' | 'upload_completed' | 'supplement_required' | 'supplement_uploaded' | 'approved';
 const TABS: Array<{
     id: DetailTab;
     label: string;
 }> = [
     { id: 'overview', label: '사용내역서' },
-    { id: 'archive', label: '아카이브' },
     { id: 'validation', label: '유효성 검증' },
     { id: 'report', label: '보고서' },
 ];
-const DETAIL_TABS = new Set<DetailTab>(['overview', 'validation', 'report', 'archive']);
+const DETAIL_TABS = new Set<DetailTab>(['overview', 'validation', 'report']);
 const LOCAL_USAGE_STATEMENT_PREFIX = 'iveri-mvp-usage-statement:';
 const EMPTY_USAGE_STATEMENT: MonthlyUsageStatementSummary = {
     month: '',
@@ -66,11 +81,14 @@ const EMPTY_USAGE_STATEMENT: MonthlyUsageStatementSummary = {
     evidenceCount: 0,
     issueCount: 0,
 };
+const EMPTY_OVERVIEW_ROWS = [...CATS.map((cat) => [`${cat.id}. ${cat.label}`, '-', '-', '-'] as [string, string, string, string]), ['계', '-', '-', '-'] as [string, string, string, string]];
 interface MvpUsageStatementArchiveData {
     archiveSeed: ArchiveSeed;
     usageItems: UsageLineItem[];
     overviewRows: Array<[string, string, string, string]>;
     statementSummary: MonthlyUsageStatementSummary;
+    workflowStatus?: SharedWorkflowStatus;
+    actionRequestDetails?: ProjectSummary['actionRequestDetails'];
 }
 const parseAmount = (value: string) => {
     const numeric = Number(String(value || '').replace(/[^\d]/g, ''));
@@ -137,6 +155,18 @@ const writeLocalUsageStatementData = (projectId: string, data: MvpUsageStatement
         return;
     window.localStorage.setItem(getLocalUsageStatementKey(projectId), JSON.stringify(data));
 };
+const normalizeWorkflowStatus = (value?: string | null): SharedWorkflowStatus => {
+    if (value === 'upload_completed' || value === 'approved' || value === 'supplement_required' || value === 'supplement_uploaded')
+        return value;
+    return 'draft';
+};
+const applyWorkflowToProject = (project: ProjectSummary, status: SharedWorkflowStatus, actionRequestDetails?: ProjectSummary['actionRequestDetails']): ProjectSummary => ({
+    ...project,
+    status,
+    hasActionRequest: status === 'supplement_required' || status === 'supplement_uploaded',
+    actionRequestDetails: status === 'supplement_required' || status === 'supplement_uploaded' ? actionRequestDetails : undefined,
+    reportReady: status === 'approved' || status === 'supplement_required' || status === 'supplement_uploaded',
+});
 const getUsageStatementOcrFailureReason = (file: File) => {
     const fileName = file.name.toLowerCase();
     const supportedExtension = /\.(pdf|png|jpe?g|webp|xlsx)$/i.test(file.name);
@@ -185,19 +215,17 @@ export default function ProjectDetailPage() {
     }>();
     const searchParams = useSearchParams();
     const { user } = useCurrentUser();
-    const { visibleNotifications } = useActionNotifications(user);
     const projectId = params?.projectId || '';
     const [projectRevision, setProjectRevision] = useState(0);
     const [project, setProject] = useState<ProjectSummary>(EMPTY_PROJECT);
     const [projectLoading, setProjectLoading] = useState(true);
     const [projectError, setProjectError] = useState('');
     const [managerCandidateProfiles, setManagerCandidateProfiles] = useState<BackendUserProfile[]>([]);
-    const fallbackMonthlyStatements = useMemo(() => getMonthlyUsageStatements(project.id), [project.id]);
-    const latestFallbackStatement = fallbackMonthlyStatements[fallbackMonthlyStatements.length - 1] || EMPTY_USAGE_STATEMENT;
+    const [dbUsageStatementsByMonth, setDbUsageStatementsByMonth] = useState<Record<string, UsageStatementArchiveData>>({});
+    const latestFallbackStatement = EMPTY_USAGE_STATEMENT;
     const canUploadEvidence = can(user, 'uploadEvidence');
     const canRunValidation = can(user, 'runValidation');
     const canReviewReport = can(user, 'reviewReport');
-    const canRunArchiveTools = canUploadEvidence || canRunValidation;
     const availableTabs = TABS.filter((tab) => {
         if (tab.id === 'validation')
             return canRunValidation;
@@ -206,16 +234,14 @@ export default function ProjectDetailPage() {
         return true;
     });
     const availableTabIds = new Set(availableTabs.map((tab) => tab.id));
-    const requestedTabParam = searchParams.get('tab') as DetailTab | null;
-    const requestedTab = requestedTabParam && DETAIL_TABS.has(requestedTabParam) && availableTabIds.has(requestedTabParam) ? requestedTabParam : 'overview';
+    const requestedTabParam = searchParams.get('tab');
+    const requestedTab = requestedTabParam && DETAIL_TABS.has(requestedTabParam as DetailTab) && availableTabIds.has(requestedTabParam as DetailTab) ? requestedTabParam as DetailTab : 'overview';
     const [activeTab, setActiveTab] = useState<DetailTab>(requestedTab);
     const [archiveSeed, setArchiveSeed] = useState<ArchiveSeed | null>(null);
     const [archiveUsageItems, setArchiveUsageItems] = useState<UsageLineItem[]>([]);
-    const [dbOverviewUsageRows, setDbOverviewUsageRows] = useState<Array<[string, string, string, string]> | null>(null);
-    const [latestDbStatement, setLatestDbStatement] = useState<MonthlyUsageStatementSummary | null>(null);
     const [matchReady, setMatchReady] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState(latestFallbackStatement.month);
-    const [usageStatementPage, setUsageStatementPage] = useState(0);
+    const [usageStatementPage, setUsageStatementPage] = useState(requestedTabParam === 'archive' ? 1 : 0);
     const [usageUploadStage, setUsageUploadStage] = useState<UsageUploadStage>('idle');
     const [validationStatusByMonth, setValidationStatusByMonth] = useState<Record<string, 'idle' | 'running' | 'done'>>({});
     const [selectedHistoryDate, setSelectedHistoryDate] = useState('all');
@@ -225,8 +251,8 @@ export default function ProjectDetailPage() {
     const [actionGuideOpen, setActionGuideOpen] = useState(false);
     const [actionCompletionSent, setActionCompletionSent] = useState(false);
     const [pendingReviewUploads, setPendingReviewUploads] = useState<PendingReviewUpload[]>([]);
-    const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
     const [managerModalOpen, setManagerModalOpen] = useState(false);
+    const [projectInfoModalOpen, setProjectInfoModalOpen] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [deleteError, setDeleteError] = useState('');
     const [deletingProject, setDeletingProject] = useState(false);
@@ -235,21 +261,50 @@ export default function ProjectDetailPage() {
     const [draftManagerIds, setDraftManagerIds] = useState<number[]>([]);
     const [managerSaveError, setManagerSaveError] = useState('');
     const [managerSaving, setManagerSaving] = useState(false);
+    const [projectInfoDraft, setProjectInfoDraft] = useState<UsageStatementInfoDraft>({
+        contractNumber: '',
+        constructionName: '',
+        constructionCompany: '',
+        representative: '',
+        client: '',
+        constructionAmount: '',
+        appropriatedAmount: '',
+        startDate: '',
+        endDate: '',
+        location: '',
+        projectStatusCode: 'active',
+        progressRate: '',
+        revisionNo: '',
+        uploadedAt: '',
+        documentWrittenDate: '',
+    });
+    const [projectInfoSaveError, setProjectInfoSaveError] = useState('');
+    const [projectInfoSaving, setProjectInfoSaving] = useState(false);
+    const [statementOverrides, setStatementOverrides] = useState<Record<string, Partial<MonthlyUsageStatementSummary>>>({});
     const historyDateMenuRef = useRef<HTMLDivElement | null>(null);
     const monthMenuRef = useRef<HTMLDivElement | null>(null);
     const usageUploadTimersRef = useRef<number[]>([]);
-    const monthlyStatements = useMemo(() => {
-        if (!latestDbStatement)
-            return fallbackMonthlyStatements;
-        const withoutSameMonth = fallbackMonthlyStatements.filter((statement) => statement.month !== latestDbStatement.month);
-        return [...withoutSameMonth, latestDbStatement].toSorted((a, b) => a.month.localeCompare(b.month));
-    }, [fallbackMonthlyStatements, latestDbStatement]);
+    const monthlyStatements = useMemo(() => Object.values(dbUsageStatementsByMonth)
+        .map((entry) => ({
+        ...entry.statementSummary,
+        ...(statementOverrides[entry.statementSummary.month] || {}),
+    }))
+        .toSorted((a, b) => a.month.localeCompare(b.month)), [dbUsageStatementsByMonth, statementOverrides]);
     const latestStatement = monthlyStatements[monthlyStatements.length - 1] || latestFallbackStatement;
     const refreshArchiveData = async (targetProjectId: string) => {
-        const [latestData, archiveData] = await Promise.all([
+        const localData = readLocalUsageStatementData(targetProjectId);
+        const [statementArchives, latestData, archiveData] = await Promise.all([
+            listUsageStatementArchives(targetProjectId).catch(() => []),
             getLatestUsageStatementArchive(targetProjectId).catch(() => null),
             getProjectArchiveFromCategories(targetProjectId).catch(() => null),
         ]);
+        const mergedStatementArchives = [...statementArchives];
+        if (localData && !mergedStatementArchives.some((item) => item.statementSummary.month === localData.statementSummary.month)) {
+            mergedStatementArchives.push(localData);
+        }
+        if (mergedStatementArchives.length) {
+            setDbUsageStatementsByMonth(Object.fromEntries(mergedStatementArchives.map((item) => [item.statementSummary.month, item])) as Record<string, UsageStatementArchiveData>);
+        }
         if (latestData) {
             const mergedArchiveSeed = archiveData?.archiveSeed || latestData.archiveSeed;
             setArchiveSeed({
@@ -257,29 +312,28 @@ export default function ProjectDetailPage() {
                 categories: Object.keys(mergedArchiveSeed.categories || {}).length ? mergedArchiveSeed.categories : latestData.archiveSeed.categories,
             });
             setArchiveUsageItems(archiveData?.usageItems.length ? archiveData.usageItems : latestData.usageItems);
-            setDbOverviewUsageRows(latestData.overviewRows);
-            setLatestDbStatement(latestData.statementSummary);
-            setProject((current) => ({
+            setProject((current) => applyWorkflowToProject({
                 ...current,
                 hasUploads: latestData.statementSummary.evidenceCount > 0 || Boolean(latestData.statementSummary.sourceFileName && latestData.statementSummary.sourceFileName !== '-'),
                 accumulatedAmount: latestData.statementSummary.cumulativeAmount,
-            }));
+            }, normalizeWorkflowStatus(localData?.workflowStatus || current.status), localData?.actionRequestDetails));
             return;
         }
         if (archiveData) {
             setArchiveSeed(archiveData.archiveSeed);
             setArchiveUsageItems(archiveData.usageItems);
-            setProject((current) => ({
+            setProject((current) => applyWorkflowToProject({
                 ...current,
                 hasUploads: Boolean(archiveData.archiveSeed.usage_statement.length || archiveData.usageItems.length || current.hasUploads),
-            }));
+            }, normalizeWorkflowStatus(localData?.workflowStatus || current.status), localData?.actionRequestDetails));
         }
     };
     const selectedStatement = monthlyStatements.find((statement) => statement.month === selectedMonth) || latestStatement;
-    const hasUsageStatement = Boolean(latestDbStatement || archiveSeed?.usage_statement?.length || archiveUsageItems.length || dbOverviewUsageRows);
+    const selectedStatementArchive = selectedStatement.month ? dbUsageStatementsByMonth[selectedStatement.month] : undefined;
+    const selectedMonthHasUploadedStatement = Boolean(selectedStatement.sourceFileName && selectedStatement.sourceFileName !== '-');
+    const hasUsageStatement = monthlyStatements.length > 0 || Boolean(archiveSeed?.usage_statement?.length || archiveUsageItems.length);
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
-    const actionRequestNotificationsForProject = useMemo(() => visibleNotifications.filter((notification) => notification.type === 'action_request' && notification.projectId === project.id), [project.id, visibleNotifications]);
-    const activeActionRequestNotification = useMemo(() => actionRequestNotificationsForProject.find((notification) => notification.statusCode !== 'closed'), [actionRequestNotificationsForProject]);
+    const workflowStatus = normalizeWorkflowStatus(project.status);
     const headerHistoryItems = useMemo<HeaderHistoryItem[]>(() => {
         const categoryFiles = archiveSeed
             ? Object.values(archiveSeed.categories).flatMap((lineItems) => Object.values(lineItems).flatMap((byKind) => Object.values(byKind).flat()))
@@ -293,51 +347,15 @@ export default function ProjectDetailPage() {
             title: file.kind === 'usage_statement' ? '사용내역서 업로드' : '증빙자료 업로드',
             summary: `${file.uploadedBy || '담당자'}님이 ${file.name} 파일을 업로드했습니다.`,
         }));
-        const notificationEvents: HeaderHistoryItem[] = visibleNotifications
-            .filter((notification) => notification.projectId === project.id)
-            .flatMap<HeaderHistoryItem>((notification) => {
-                if (notification.type === 'new_upload') {
-                    return [{
-                        id: `review-${notification.id}`,
-                        kind: 'review' as const,
-                        date: notification.createdAt,
-                        time: notification.createdAtMs,
-                        count: notification.requestedFiles.length || 1,
-                        title: '검토 요청',
-                        summary: notification.message || `${notification.senderName}님이 새 파일 검토를 요청했습니다.`,
-                    }];
-                }
-                const events: HeaderHistoryItem[] = [{
-                    id: `action-${notification.id}`,
-                    kind: 'action' as const,
-                    date: notification.createdAt,
-                    time: notification.createdAtMs,
-                    count: notification.requestedFiles.length || 1,
-                    title: '조치 요청 발송',
-                    summary: notification.message,
-                }];
-                if (notification.read || notification.statusCode === 'in_progress' || notification.statusCode === 'resolved' || notification.statusCode === 'closed') {
-                    events.push({
-                        id: `action-read-${notification.id}`,
-                        kind: 'action' as const,
-                        date: notification.createdAt,
-                        time: notification.createdAtMs + 1,
-                        count: 1,
-                        title: '조치 요청 확인',
-                        summary: `${notification.recipientUserName || '프로젝트 담당자'}님이 조치 요청을 확인했습니다.`,
-                    });
-                }
-                return events;
-            });
-        const statementEvent = latestDbStatement?.sourceFileName && latestDbStatement.sourceFileName !== '-'
+        const statementEvent = latestStatement?.sourceFileName && latestStatement.sourceFileName !== '-'
             ? [{
-                id: `statement-${latestDbStatement.month}`,
+                id: `statement-${latestStatement.month}`,
                 kind: 'upload' as const,
-                date: formatHistoryDate(latestDbStatement.uploadedAt),
-                time: getHistoryTime(latestDbStatement.uploadedAt),
-                count: latestDbStatement.evidenceCount || 1,
+                date: formatHistoryDate(latestStatement.uploadedAt),
+                time: getHistoryTime(latestStatement.uploadedAt),
+                count: latestStatement.evidenceCount || 1,
                 title: '사용내역서 처리',
-                summary: `${latestDbStatement.label} 사용내역서 OCR 및 분류 결과가 반영되었습니다.`,
+                summary: `${latestStatement.label} 사용내역서 OCR 및 분류 결과가 반영되었습니다.`,
             }]
             : [];
         const validationEvent = selectedValidationStatus === 'done'
@@ -373,22 +391,20 @@ export default function ProjectDetailPage() {
                 summary: project.recentActivity,
             }]
             : [];
-        return [...validationEvent, ...reportEvent, ...notificationEvents, ...statementEvent, ...fileEvents, ...projectEvent]
+        return [...validationEvent, ...reportEvent, ...statementEvent, ...fileEvents, ...projectEvent]
             .map((item) => ({ ...item, dateKey: getHistoryDateKey(item.date) }))
             .sort((a, b) => b.time - a.time)
             .slice(0, 20);
-    }, [archiveSeed, latestDbStatement, project.id, project.recentActivity, project.reportReady, selectedStatement.label, selectedStatement.month, selectedValidationStatus, visibleNotifications]);
+    }, [archiveSeed, latestStatement, project.id, project.recentActivity, project.reportReady, selectedStatement.label, selectedStatement.month, selectedValidationStatus]);
     const historyDateOptions = Array.from(new Set(headerHistoryItems.map((item) => item.dateKey)));
     const visibleHeaderHistoryItems = selectedHistoryDate === 'all'
         ? headerHistoryItems
         : headerHistoryItems.filter((item) => item.dateKey === selectedHistoryDate);
-    const hasNotificationBackedActionRequest = actionRequestNotificationsForProject.length > 0;
-    const canViewActionGuide = user.role === 'project_manager' && Boolean(activeActionRequestNotification || (!hasNotificationBackedActionRequest && project.hasActionRequest));
+    const canViewActionGuide = user.role === 'project_manager' && (workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded') && Boolean(project.actionRequestDetails);
     const canEditManagers = user.role === 'she_manager';
     const projectManagers = getProjectManagers(project);
     const managerCandidates = managerCandidateProfiles.map((manager) => manager.realName);
-    const shouldShowActionBadge = Boolean(activeActionRequestNotification || (!hasNotificationBackedActionRequest && project.hasActionRequest));
-    const shouldPulseActionBadge = canViewActionGuide && !actionCompletionSent && activeActionRequestNotification?.statusCode !== 'resolved';
+    const shouldPulseActionBadge = canViewActionGuide && !actionCompletionSent;
     useEffect(() => {
         if (!projectId)
             return;
@@ -423,19 +439,32 @@ export default function ProjectDetailPage() {
         if (!project.id)
             return;
         let alive = true;
+        const localData = readLocalUsageStatementData(project.id);
         setArchiveSeed(null);
         setArchiveUsageItems([]);
-        setDbOverviewUsageRows(null);
-        setLatestDbStatement(null);
+        setDbUsageStatementsByMonth({});
         setMatchReady(false);
-        setActionGuideOpen(user.role === 'project_manager' && project.hasActionRequest);
+        setActionGuideOpen(user.role === 'project_manager' && (workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded'));
         setActionCompletionSent(false);
         setPendingReviewUploads([]);
+        if (localData) {
+            setDbUsageStatementsByMonth({
+                [localData.statementSummary.month]: localData,
+            });
+            setArchiveSeed(localData.archiveSeed);
+            setArchiveUsageItems(localData.usageItems);
+            setProject((current) => applyWorkflowToProject({
+                ...current,
+                hasUploads: true,
+                accumulatedAmount: localData.statementSummary.cumulativeAmount,
+            }, normalizeWorkflowStatus(localData.workflowStatus), localData.actionRequestDetails));
+        }
         refreshArchiveData(project.id)
             .catch(() => {
                 if (!alive)
                     return;
-                setArchiveSeed(null);
+                if (!localData)
+                    setArchiveSeed(null);
             });
         listProjectFiles(project.id)
             .then((files) => {
@@ -448,7 +477,7 @@ export default function ProjectDetailPage() {
         return () => {
             alive = false;
         };
-    }, [project.id, project.hasActionRequest, user.role]);
+    }, [project.id, user.role, workflowStatus]);
     useEffect(() => () => {
         usageUploadTimersRef.current.forEach((timer) => window.clearTimeout(timer));
         usageUploadTimersRef.current = [];
@@ -457,11 +486,27 @@ export default function ProjectDetailPage() {
         setSelectedMonth(latestStatement.month);
     }, [latestStatement.month]);
     useEffect(() => {
+        const latestArchiveData = latestStatement.month ? dbUsageStatementsByMonth[latestStatement.month] : undefined;
+        if (!project.id || !archiveSeed || !latestArchiveData)
+            return;
+        writeLocalUsageStatementData(project.id, {
+            archiveSeed,
+            usageItems: archiveUsageItems,
+            overviewRows: latestArchiveData.overviewRows,
+            statementSummary: latestArchiveData.statementSummary,
+            workflowStatus,
+            actionRequestDetails: workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded' ? project.actionRequestDetails : undefined,
+        });
+    }, [archiveSeed, archiveUsageItems, dbUsageStatementsByMonth, latestStatement.month, project.actionRequestDetails, project.id, workflowStatus]);
+    useEffect(() => {
         setUsageStatementPage(0);
     }, [selectedMonth]);
     useEffect(() => {
         setActiveTab(requestedTab);
-    }, [requestedTab]);
+        if (requestedTabParam === 'archive') {
+            setUsageStatementPage(1);
+        }
+    }, [requestedTab, requestedTabParam]);
     useEffect(() => {
         if (!historyDateMenuOpen)
             return;
@@ -504,10 +549,17 @@ export default function ProjectDetailPage() {
         if (!availableTabIds.has(tab))
             return;
         setActiveTab(tab);
+        if (tab !== 'overview')
+            setUsageStatementPage(0);
         router.replace(`/projects/${project.id}?tab=${tab}`);
     };
+    const openArchiveView = () => {
+        setActiveTab('overview');
+        setUsageStatementPage(1);
+        router.replace(`/projects/${project.id}?tab=overview`);
+    };
     const registerPendingReviewUploads = (uploadedFiles: EvidenceFile[], context?: { categoryName: string; itemName: string }) => {
-        if (user.role !== 'project_manager' || !uploadedFiles.length)
+        if (!canUploadEvidence || !uploadedFiles.length)
             return;
         const categoryName = context?.categoryName || '선택 항목';
         const itemName = context?.itemName || categoryName;
@@ -516,35 +568,24 @@ export default function ProjectDetailPage() {
             ...uploadedFiles.map((file) => ({ file, categoryName, itemName })),
         ]);
     };
-    const sendReviewRequest = () => {
-        if (user.role !== 'project_manager' || !pendingReviewUploads.length)
-            return;
-        const fileNames = pendingReviewUploads.map((upload) => upload.file.name);
-        const targetNames = Array.from(new Set(pendingReviewUploads.map((upload) => upload.itemName || upload.categoryName)));
-        const uploadTargetName = targetNames.length <= 1 ? (targetNames[0] || '새 업로드') : `${targetNames[0]} 외 ${targetNames.length - 1}건`;
-        addActionNotification({
-            projectId: project.id,
-            projectName: project.name,
-            categoryName: uploadTargetName,
-            title: `새로운 파일 ${pendingReviewUploads.length}건 업로드`,
-            message: `${user.name} 담당자가 ${project.name}의 ${uploadTargetName} 항목에 새 파일 ${pendingReviewUploads.length}건을 업로드했습니다.`,
-            requestedFiles: fileNames,
-            senderName: user.name,
-            recipientRole: 'she_manager',
-            type: 'new_upload',
-        });
-        if (canViewActionGuide && !actionCompletionSent) {
-            resolveActionRequestNotificationsForProject(project.id);
-            setProject((current) => ({
+    const revertReviewedProjectToDraft = () => {
+        setProject((current) => current.status === 'upload_completed' || current.status === 'approved' || current.status === 'supplement_uploaded'
+            ? applyWorkflowToProject({
                 ...current,
                 hasUploads: true,
-                hasActionRequest: false,
-                actionRequestDetails: current.actionRequestDetails ? { ...current.actionRequestDetails, statusCode: 'resolved' } : current.actionRequestDetails,
-            }));
-            setActionCompletionSent(true);
-        } else {
-            setProject((current) => ({ ...current, hasUploads: true }));
-        }
+            }, 'draft')
+            : current);
+        setValidationStatusByMonth((prev) => prev[selectedStatement.month] ? { ...prev, [selectedStatement.month]: 'idle' } : prev);
+    };
+    const sendReviewRequest = () => {
+        if (!canUploadEvidence || !hasUsageStatement)
+            return;
+        setProject((current) => applyWorkflowToProject({
+            ...current,
+            hasUploads: true,
+        }, current.status === 'supplement_required' || current.status === 'supplement_uploaded' ? 'supplement_uploaded' : 'upload_completed', current.actionRequestDetails));
+        setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'idle' }));
+        setActionCompletionSent(true);
         setPendingReviewUploads([]);
     };
     const openManagerModal = () => {
@@ -555,6 +596,28 @@ export default function ProjectDetailPage() {
         setDraftManagerIds(idsFromProject.length ? idsFromProject : idsFromNames);
         setManagerSaveError('');
         setManagerModalOpen(true);
+    };
+    const openProjectInfoModal = () => {
+        const { startDate, endDate } = parseProjectPeriod(project.period);
+        setProjectInfoDraft({
+            contractNumber: project.contractNumber,
+            constructionName: project.constructionName,
+            constructionCompany: project.constructionCompany,
+            representative: project.representative,
+            client: project.client,
+            constructionAmount: String(project.constructionAmount || '').replace(/[^\d]/g, ''),
+            appropriatedAmount: String(project.plannedAmount || '').replace(/[^\d]/g, ''),
+            startDate,
+            endDate,
+            location: project.location,
+            projectStatusCode: project.projectStatusCode,
+            progressRate: project.progressRate,
+            revisionNo: String(selectedStatement.revisionNo || ''),
+            uploadedAt: selectedStatement.uploadedAt,
+            documentWrittenDate: selectedStatement.documentWrittenDate,
+        });
+        setProjectInfoSaveError('');
+        setProjectInfoModalOpen(true);
     };
     const uploadUsageStatementFromOverview = () => {
         if (!canUploadEvidence || usageUploadStage !== 'idle')
@@ -597,17 +660,30 @@ export default function ProjectDetailPage() {
                             evidenceCount: 1,
                             issueCount: 0,
                         };
-                        setLatestDbStatement(statementSummary);
+                        setDbUsageStatementsByMonth((current) => ({
+                            ...current,
+                            [month]: {
+                                archiveSeed: current[month]?.archiveSeed || { usage_statement: [], categories: {} },
+                                usageItems: current[month]?.usageItems || [],
+                                overviewRows: current[month]?.overviewRows || EMPTY_OVERVIEW_ROWS,
+                                statementSummary,
+                            },
+                        }));
                         setArchiveSeed((current) => ({
                             usage_statement: [uploadedEntry, ...(current?.usage_statement || []).filter((file) => file.fileId !== uploadedEntry.fileId)],
                             categories: current?.categories || {},
                         }));
-                        setProject((current) => ({ ...current, hasUploads: true }));
+                        setProject((current) => current.status === 'upload_completed' || current.status === 'approved' || current.status === 'supplement_uploaded'
+                            ? applyWorkflowToProject({
+                                ...current,
+                                hasUploads: true,
+                            }, 'draft')
+                            : { ...current, hasUploads: true });
                         setSelectedMonth(month);
                         setUsageUploadStage('classifying');
                         await refreshArchiveData(project.id);
                         setUsageUploadStage('idle');
-                        updateTab('archive');
+                        openArchiveView();
                     })
                     .catch(() => {
                         setUsageUploadStage('idle');
@@ -641,7 +717,7 @@ export default function ProjectDetailPage() {
                         setArchiveUsageItems(processedData.usageItems);
                         writeLocalUsageStatementData(project.id, processedData);
                         setUsageUploadStage('idle');
-                        updateTab('archive');
+                        openArchiveView();
                     } catch {
                         setUsageUploadStage('idle');
                         setAgentFailureTarget('usage-classification');
@@ -686,6 +762,74 @@ export default function ProjectDetailPage() {
             setManagerSaveError(error instanceof Error ? error.message : '관리자 저장에 실패했습니다.');
         } finally {
             setManagerSaving(false);
+        }
+    };
+    const saveProjectInfo = async () => {
+        const requiredValues = [
+            projectInfoDraft.contractNumber,
+            projectInfoDraft.constructionName,
+            projectInfoDraft.constructionCompany,
+            projectInfoDraft.representative,
+            projectInfoDraft.client,
+            projectInfoDraft.constructionAmount,
+            projectInfoDraft.appropriatedAmount,
+            projectInfoDraft.startDate,
+            projectInfoDraft.endDate,
+            projectInfoDraft.location,
+            projectInfoDraft.progressRate,
+            projectInfoDraft.revisionNo,
+        ];
+        if (requiredValues.some((value) => !String(value || '').trim())) {
+            setProjectInfoSaveError('필수 정보를 모두 입력해 주세요.');
+            return;
+        }
+        if (new Date(projectInfoDraft.startDate || '').getTime() > new Date(projectInfoDraft.endDate || '').getTime()) {
+            setProjectInfoSaveError('공사 시작일은 마감일보다 늦을 수 없습니다.');
+            return;
+        }
+        setProjectInfoSaving(true);
+        setProjectInfoSaveError('');
+        try {
+            const savedProject = await updateProject(project.id, {
+                contractNumber: projectInfoDraft.contractNumber,
+                constructionName: projectInfoDraft.constructionName,
+                constructionCompany: projectInfoDraft.constructionCompany,
+                representative: projectInfoDraft.representative,
+                client: projectInfoDraft.client,
+                constructionAmount: projectInfoDraft.constructionAmount,
+                appropriatedAmount: projectInfoDraft.appropriatedAmount,
+                startDate: projectInfoDraft.startDate,
+                endDate: projectInfoDraft.endDate,
+                location: projectInfoDraft.location,
+                projectStatusCode: projectInfoDraft.projectStatusCode,
+            });
+            setProject((current) => ({
+                ...current,
+                contractNumber: savedProject.contractNumber,
+                name: savedProject.name,
+                constructionName: savedProject.constructionName,
+                constructionCompany: savedProject.constructionCompany,
+                representative: savedProject.representative,
+                client: savedProject.client,
+                constructionAmount: savedProject.constructionAmount,
+                period: savedProject.period,
+                location: savedProject.location,
+                plannedAmount: savedProject.plannedAmount,
+                projectStatusCode: savedProject.projectStatusCode,
+                progressRate: projectInfoDraft.progressRate,
+                recentActivity: savedProject.recentActivity,
+            }));
+            setStatementOverrides((current) => ({
+                ...current,
+                [selectedStatement.month]: {
+                    revisionNo: Number(projectInfoDraft.revisionNo || '0'),
+                },
+            }));
+            setProjectInfoModalOpen(false);
+        } catch (error) {
+            setProjectInfoSaveError(error instanceof Error ? error.message : '사용내역서 기본 정보 저장에 실패했습니다.');
+        } finally {
+            setProjectInfoSaving(false);
         }
     };
     const confirmDeleteProject = async () => {
@@ -760,15 +904,17 @@ export default function ProjectDetailPage() {
         </div>
       </div>
     </Modal>);
-    const actionGuideTitle = activeActionRequestNotification?.title || project.actionRequestDetails?.title || '조치 요청';
-    const actionGuideMessage = activeActionRequestNotification?.message || project.actionRequestDetails?.reason || '';
-    const actionGuideRequestedFiles = activeActionRequestNotification?.requestedFiles || [];
-    const actionGuideMeta = activeActionRequestNotification
-        ? `요청 ${activeActionRequestNotification.createdAt} · 담당 ${activeActionRequestNotification.recipientUserName || user.name}`
-        : project.actionRequestDetails
-            ? `요청 ${project.actionRequestDetails.requestedAt} · 담당 ${project.actionRequestDetails.assignee}`
-            : '';
-    const actionGuideModal = canViewActionGuide && (activeActionRequestNotification || project.actionRequestDetails) ? (
+    const projectInfoModal = (<ProjectInfoEditorModal open={projectInfoModalOpen} mode="usage" title="사용내역서 기본 정보 수정" subtitle={project.constructionName} draft={projectInfoDraft} error={projectInfoSaveError} saving={projectInfoSaving} onClose={() => setProjectInfoModalOpen(false)} onSave={saveProjectInfo} onChange={(patch) => {
+            setProjectInfoDraft((current) => ({ ...current, ...patch }));
+            setProjectInfoSaveError('');
+        }}/>);
+    const actionGuideTitle = project.actionRequestDetails?.title || '보완 요청';
+    const actionGuideMessage = project.actionRequestDetails?.reason || '';
+    const actionGuideRequestedFiles: string[] = [];
+    const actionGuideMeta = project.actionRequestDetails
+        ? `요청 ${project.actionRequestDetails.requestedAt} · 담당 ${project.actionRequestDetails.assignee}`
+        : '';
+    const actionGuideModal = canViewActionGuide && project.actionRequestDetails ? (
         <Modal open={actionGuideOpen} onClose={() => setActionGuideOpen(false)} zIndex={960} maxWidth={680}>
           <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
             <div style={{ padding: '20px 22px 16px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
@@ -849,15 +995,15 @@ export default function ProjectDetailPage() {
             code: 'LG',
             title: 'Legal Agent',
             description: '법령 기준 유효성 검증',
-            label: selectedValidationStatus === 'done' ? '완료' : project.hasActionRequest ? '조치 필요' : canRunValidation ? '검증 가능' : '대기',
-            tone: selectedValidationStatus === 'done' ? 'ok' as const : project.hasActionRequest ? 'danger' as const : canRunValidation ? 'warn' as const : 'idle' as const,
+            label: workflowStatus === 'approved' ? '승인 완료' : workflowStatus === 'supplement_required' ? '보완 요청' : workflowStatus === 'supplement_uploaded' ? '재검토 대기' : workflowStatus === 'upload_completed' ? '검증 가능' : '대기',
+            tone: workflowStatus === 'approved' ? 'ok' as const : workflowStatus === 'supplement_required' ? 'danger' as const : workflowStatus === 'supplement_uploaded' ? 'warn' as const : workflowStatus === 'upload_completed' ? 'warn' as const : 'idle' as const,
         },
         {
             code: 'RP',
             title: 'Report Agent',
             description: '보고서 초안 생성',
-            label: project.reportReady || selectedValidationStatus === 'done' ? '생성 가능' : '대기',
-            tone: project.reportReady || selectedValidationStatus === 'done' ? 'ok' as const : 'idle' as const,
+            label: workflowStatus === 'approved' || workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded' ? '생성 가능' : '대기',
+            tone: workflowStatus === 'approved' || workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded' ? 'ok' as const : 'idle' as const,
         },
     ];
     const agentWorkflowCard = (<section data-ui="project-detail.agent-workflow" style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column' }}>
@@ -944,15 +1090,71 @@ export default function ProjectDetailPage() {
             </div>
           ))}
     </div>);
-    const overviewUsageRows = dbOverviewUsageRows || [...CATS.map((cat) => [`${cat.id}. ${cat.label}`, '-', '-', '-'] as [string, string, string, string]), ['계', '-', '-', '-'] as [string, string, string, string]];
-    const usageDetailPageSize = 5;
-    const usageDetailPages = Array.from({ length: Math.ceil(archiveUsageItems.length / usageDetailPageSize) }, (_, index) => archiveUsageItems.slice(index * usageDetailPageSize, (index + 1) * usageDetailPageSize));
-    const usageStatementPageCount = 1 + usageDetailPages.length;
-    const selectedUsageDetailPage = usageDetailPages[usageStatementPage - 1] || [];
+    const overviewUsageRows = selectedStatementArchive?.overviewRows || EMPTY_OVERVIEW_ROWS;
     const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '120px minmax(170px, 1fr) 120px minmax(170px, 1fr)', minWidth: 620 } as const;
-    const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 130px 130px', minWidth: 650 } as const;
-    const usageDetailGridStyle = { display: 'grid', gridTemplateColumns: '64px minmax(220px, 1fr) minmax(180px, .75fr) 130px', minWidth: 594 } as const;
+    const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 150px 130px', minWidth: 670 } as const;
     const usageTableScrollStyle = { width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden' } as const;
+    const usageStatementInfoRows = [
+        ['건설업체명', project.constructionCompany, '공사명', project.constructionName],
+        ['소재지', project.location, '대표자', project.representative],
+        ['공사금액', `${project.constructionAmount}원`, '공사기간', project.period],
+        ['발주자', project.client, '공정률', project.progressRate],
+        ['계상된 안전관리비', `${project.plannedAmount}원`, '개정번호', `${selectedStatement.revisionNo}차`],
+        ['업로드일', selectedStatement.uploadedAt, '최종수정일', selectedStatement.documentWrittenDate],
+    ];
+    const parseProjectPeriod = (period: string) => {
+        const [startDate = '', endDate = ''] = period.split('~').map((value) => value.trim().replace(/\//g, '-'));
+        return { startDate, endDate };
+    };
+    const parseCurrencyValue = (value: string) => {
+        const numeric = Number(String(value || '').replace(/[^\d]/g, ''));
+        return Number.isFinite(numeric) ? numeric : 0;
+    };
+    const editableUsageRows = overviewUsageRows.filter(([item]) => item !== '계');
+    const monthlyUsageTotal = editableUsageRows.reduce((sum, [, , current]) => sum + parseCurrencyValue(current), 0);
+    const usedSafetyCost = monthlyUsageTotal || parseCurrencyValue(selectedStatement.cumulativeAmount);
+    const totalSafetyCost = parseCurrencyValue(project.plannedAmount);
+    const safetyUsagePercent = totalSafetyCost > 0 ? Math.min(100, Math.round((usedSafetyCost / totalSafetyCost) * 1000) / 10) : 0;
+    const remainingSafetyCost = Math.max(0, totalSafetyCost - usedSafetyCost);
+    const showUsageStatementHeaderInfo = hasUsageStatement;
+    const formatEditableCurrency = (value: string | number) => {
+        const numeric = parseCurrencyValue(String(value));
+        return numeric > 0 ? numeric.toLocaleString('ko-KR') : '';
+    };
+    const updateUsageMonthlyAmount = (rowIndex: number, rawValue: string) => {
+        const amount = parseCurrencyValue(rawValue);
+        const formattedAmount = amount > 0 ? amount.toLocaleString('ko-KR') : '';
+        const nextBodyRows = editableUsageRows.map((row, index) => {
+            if (index !== rowIndex)
+                return row;
+            const previousAmount = parseCurrencyValue(row[1]);
+            const cumulativeAmount = previousAmount + amount;
+            return [row[0], row[1], formattedAmount, cumulativeAmount > 0 ? cumulativeAmount.toLocaleString('ko-KR') : ''] as [string, string, string, string];
+        });
+        const nextTotal = nextBodyRows.reduce((sum, [, , current]) => sum + parseCurrencyValue(current), 0);
+        const previousTotal = nextBodyRows.reduce((sum, [, previous]) => sum + parseCurrencyValue(previous), 0);
+        const cumulativeTotal = nextBodyRows.reduce((sum, [, , , cumulative]) => sum + parseCurrencyValue(cumulative), 0);
+        setDbUsageStatementsByMonth((current) => {
+            const monthKey = selectedStatement.month;
+            if (!monthKey)
+                return current;
+            const currentEntry = current[monthKey];
+            return {
+                ...current,
+                [monthKey]: {
+                    archiveSeed: currentEntry?.archiveSeed || archiveSeed || { usage_statement: [], categories: {} },
+                    usageItems: currentEntry?.usageItems || archiveUsageItems,
+                    overviewRows: [...nextBodyRows, ['계', previousTotal.toLocaleString('ko-KR'), nextTotal.toLocaleString('ko-KR'), cumulativeTotal.toLocaleString('ko-KR')]],
+                    statementSummary: currentEntry?.statementSummary || selectedStatement,
+                },
+            };
+        });
+        const categoryId = CATS[rowIndex]?.id;
+        if (categoryId) {
+            setArchiveUsageItems((current) => current.map((item) => item.categoryId === categoryId ? { ...item, amount } : item));
+        }
+        revertReviewedProjectToDraft();
+    };
     if (projectLoading) {
         return (<AppFrame title="프로젝트 상세">
           <Card style={{ padding: 24, textAlign: 'center', color: C.g400, fontWeight: 900, borderRadius: 6 }}>프로젝트 정보를 불러오는 중입니다.</Card>
@@ -964,10 +1166,54 @@ export default function ProjectDetailPage() {
         </AppFrame>);
     }
     const usageUploadButton = canUploadEvidence ? (
-      <button type="button" onClick={uploadUsageStatementFromOverview} disabled={usageUploadStage !== 'idle'} style={{ height: 40, border: 'none', borderRadius: 999, padding: '0 18px', background: usageUploadStage === 'idle' ? C.primary : C.g200, color: usageUploadStage === 'idle' ? C.white : C.g400, cursor: usageUploadStage === 'idle' ? 'pointer' : 'wait', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', boxShadow: 'none', whiteSpace: 'nowrap' }}>
+      <button type="button" onClick={uploadUsageStatementFromOverview} disabled={usageUploadStage !== 'idle'} style={{ height: 40, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '0 18px', background: C.white, color: usageUploadStage === 'idle' ? C.g600 : C.g400, cursor: usageUploadStage === 'idle' ? 'pointer' : 'wait', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', boxShadow: 'none', whiteSpace: 'nowrap' }}>
         {usageUploadStage === 'ocr' ? 'OCR 처리 중' : usageUploadStage === 'classifying' ? '분류 중' : '사용내역서 업로드'}
       </button>
     ) : null;
+    const reviewRequestHeaderButton = canUploadEvidence ? (
+      <button
+        type="button"
+        onClick={sendReviewRequest}
+        disabled={!selectedMonthHasUploadedStatement}
+        style={{
+          height: 40,
+          border: `1px solid ${!selectedMonthHasUploadedStatement ? C.g200 : C.primary}`,
+          borderRadius: 999,
+          padding: '0 16px',
+          background: !selectedMonthHasUploadedStatement ? C.g100 : C.bg,
+          color: !selectedMonthHasUploadedStatement ? C.g400 : C.primary,
+          cursor: !selectedMonthHasUploadedStatement ? 'not-allowed' : 'pointer',
+          fontSize: 13,
+          fontWeight: 900,
+          fontFamily: 'inherit',
+          whiteSpace: 'nowrap',
+          boxShadow: 'none',
+        }}
+      >
+        업로드 완료
+      </button>
+    ) : null;
+    const monthSelectDropdown = (
+      <div data-ui="project-detail.22" ref={monthMenuRef} style={{ position: 'relative', flex: '0 0 120px', maxWidth: '100%', minWidth: 0 }}>
+        <button data-ui="project-detail.23" type="button" onClick={() => setMonthMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 13px', background: C.white, color: C.g600, fontFamily: 'inherit', cursor: 'pointer', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 16px', alignItems: 'center', gap: 8, textAlign: 'left', boxShadow: '0 4px 7px rgba(31, 55, 43, .08)' }}>
+          <span style={{ minWidth: 0, fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedStatement.label}</span>
+          <span aria-hidden="true" style={{ color: C.g400, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <ChevronIcon direction={monthMenuOpen ? 'up' : 'down'} size={16} />
+          </span>
+        </button>
+        {monthMenuOpen && (<div data-ui="project-detail.24" style={{ position: 'absolute', top: 'calc(100% + 7px)', right: 0, zIndex: 80, width: 120, maxWidth: 'calc(100vw - 40px)', maxHeight: 260, overflowY: 'auto', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 6, padding: 6, boxShadow: '0 10px 22px rgba(31,55,43,.10)', scrollbarWidth: 'thin' }}>
+          {monthlyStatements.map((statement) => {
+              const active = selectedStatement.month === statement.month;
+              return (<button data-ui="project-detail.25" key={statement.month} type="button" onClick={() => {
+                      setSelectedMonth(statement.month);
+                      setMonthMenuOpen(false);
+                  }} style={{ width: '100%', border: 'none', borderRadius: 6, padding: '9px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', display: 'block', textAlign: 'left' }}>
+                <span style={{ fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap' }}>{statement.label}</span>
+              </button>);
+          })}
+        </div>)}
+      </div>
+    );
     const tabContent = {
         overview: (<Card style={{ padding: hasUsageStatement ? '22px 24px' : 0, minWidth: 0, overflow: 'hidden', borderRadius: 6 }}>
         {!hasUsageStatement ? (
@@ -978,89 +1224,118 @@ export default function ProjectDetailPage() {
             </div>
           </div>
         ) : <>
-        <div data-ui="project-detail.15" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap', minWidth: 0 }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>{selectedStatement.label} 사용내역서</div>
-            <div style={{ fontSize: 12, color: C.g400, marginTop: 4 }}>
-              {usageUploadStage === 'ocr' ? 'OCR이 사용내역서 내용을 읽고 있습니다.' : usageUploadStage === 'classifying' ? '세부 항목을 9개 항목으로 분류하고 있습니다.' : usageStatementPage === 0 ? '1페이지 · 기본 정보 및 9개 항목 요약' : `${usageStatementPage + 1}페이지 · 세부 사용내역 항목`}
+        <div data-ui="project-detail.15" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto auto', alignItems: 'center', gap: 10, marginBottom: 16, minWidth: 0 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            {monthSelectDropdown}
+            <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap' }}>사용내역서</div>
+              <div style={{ fontSize: 12, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {usageUploadStage === 'ocr' ? 'OCR이 사용내역서 내용을 읽고 있습니다.' : usageUploadStage === 'classifying' ? '세부 항목을 9개 항목으로 분류하고 있습니다.' : usageStatementPage === 0 ? '사용 현황 및 9개 항목 요약' : '세부 내역 및 증빙 파일 보기'}
+              </div>
             </div>
           </div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 'auto' }}>
-            {!hasUsageStatement && usageUploadButton}
-            <button type="button" onClick={() => setUsageStatementPage((page) => Math.max(0, page - 1))} disabled={usageStatementPage === 0} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: usageStatementPage === 0 ? C.g400 : C.g800, cursor: usageStatementPage === 0 ? 'not-allowed' : 'pointer', fontSize: 18, fontWeight: 900, fontFamily: 'inherit' }}>{'<'}</button>
-            <span style={{ minWidth: 58, textAlign: 'center', fontSize: 12, fontWeight: 900, color: C.g600 }}>{usageStatementPage + 1} / {usageStatementPageCount}</span>
-            <button type="button" onClick={() => setUsageStatementPage((page) => Math.min(usageStatementPageCount - 1, page + 1))} disabled={usageStatementPage >= usageStatementPageCount - 1} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: usageStatementPage >= usageStatementPageCount - 1 ? C.g400 : C.g800, cursor: usageStatementPage >= usageStatementPageCount - 1 ? 'not-allowed' : 'pointer', fontSize: 18, fontWeight: 900, fontFamily: 'inherit' }}>{'>'}</button>
+          <div />
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+            {usageStatementPage === 0 ? (
+              <button type="button" onClick={() => setUsageStatementPage(1)} style={{ height: 40, border: 'none', borderRadius: 999, background: C.primary, color: C.white, cursor: 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>세부 내역 보기</button>
+            ) : (
+              <button type="button" onClick={() => setUsageStatementPage(0)} style={{ height: 40, border: 'none', borderRadius: 999, background: C.primary, color: C.white, cursor: 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>사용내역서 보기</button>
+            )}
+          </div>
+          <div style={{ display: 'inline-flex', justifyContent: 'flex-end' }}>
+            {usageStatementPage === 0 ? usageUploadButton : reviewRequestHeaderButton}
           </div>
         </div>
         {usageStatementPage === 0 ? <>
-        <div className="thin-x-scroll" style={{ ...usageTableScrollStyle, marginBottom: 16 }}>
-        <div data-ui="project-detail.16" style={{ ...usageInfoGridStyle, border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden', fontSize: 13 }}>
-          {[
-                ['건설업체명', project.constructionCompany, '공사명', project.constructionName],
-                ['소재지', project.location, '대표자', project.representative],
-                ['공사금액', `${project.constructionAmount}원`, '공사기간', project.period],
-                ['발주자', project.client, '공정률', project.progressRate],
-                ['계상된 안전관리비', `${project.plannedAmount}원`, '사용률', project.usageRate],
-                ['원본파일', selectedStatement.sourceFileName, '개정번호', `${selectedStatement.revisionNo}차`],
-                ['업로드일', selectedStatement.uploadedAt, '업로드 담당자', selectedStatement.uploadedBy],
-                ['문서작성일', selectedStatement.documentWrittenDate, '검증상태', selectedStatement.validationStatus],
-                ['증빙 파일', `${selectedStatement.evidenceCount}개`, '이슈 항목', `${selectedStatement.issueCount}건`],
-            ].map(([labelA, valueA, labelB, valueB]) => (<Fragment key={`${labelA}-${labelB}`}>
-              <div data-ui="project-detail.17" style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 900, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelA}</div>
-              <div data-ui="project-detail.18" title={valueA} style={{ padding: '9px 11px', color: C.g800, fontWeight: 800, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueA}</div>
-              <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 900, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelB}</div>
-              <div title={valueB} style={{ padding: '9px 11px', color: C.g800, fontWeight: 800, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueB}</div>
-            </Fragment>))}
-        </div>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FCFEFD', padding: '18px 20px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>안전관리비 사용 현황</div>
+              <div style={{ fontSize: 12, color: C.g400, fontWeight: 800, marginTop: 4 }}>사용한 안전관리비 / 계상된 안전관리비</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 24, lineHeight: 1, fontWeight: 900, color: C.primary }}>{safetyUsagePercent}%</div>
+              <div style={{ fontSize: 11, color: C.g400, fontWeight: 900, marginTop: 5 }}>사용률</div>
+            </div>
+          </div>
+          <div style={{ height: 18, borderRadius: 999, background: C.g100, border: `1px solid ${C.g200}`, overflow: 'hidden', marginBottom: 13 }}>
+            <div style={{ width: `${safetyUsagePercent}%`, height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${C.primary}, ${C.light})` }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr)', gap: 8, alignItems: 'center' }}>
+            {[
+              ['전체 계상', `${totalSafetyCost.toLocaleString('ko-KR')}원`, C.g800],
+              ['사용 누계', `${usedSafetyCost.toLocaleString('ko-KR')}원`, C.primary],
+              ['잔여', `${remainingSafetyCost.toLocaleString('ko-KR')}원`, C.g600],
+            ].map(([label, value, color], index) => (
+              <Fragment key={label}>
+                {index === 1 && <div aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.g400, fontSize: 18, fontWeight: 900 }}>-</div>}
+                {index === 2 && <div aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.g400, fontSize: 18, fontWeight: 900 }}>=</div>}
+                <div style={{ borderRadius: 6, background: C.white, border: `1px solid ${C.g200}`, padding: '11px 12px', minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: C.g400, fontWeight: 900, marginBottom: 5 }}>{label}</div>
+                  <div title={value} style={{ fontSize: 14, color, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+                </div>
+              </Fragment>
+            ))}
+          </div>
         </div>
         <div className="thin-x-scroll" style={usageTableScrollStyle}>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden', minWidth: usageSummaryGridStyle.minWidth }}>
           <div style={{ ...usageSummaryGridStyle, background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
             {['항목', '전회', '금회', '누계'].map((head) => <div key={head} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 900, textAlign: head === '항목' ? 'left' : 'right', borderRight: head === '누계' ? 'none' : `1px solid ${C.g200}` }}>{head}</div>)}
           </div>
-          {overviewUsageRows.map(([item, previous, current, cumulative], index) => {
+          {[...editableUsageRows, [
+            '계',
+            editableUsageRows.reduce((sum, [, previous]) => sum + parseCurrencyValue(previous), 0).toLocaleString('ko-KR'),
+            monthlyUsageTotal.toLocaleString('ko-KR'),
+            editableUsageRows.reduce((sum, [, , , cumulative]) => sum + parseCurrencyValue(cumulative), 0).toLocaleString('ko-KR'),
+          ] as [string, string, string, string]].map(([item, previous, current, cumulative], index) => {
                 const isTotal = item === '계';
                 return (<div key={item} style={{ ...usageSummaryGridStyle, background: isTotal ? C.g100 : C.white, borderBottom: index === overviewUsageRows.length - 1 ? 'none' : `1px solid ${C.g200}` }}>
                 <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, borderRight: `1px solid ${C.g200}` }}>{item}</div>
-                {[previous, current, cumulative].map((amount, amountIndex) => <div key={`${item}-${amountIndex}`} style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, textAlign: 'right', borderRight: amountIndex === 2 ? 'none' : `1px solid ${C.g200}` }}>{amount}</div>)}
+                <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, textAlign: 'right', borderRight: `1px solid ${C.g200}` }}>{previous}</div>
+                <div style={{ padding: isTotal ? '10px 12px' : '6px 8px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, textAlign: 'right', borderRight: `1px solid ${C.g200}` }}>
+                  {isTotal ? current : (
+                    <input
+                      aria-label={`${item} 금회 금액`}
+                      value={formatEditableCurrency(current)}
+                      onChange={(event) => updateUsageMonthlyAmount(index, event.target.value)}
+                      inputMode="numeric"
+                      style={{ width: '100%', height: 32, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, textAlign: 'right', padding: '0 10px', outline: 'none' }}
+                    />
+                  )}
+                </div>
+                <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, textAlign: 'right' }}>{cumulative}</div>
               </div>);
             })}
         </div>
         </div>
-        </> : <>
-        <div className="thin-x-scroll" style={usageTableScrollStyle}>
-        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden', minWidth: usageDetailGridStyle.minWidth }}>
-          <div style={{ ...usageDetailGridStyle, background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
-            {['번호', '세부 항목', '9개 항목', '금액'].map((head) => <div key={head} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 900, textAlign: head === '금액' ? 'right' : 'left', borderRight: head === '금액' ? 'none' : `1px solid ${C.g200}` }}>{head}</div>)}
+        </> : !selectedMonthHasUploadedStatement ? <>
+        <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 6, background: C.bg, padding: '34px 28px', textAlign: 'center' }}>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 9 }}>{selectedStatement.label} 사용내역서가 아직 업로드되지 않았습니다</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: C.g400, marginBottom: 16 }}>월은 먼저 표시하고, 사용내역서는 업로드 전 상태로 보여줍니다.</div>
+            {usageUploadButton}
           </div>
-          {selectedUsageDetailPage.map((line, index) => {
-            const absoluteIndex = (usageStatementPage - 1) * usageDetailPageSize + index + 1;
-            const category = CATS.find((cat) => cat.id === line.categoryId);
-            return <div key={line.id} style={{ ...usageDetailGridStyle, borderBottom: index === selectedUsageDetailPage.length - 1 ? 'none' : `1px solid ${C.g200}` }}>
-              <div style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}` }}>{absoluteIndex}</div>
-              <div title={line.name} style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: 900, borderRight: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{line.name}</div>
-              <div title={category?.label || ''} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{category?.label || '-'}</div>
-              <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: 900, textAlign: 'right' }}>{fmt(line.amount)}</div>
-            </div>;
-          })}
         </div>
-        </div>
+        </> : <>
+        <ArchiveScreen projectId={project.id} matchReady={matchReady} uncheckedMatchedFileCount={project.uncheckedMatchedFileCount} onDismissMatchReady={dismissArchiveMatchReady} archiveSeed={archiveSeed} usageItems={archiveUsageItems} onUsageItemsChange={(items) => {
+                setArchiveUsageItems(items);
+                revertReviewedProjectToDraft();
+            }} onFilesUploaded={registerPendingReviewUploads} onArchiveContentMutated={revertReviewedProjectToDraft}/>
         </>}
         </>}
       </Card>),
-        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`} onValidationApproved={() => {
+        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`} canStartValidation={workflowStatus === 'upload_completed' || workflowStatus === 'approved' || workflowStatus === 'supplement_uploaded'} onValidationApproved={() => {
                 setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
-                closeResolvedActionNotificationsForProject(project.id);
+                setProject((current) => applyWorkflowToProject(current, 'approved'));
                 updateTab('report');
+            }} onActionRequested={(details) => {
+                setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
+                setProject((current) => applyWorkflowToProject(current, 'supplement_required', details));
             }}/>),
-        report: (<ReportScreen projectId={project.id} validationComplete={selectedValidationStatus === 'done'} contractName={`${project.name} · ${selectedStatement.label}`}/>),
-        archive: (<ArchiveScreen projectId={project.id} matchReady={matchReady} uncheckedMatchedFileCount={project.uncheckedMatchedFileCount} onDismissMatchReady={dismissArchiveMatchReady} archiveSeed={archiveSeed} usageItems={archiveUsageItems} canRunArchiveTools={canRunArchiveTools} reviewRequestButton={user.role === 'project_manager' ? {
-                label: pendingReviewUploads.length > 0 ? `검토 요청 ${pendingReviewUploads.length}건` : '검토 요청',
-                disabled: pendingReviewUploads.length === 0,
-                onClick: sendReviewRequest,
-            } : undefined} onFilesUploaded={registerPendingReviewUploads}/>),
+        report: (<ReportScreen projectId={project.id} validationComplete={workflowStatus === 'approved' || workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded' || selectedValidationStatus === 'done'} contractName={`${project.name} · ${selectedStatement.label}`}/>),
     };
-    return (<AppFrame title={project.name} mainClassName={`project-detail-main-with-history${rightSidebarOpen ? '' : ' project-detail-main-right-closed'}`}>
+    return (<AppFrame title={project.name} mainClassName="project-detail-main">
       <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20, borderRadius: 6 }}>
         <div data-ui="project-detail.19" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div data-ui="project-detail.20" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
@@ -1069,58 +1344,50 @@ export default function ProjectDetailPage() {
               <span style={{ fontSize: 12, fontWeight: 900, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>{project.contractNumber}</span>
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flex: '1 1 260px', maxWidth: '100%', minWidth: 0, flexWrap: 'wrap' }}>
-              <div data-ui="project-detail.22" ref={monthMenuRef} style={{ position: 'relative', flex: '0 0 142px', maxWidth: '100%', minWidth: 0 }}>
-                <button data-ui="project-detail.23" type="button" onClick={() => setMonthMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 13px', background: C.white, color: C.g600, fontFamily: 'inherit', cursor: 'pointer', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 16px', alignItems: 'center', gap: 8, textAlign: 'left', boxShadow: '0 7px 16px rgba(31, 55, 43, .08)' }}>
-                  <span style={{ minWidth: 0, fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedStatement.label}</span>
-                  <span aria-hidden="true" style={{ color: C.g400, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <ChevronIcon direction={monthMenuOpen ? 'up' : 'down'} size={16} />
-                  </span>
-                </button>
-                {monthMenuOpen && (<div data-ui="project-detail.24" style={{ position: 'absolute', top: 'calc(100% + 7px)', right: 0, zIndex: 80, width: 142, maxWidth: 'calc(100vw - 40px)', maxHeight: 260, overflowY: 'auto', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 6, padding: 6, boxShadow: '0 10px 22px rgba(31,55,43,.10)', scrollbarWidth: 'thin' }}>
-                  {monthlyStatements.map((statement) => {
-                      const active = selectedStatement.month === statement.month;
-                      return (<button data-ui="project-detail.25" key={statement.month} type="button" onClick={() => {
-                              setSelectedMonth(statement.month);
-                              setMonthMenuOpen(false);
-                          }} style={{ width: '100%', border: 'none', borderRadius: 6, padding: '9px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', display: 'block', textAlign: 'left' }}>
-                        <span style={{ fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap' }}>{statement.label}</span>
-                      </button>);
-                  })}
-                </div>)}
-              </div>
-              <button type="button" onClick={() => setProjectHeaderOpen((open) => !open)} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, height: 34, padding: '0 11px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 7px 16px rgba(31, 55, 43, .08)' }}>
+              {showUsageStatementHeaderInfo && <button type="button" onClick={() => setProjectHeaderOpen((open) => !open)} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, height: 34, padding: '0 11px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 7px 16px rgba(31, 55, 43, .08)' }}>
                 <ChevronIcon direction={projectHeaderOpen ? 'up' : 'down'} size={14} />
-              </button>
+              </button>}
+              {canEditManagers && <button type="button" onClick={openProjectInfoModal} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, height: 34, padding: '0 13px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: 'none' }}>기본 정보 수정</button>}
               {canEditManagers && <button type="button" onClick={() => {
                   setDeleteError('');
                   setDeleteModalOpen(true);
               }} style={{ flex: '0 0 auto', border: `1px solid #FFCDD2`, borderRadius: 999, background: C.dangerBg, color: C.danger, height: 34, padding: '0 13px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: 'none' }}>삭제</button>}
             </div>
           </div>
-          {projectHeaderOpen && <div data-ui="project-detail.26" style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 2, minWidth: 0 }}>
+          {projectHeaderOpen && showUsageStatementHeaderInfo && <div data-ui="project-detail.26" style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 2, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, fontWeight: 900, color: C.g400 }}>프로젝트 기본 정보</span>
-              {shouldShowActionBadge && (canViewActionGuide ? (
-                <button type="button" data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: 'none', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META.action_required.color, background: STATUS_META.action_required.bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }}>
-                  조치 요청
+              <span style={{ fontSize: 13, fontWeight: 900, color: C.g400 }}>사용내역서 기본 정보</span>
+              {canViewActionGuide ? (
+                <button type="button" data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: `1px solid ${STATUS_META[workflowStatus].color}`, fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META[workflowStatus].color, background: STATUS_META[workflowStatus].bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }}>
+                  {STATUS_META[workflowStatus].label}
                 </button>
               ) : (
-                <span data-ui="project-detail.27" style={{ fontSize: 12, fontWeight: 800, color: STATUS_META.action_required.color, background: STATUS_META.action_required.bg, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap' }}>
-                  조치 요청
+                <span data-ui="project-detail.27" style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[workflowStatus].color, background: STATUS_META[workflowStatus].bg, border: `1px solid ${STATUS_META[workflowStatus].color}`, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap' }}>
+                  {STATUS_META[workflowStatus].label}
                 </span>
-              ))}
+              )}
               {project.uncheckedMatchedFileCount > 0 && (
-                <button type="button" onClick={() => updateTab('archive')} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '4px 10px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <button type="button" onClick={openArchiveView} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '4px 10px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   미확인 매칭 {project.uncheckedMatchedFileCount}건
                 </button>
               )}
             </div>
-            {projectInfoGrid}
+            <div className="thin-x-scroll" style={usageTableScrollStyle}>
+              <div data-ui="project-detail.16" style={{ ...usageInfoGridStyle, border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden', fontSize: 13 }}>
+                {usageStatementInfoRows.map(([labelA, valueA, labelB, valueB]) => (<Fragment key={`${labelA}-${labelB}`}>
+                  <div data-ui="project-detail.17" style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 900, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelA}</div>
+                  <div data-ui="project-detail.18" title={valueA} style={{ padding: '9px 11px', color: C.g800, fontWeight: 800, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueA}</div>
+                  <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 900, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelB}</div>
+                  <div title={valueB} style={{ padding: '9px 11px', color: C.g800, fontWeight: 800, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueB}</div>
+                </Fragment>))}
+              </div>
+            </div>
           </div>}
         </div>
       </Card>
       {actionGuideModal}
       {managerModal}
+      {projectInfoModal}
       {deleteProjectModal}
       <CenterModal open={Boolean(ocrFailureReason)} title="사용내역서 OCR 실패" body={<div>
         <div style={{ marginBottom: 8 }}>사용내역서를 다시 업로드해주세요.</div>
@@ -1139,14 +1406,5 @@ export default function ProjectDetailPage() {
       <div data-ui="project-detail.31" style={{ minWidth: 0 }}>
         {tabContent[activeTab]}
       </div>
-      <button type="button" aria-label={rightSidebarOpen ? '우측 사이드바 닫기' : '우측 사이드바 열기'} onClick={() => setRightSidebarOpen((open) => !open)} className="project-detail-right-toggle" style={{ right: rightSidebarOpen ? 205 : 10 }}>
-        <ChevronIcon direction={rightSidebarOpen ? 'right' : 'left'} size={17} color={C.primary}/>
-      </button>
-      <aside data-ui="project-detail.32" className={rightSidebarOpen ? 'project-detail-sidebar' : 'project-detail-sidebar project-detail-sidebar-closed'}>
-        <div data-ui="project-detail.38" className="project-detail-side-stack">
-          {agentWorkflowCard}
-          {historyCard}
-        </div>
-      </aside>
     </AppFrame>);
 }
