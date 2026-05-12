@@ -7,11 +7,9 @@ import Button from '../../components/ui/Button';
 import { AppFrame, ProjectSortControl } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { C } from '../../lib/theme';
-import { ACTION_REQUEST_STATUS_META, ACTION_REQUEST_STATUS_STEPS, getDashboardCountsFromProjects, getProjectManagers, getSheFilterOptionsFromProjects, PROJECT_STATUS_META, type ActionRequestStatusCode, type ProjectSummary } from '../../lib/project-data';
+import { getDashboardCountsFromProjects, getProjectManagers, getSheFilterOptionsFromProjects, STATUS_META, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
 import { listProjects } from '../../lib/project-api';
-import { useCurrentUser } from '../../lib/dev-user';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
-import { useActionNotifications } from '../../lib/use-action-notifications';
 import {
   DASHBOARD_WIDGETS,
   DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY,
@@ -32,6 +30,36 @@ import {
   type WidgetHelpId,
   type WidgetPosition,
 } from '../../features/dashboard/widget-layout';
+
+const LOCAL_USAGE_STATEMENT_PREFIX = 'iveri-mvp-usage-statement:';
+const DASHBOARD_WORKFLOW_STEPS: ProjectStatus[] = ['draft', 'upload_completed', 'supplement_required', 'supplement_uploaded', 'approved'];
+
+const DASHBOARD_WORKFLOW_META: Record<ProjectStatus, { label: string; description: string }> = {
+  draft: { label: '임시저장', description: '프로젝트 담당자가 업로드 중' },
+  upload_completed: { label: '업로드 완료', description: 'SHE 유효성 검증 대기' },
+  supplement_required: { label: '보완 요청', description: '사용내역서 또는 증빙 보완 필요' },
+  supplement_uploaded: { label: '보완 완료', description: 'SHE 재검토 대기' },
+  approved: { label: '승인', description: '보고서 작성 가능' },
+};
+
+const mergeWorkflowStatus = (project: ProjectSummary) => {
+  if (typeof window === 'undefined') return project;
+  try {
+    const raw = window.localStorage.getItem(`${LOCAL_USAGE_STATEMENT_PREFIX}${project.id}`);
+    if (!raw) return project;
+    const parsed = JSON.parse(raw) as { workflowStatus?: ProjectSummary['status']; actionRequestDetails?: ProjectSummary['actionRequestDetails'] };
+    if (!parsed.workflowStatus) return project;
+    return {
+      ...project,
+      status: parsed.workflowStatus,
+      hasActionRequest: parsed.workflowStatus === 'supplement_required' || parsed.workflowStatus === 'supplement_uploaded',
+      actionRequestDetails: parsed.workflowStatus === 'supplement_required' || parsed.workflowStatus === 'supplement_uploaded' ? parsed.actionRequestDetails : undefined,
+      reportReady: parsed.workflowStatus === 'approved' || parsed.workflowStatus === 'supplement_required' || parsed.workflowStatus === 'supplement_uploaded',
+    };
+  } catch {
+    return project;
+  }
+};
 
 const fieldStyle: CSSProperties = {
   width: '100%',
@@ -85,7 +113,7 @@ const widgetValueStyle: CSSProperties = {
   lineHeight: 1.15,
 };
 
-const workflowBadgeStyle = (color: string, bg: string, border = C.g200): CSSProperties => ({
+const workflowBadgeStyle = (color: string, bg: string, border = color): CSSProperties => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -144,13 +172,13 @@ const dashboardPageStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
-  padding: '0 28px',
+  padding: '0 40px',
 };
 
 const dashboardHeroStyle: CSSProperties = {
   position: 'relative',
   minHeight: 168,
-  margin: '0 -28px',
+  margin: '0 -40px',
   overflow: 'hidden',
   border: `1px solid rgba(255,255,255,.52)`,
   background: 'linear-gradient(90deg, rgba(20,43,36,.9), rgba(30,77,60,.54) 48%, rgba(31,55,43,.18)), url("https://images.pexels.com/photos/32858871/pexels-photo-32858871.jpeg?auto=compress&cs=tinysrgb&w=1800") center 52% / cover',
@@ -160,7 +188,7 @@ const dashboardHeroStyle: CSSProperties = {
 const dashboardKpiBandStyle: CSSProperties = {
   position: 'relative',
   zIndex: 3,
-  margin: '-38px 28px 4px',
+  margin: '-38px 40px 4px',
   display: 'grid',
   gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
   boxShadow: '0 16px 32px rgba(35,24,86,.18)',
@@ -189,18 +217,30 @@ const dashboardPanelHeaderStyle: CSSProperties = {
   background: '#FBFDFC',
 };
 
+const statusCardTone = (status: ProjectStatus) => {
+  if (status === 'supplement_required') {
+    return { border: '#F4CBCB', background: '#FFF8F8' };
+  }
+  if (status === 'upload_completed' || status === 'supplement_uploaded') {
+    return { border: '#CFE7D8', background: '#F4FBF6' };
+  }
+  if (status === 'approved') {
+    return { border: '#CFE7D8', background: '#F4FBF6' };
+  }
+  return { border: C.g200, background: '#FCFEFD' };
+};
+
 const widgetHelpText: Record<WidgetHelpId, string> = {
-  actionPipeline: '조치 요청 발송부터 종결까지 현재 병목 단계를 보여줍니다.',
-  actionQueue: 'SHE 담당자가 우선 확인해야 하는 조치 요청과 새 업로드를 보여줍니다.',
-  decisionLog: '에이전트 판단과 조치 요청, 새 업로드 흐름의 최근 기록을 보여줍니다.',
+  actionPipeline: '프로젝트가 임시저장에서 승인까지 어느 상태에 머물러 있는지 보여줍니다.',
+  actionQueue: 'SHE 또는 프로젝트 담당자가 바로 확인해야 하는 업로드 완료, 보완 요청, 보완 완료 프로젝트를 보여줍니다.',
+  decisionLog: '최근 프로젝트 상태 변경과 사용자 활동을 보여줍니다.',
   projectProgress: '프로젝트별 실제 공정률을 막대로 비교해 보여줍니다.',
-  workload: '담당자별 프로젝트 부담과 조치 요청 부담을 보여줍니다.',
+  workload: '담당자별 전체 프로젝트 수와 보완 요청 부담을 보여줍니다.',
   myProjects: '내가 볼 수 있는 모든 프로젝트를 검색, 필터, 정렬해 보여줍니다.',
-  timeline: '프로젝트별 월 단위 업로드, 검증, 조치 요청, 보고서 생성 흐름을 보여줍니다.',
+  timeline: '프로젝트별 월 단위 진행 구간과 현재 상태를 보여줍니다.',
 };
 
 export default function DashboardPage() {
-  const { user } = useCurrentUser();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const dashboardCounts = useMemo(() => getDashboardCountsFromProjects(projects), [projects]);
   const filterOptions = useMemo(() => getSheFilterOptionsFromProjects(projects), [projects]);
@@ -217,14 +257,13 @@ export default function DashboardPage() {
   const [visibleWidgetIds, setVisibleWidgetIds] = useState<DashboardWidgetId[]>(DEFAULT_WIDGET_IDS);
   const [draggedWidgetId, setDraggedWidgetId] = useState<DashboardWidgetId | null>(null);
   const [widgetLayout, setWidgetLayout] = useState<Record<DashboardWidgetId, WidgetPosition>>(DEFAULT_WIDGET_LAYOUT);
-  const { notifications: actionNotifications, unreadNotifications: unreadSheNotifications } = useActionNotifications(user);
   const dashboardGridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let alive = true;
     listProjects({ size: 10 })
       .then((items) => {
-        if (alive) setProjects(items);
+        if (alive) setProjects(items.map(mergeWorkflowStatus));
       })
       .catch(() => {
         if (alive) setProjects([]);
@@ -322,78 +361,62 @@ export default function DashboardPage() {
     }))
     .sort((a, b) => new Date(b.date.replace(/\//g, '-')).getTime() - new Date(a.date.replace(/\//g, '-')).getTime())
     .slice(0, 4);
-  const actionProjects = projects.filter((project) => project.status === 'action_required');
-  const sentActionNotifications = actionNotifications
-    .filter((notification) => notification.type === 'action_request')
-    .sort((a, b) => b.createdAtMs - a.createdAtMs);
-  const newUploadNotifications = actionNotifications
-    .filter((notification) => notification.type === 'new_upload' && notification.recipientRole === 'she_manager')
-    .sort((a, b) => b.createdAtMs - a.createdAtMs);
-  const actionFallbackItems = actionProjects.map((project) => ({
-    id: `project-${project.id}`,
-    projectId: project.id,
-    projectName: project.constructionName,
-    categoryName: project.actionRequestDetails?.title || '보완 조치 요청',
-    title: project.actionRequestDetails?.title || '보완 조치 요청',
-    message: project.actionRequestDetails?.reason || '보완 자료 제출이 필요합니다.',
-    assignee: project.actionRequestDetails?.assignee || project.manager || '프로젝트 담당자',
-    statusCode: project.actionRequestDetails?.statusCode || 'open' as ActionRequestStatusCode,
-    createdAt: project.actionRequestDetails?.requestedAt || '-',
-    requestedFiles: [] as string[],
-    isUpload: false,
-  }));
-  const actionQueueItems = [
-    ...sentActionNotifications.map((notification) => ({
-      id: notification.id,
-      projectId: notification.projectId || '',
-      projectName: notification.projectName,
-      categoryName: notification.categoryName,
-      title: notification.title || notification.categoryName,
-      message: notification.message,
-      assignee: notification.recipientUserName || '프로젝트 담당자',
-      statusCode: notification.statusCode || 'open' as ActionRequestStatusCode,
-      createdAt: notification.createdAt,
-      requestedFiles: notification.requestedFiles,
-      isUpload: false,
-    })),
-    ...newUploadNotifications.map((notification) => ({
-      id: notification.id,
-      projectId: notification.projectId || '',
-      projectName: notification.projectName,
-      categoryName: notification.categoryName,
-      title: notification.title || '새 파일 업로드',
-      message: notification.message,
-      assignee: notification.senderName || '프로젝트 담당자',
-      statusCode: 'resolved' as ActionRequestStatusCode,
-      createdAt: notification.createdAt,
-      requestedFiles: notification.requestedFiles,
-      isUpload: true,
-    })),
-  ].slice(0, 6);
-  const resolvedActionQueueItems = actionQueueItems.length ? actionQueueItems : actionFallbackItems;
-  const pipelineCounts = ACTION_REQUEST_STATUS_STEPS.reduce((acc, statusCode) => {
-    acc[statusCode] = sentActionNotifications.filter((notification) => (notification.statusCode || 'open') === statusCode).length;
+  const workflowProjects = {
+    draft: projects.filter((project) => project.status === 'draft'),
+    upload_completed: projects.filter((project) => project.status === 'upload_completed'),
+    supplement_required: projects.filter((project) => project.status === 'supplement_required'),
+    supplement_uploaded: projects.filter((project) => project.status === 'supplement_uploaded'),
+    approved: projects.filter((project) => project.status === 'approved'),
+  };
+  const queueProjects = projects
+    .filter((project) => project.status === 'upload_completed' || project.status === 'supplement_required' || project.status === 'supplement_uploaded')
+    .map((project) => ({
+      id: `project-${project.id}`,
+      projectId: project.id,
+      projectName: project.constructionName,
+      title: project.status === 'supplement_required'
+        ? (project.actionRequestDetails?.title || '보완 요청 확인 필요')
+        : project.status === 'supplement_uploaded'
+          ? '보완 완료 재검토 필요'
+          : '업로드 완료 검토 필요',
+      message:
+        project.status === 'supplement_required'
+          ? (project.actionRequestDetails?.reason || '프로젝트 담당자가 사용내역서 또는 증빙 자료를 수정해야 합니다.')
+          : project.status === 'supplement_uploaded'
+            ? '프로젝트 담당자가 보완 자료를 다시 업로드했습니다. SHE 담당자의 재검토가 필요합니다.'
+          : '프로젝트 담당자가 업로드를 완료했습니다. SHE 담당자의 유효성 검증이 필요합니다.',
+      assignee:
+        project.status === 'supplement_required'
+          ? (project.actionRequestDetails?.assignee || project.manager || '프로젝트 담당자')
+          : 'SHE 담당자',
+      createdAt: project.status === 'supplement_required' ? (project.actionRequestDetails?.requestedAt || '-') : '-',
+      status: project.status,
+    }))
+    .slice(0, 6);
+  const pipelineCounts = DASHBOARD_WORKFLOW_STEPS.reduce((acc, statusCode) => {
+    acc[statusCode] = projects.filter((project) => project.status === statusCode).length;
     return acc;
-  }, {} as Record<ActionRequestStatusCode, number>);
-  if (sentActionNotifications.length === 0) {
-    actionFallbackItems.forEach((item) => {
-      pipelineCounts[item.statusCode] += 1;
-    });
-  }
-  const activePipelineIndex = ACTION_REQUEST_STATUS_STEPS.findIndex((statusCode) => pipelineCounts[statusCode] > 0);
-  const decisionLogRows = [
-    ...sentActionNotifications.map((notification) => ({
-      id: notification.id,
-      title: notification.title || `${notification.categoryName} 조치 요청`,
-      meta: `${notification.projectName} · ${notification.recipientUserName || '프로젝트 담당자'}에게 보냄 · ${notification.createdAt}`,
-      badge: '조치 요청',
-      tone: 'danger' as const,
+  }, {} as Record<ProjectStatus, number>);
+  const activePipelineIndex = DASHBOARD_WORKFLOW_STEPS.findIndex((statusCode) => pipelineCounts[statusCode] > 0);
+  const decisionLogRows: Array<{
+    id: string;
+    title: string;
+    meta: string;
+    badge: string;
+    tone: 'danger' | 'ok' | 'neutral' | 'primary';
+  }> = [
+    ...queueProjects.map((item) => ({
+      id: item.id,
+      title: item.title,
+      meta: `${item.projectName} · ${item.assignee}${item.createdAt !== '-' ? ` · ${item.createdAt}` : ''}`,
+      badge: STATUS_META[item.status].label,
+      tone: item.status === 'supplement_required' ? 'danger' as const : 'primary' as const,
     })),
-    ...newUploadNotifications.map((notification) => ({
-      id: notification.id,
-      title: notification.message || `${notification.categoryName} 새 파일 업로드`,
-      meta: `${notification.projectName} · ${notification.createdAt}`,
-      badge: '새 업로드',
+    ...workflowProjects.approved.slice(0, 2).map((project) => ({
+      id: `approved-${project.id}`,
+      title: `${project.constructionName} 승인 완료`,
+      meta: `${project.manager || '-'} · 보고서 작성 가능`,
+      badge: '승인',
       tone: 'ok' as const,
     })),
     ...recentActivities.map((activity) => ({
@@ -408,7 +431,7 @@ export default function DashboardPage() {
     projects.reduce((map, project) => {
       const projectManagers = project.participants.length > 0 ? project.participants : getProjectManagers(project);
       const managers = projectManagers.length > 0 ? projectManagers : ['미지정'];
-      const actionAssignees = project.status === 'action_required'
+      const actionAssignees = project.status === 'supplement_required'
         ? (project.actionRequestDetails?.assignee || managers[0]).split(',').map((name) => name.trim()).filter(Boolean)
         : [];
 
@@ -447,15 +470,18 @@ export default function DashboardPage() {
     const startIndex = Math.max(0, projectTimelineMonths.indexOf(periodMonth.start));
     const endIndex = Math.max(startIndex, projectTimelineMonths.indexOf(periodMonth.end));
     const progress = Math.min(100, Math.max(0, Number.parseInt(project.progressRate, 10) || 0));
+    const statusMeta = STATUS_META[project.status];
     return {
       id: project.id,
       name: project.constructionName,
       code: project.contractNumber,
-      status: PROJECT_STATUS_META[project.projectStatusCode].label,
+      status: statusMeta.label,
+      statusColor: statusMeta.color,
+      statusBg: statusMeta.bg,
       progress,
       start: startIndex + 1,
       span: Math.max(1, endIndex - startIndex + 1),
-      color: progress >= 80 ? '#2B8B5D' : progress >= 50 ? '#2F73B7' : progress >= 25 ? '#EE8A21' : '#C9545E',
+      color: statusMeta.color,
     };
   });
   const widgetTooltipStyle = (id: DashboardWidgetId, minWidth = 200): CSSProperties => {
@@ -564,7 +590,7 @@ export default function DashboardPage() {
         <div style={{ position: 'relative', zIndex: 2, padding: '28px 30px 58px', display: 'flex', justifyContent: 'flex-start', gap: 22 }}>
           <div>
             <h1 style={{ margin: 0, color: C.white, fontSize: 23, lineHeight: 1.4, fontWeight: 900, textShadow: '0 4px 18px rgba(0,0,0,.32)' }}>
-              검증 리스크와 조치 요청을<br />한 화면에서 통제하는 SHE 대시보드
+              업로드부터 승인까지<br />프로젝트 상태를 한 화면에서 보는 SHE 대시보드
             </h1>
           </div>
         </div>
@@ -573,9 +599,9 @@ export default function DashboardPage() {
       <section style={dashboardKpiBandStyle}>
         {[
           { label: '전체 프로젝트', value: projects.length, meta: `진행 중 ${dashboardCounts.active}`, bg: '#1F6F5F' },
-          { label: '조치 요청 프로젝트', value: actionProjects.length, meta: '처리 필요', bg: '#2FA084' },
-          { label: '검증 완료', value: projects.filter((project) => project.reportReady).length, meta: '보고서 생성 가능', bg: '#67af85' },
-          { label: '미확인 알림', value: unreadSheNotifications.length, meta: 'SHE 기준', bg: '#98c8b2' },
+          { label: '임시저장', value: workflowProjects.draft.length, meta: '업로드 진행 중', bg: '#496F64' },
+          { label: '업로드 완료', value: workflowProjects.upload_completed.length, meta: '검증 대기', bg: '#2FA084' },
+          { label: '승인 / 보완', value: workflowProjects.approved.length + workflowProjects.supplement_required.length + workflowProjects.supplement_uploaded.length, meta: `승인 ${workflowProjects.approved.length} · 보완 요청 ${workflowProjects.supplement_required.length} · 보완 완료 ${workflowProjects.supplement_uploaded.length}`, bg: '#7DB896' },
         ].map((item) => (
           <div key={item.label} style={{ minHeight: 78, padding: '14px 18px', color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderRight: '1px solid rgba(255,255,255,.18)', background: item.bg }}>
             <div>
@@ -637,21 +663,21 @@ export default function DashboardPage() {
         {visibleWidgetSet.has('actionPipeline') && (
         <Card {...widgetFrameProps('actionPipeline', { padding: '18px 18px', overflow: 'visible' })}>
           {renderWidgetRemoveButton('actionPipeline')}
-          {renderPanelHeader('조치 요청 파이프라인', 'actionPipeline', '요청 발송부터 종결까지')}
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${ACTION_REQUEST_STATUS_STEPS.length}, minmax(0, 1fr))`, alignItems: 'start', gap: 0, marginTop: -2 }}>
-            {ACTION_REQUEST_STATUS_STEPS.map((statusCode, index) => {
-              const meta = ACTION_REQUEST_STATUS_META[statusCode];
+          {renderPanelHeader('프로젝트 상태 파이프라인', 'actionPipeline', '임시저장부터 승인까지')}
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${DASHBOARD_WORKFLOW_STEPS.length}, minmax(0, 1fr))`, alignItems: 'start', gap: 0, marginTop: -2 }}>
+            {DASHBOARD_WORKFLOW_STEPS.map((statusCode, index) => {
+              const meta = STATUS_META[statusCode];
               const count = pipelineCounts[statusCode] || 0;
               const current = activePipelineIndex >= 0 && index === activePipelineIndex;
               return (
                 <div key={statusCode} style={{ position: 'relative', display: 'grid', justifyItems: 'center', textAlign: 'center', gap: 4, padding: '0 8px', minWidth: 0 }}>
-                  {index < ACTION_REQUEST_STATUS_STEPS.length - 1 && <span aria-hidden="true" style={{ position: 'absolute', top: 14, left: 'calc(50% + 22px)', right: 'calc(-50% + 22px)', height: 2, background: current ? `linear-gradient(90deg, ${meta.color}, ${C.g200})` : C.g200 }} />}
+                  {index < DASHBOARD_WORKFLOW_STEPS.length - 1 && <span aria-hidden="true" style={{ position: 'absolute', top: 14, left: 'calc(50% + 22px)', right: 'calc(-50% + 22px)', height: 2, background: current ? `linear-gradient(90deg, ${meta.color}, ${C.g200})` : C.g200 }} />}
                   <div style={{ width: 30, height: 30, borderRadius: 999, border: `2px solid ${current ? meta.color : C.g200}`, background: current ? meta.color : count ? meta.bg : C.white, color: current ? C.white : count ? meta.color : C.g400, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 900, position: 'relative', zIndex: 1 }}>
                     {count}
                   </div>
                   <div style={{ fontSize: 11, fontWeight: 900, color: current ? meta.color : C.g800, whiteSpace: 'nowrap' }}>{meta.label}</div>
                   <div style={{ fontSize: 10, fontWeight: 800, color: C.g400, lineHeight: 1.25 }}>
-                    {statusCode === 'open' ? '담당자 확인 대기' : statusCode === 'in_progress' ? '보완자료 준비 중' : statusCode === 'resolved' ? 'SHE 재검토 대기' : '승인 및 보고서 반영'}
+                    {DASHBOARD_WORKFLOW_META[statusCode].description}
                   </div>
                 </div>
               );
@@ -663,23 +689,22 @@ export default function DashboardPage() {
         {visibleWidgetSet.has('actionQueue') && (
         <Card {...widgetFrameProps('actionQueue', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' })}>
           {renderWidgetRemoveButton('actionQueue')}
-          {renderPanelHeader('처리 필요 조치 요청', 'actionQueue', '상태와 기한 기준')}
+          {renderPanelHeader('확인 필요 프로젝트', 'actionQueue', '업로드 완료 / 보완 요청 / 보완 완료')}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
-            {resolvedActionQueueItems.length === 0 ? (
+            {queueProjects.length === 0 ? (
               <div style={{ border: 'none', borderRadius: 8, background: '#FCFEFD', padding: 16, color: C.g400, fontSize: 13, fontWeight: 800 }}>
-                처리할 조치 요청이 없습니다.
+                확인이 필요한 프로젝트가 없습니다.
               </div>
-            ) : resolvedActionQueueItems.map((item) => {
-              const itemStatusMeta = ACTION_REQUEST_STATUS_META[item.statusCode];
-              const itemCardBorder = itemStatusMeta.color;
-              const itemCardBackground = itemStatusMeta.bg;
+            ) : queueProjects.map((item) => {
+              const itemStatusMeta = STATUS_META[item.status];
+              const itemCardTone = statusCardTone(item.status);
               const content = (
-                <div style={{ border: `1px solid ${itemCardBorder}`, borderRadius: 8, background: itemCardBackground, padding: '11px 12px' }}>
+                <div style={{ border: `1px solid ${itemCardTone.border}`, borderRadius: 8, background: itemCardTone.background, padding: '11px 12px' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }}>{item.title}</span>
-                      <span style={item.isUpload ? workflowBadgeStyle(C.primary, C.bg, C.g200) : workflowBadgeStyle(ACTION_REQUEST_STATUS_META[item.statusCode].color, ACTION_REQUEST_STATUS_META[item.statusCode].bg, ACTION_REQUEST_STATUS_META[item.statusCode].color)}>
-                        {item.isUpload ? '새 업로드' : ACTION_REQUEST_STATUS_META[item.statusCode].label}
+                      <span style={workflowBadgeStyle(itemStatusMeta.color, itemStatusMeta.bg, itemStatusMeta.color)}>
+                        {itemStatusMeta.label}
                       </span>
                     </div>
                     <div style={{ marginTop: 5, fontSize: 11, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -688,12 +713,6 @@ export default function DashboardPage() {
                     <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800, color: C.g600, lineHeight: 1.5 }}>
                       {item.message}
                     </div>
-                    {item.requestedFiles.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
-                        {item.requestedFiles.slice(0, 3).map((fileName) => <span key={fileName} style={workflowBadgeStyle(C.g600, C.white, C.g200)}>{fileName}</span>)}
-                        {item.requestedFiles.length > 3 && <span style={workflowBadgeStyle(C.g600, C.white, C.g200)}>외 {item.requestedFiles.length - 3}건</span>}
-                      </div>
-                    )}
                   </div>
                 </div>
               );
@@ -710,11 +729,11 @@ export default function DashboardPage() {
         {visibleWidgetSet.has('decisionLog') && (
         <Card {...widgetFrameProps('decisionLog', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
           {renderWidgetRemoveButton('decisionLog')}
-          {renderPanelHeader('최근 판단/요청 로그', 'decisionLog', '에이전트와 사용자 활동')}
+          {renderPanelHeader('최근 상태 변경', 'decisionLog', '프로젝트 상태와 사용자 활동')}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
             {decisionLogRows.length === 0 ? (
               <div style={{ border: 'none', borderRadius: 8, background: '#FCFEFD', padding: 14, color: C.g400, fontSize: 13, fontWeight: 800 }}>
-                최근 판단 또는 요청 로그가 없습니다.
+                최근 상태 변경 이력이 없습니다.
               </div>
             ) : decisionLogRows.map((row) => (
               <div key={row.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 8, background: '#FCFEFD', padding: '10px 11px', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: 10 }}>
@@ -722,7 +741,7 @@ export default function DashboardPage() {
                   <div style={{ fontSize: 12, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.title}</div>
                   <div style={{ marginTop: 3, fontSize: 11, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.meta}</div>
                 </div>
-                <span style={row.tone === 'danger' ? workflowBadgeStyle(C.danger, C.dangerBg, '#FFCDD2') : row.tone === 'ok' ? workflowBadgeStyle(C.primary, C.bg, C.g200) : workflowBadgeStyle(C.g600, C.white, C.g200)}>
+                <span style={row.tone === 'danger' ? workflowBadgeStyle(C.danger, C.dangerBg, C.danger) : row.tone === 'ok' ? workflowBadgeStyle(C.ok, '#F4FBF6', C.ok) : row.tone === 'primary' ? workflowBadgeStyle(C.primary, C.bg, C.primary) : workflowBadgeStyle(C.g600, C.white, C.g600)}>
                   {row.badge}
                 </span>
               </div>
@@ -763,7 +782,7 @@ export default function DashboardPage() {
         {visibleWidgetSet.has('workload') && (
         <Card {...widgetFrameProps('workload', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
           {renderWidgetRemoveButton('workload')}
-          {renderPanelHeader('담당자별 업무량', 'workload', '조치 요청/프로젝트')}
+          {renderPanelHeader('담당자별 프로젝트 현황', 'workload', '보완 요청/프로젝트')}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
             {managerWorkloads.map(([managerName, workload]) => (
               <div key={managerName} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 8, border: `1px solid ${workload.actionRequired ? '#F4CBCB' : C.g200}`, borderRadius: 10, background: workload.actionRequired ? 'linear-gradient(90deg, #FFF8F8 0%, #FCFEFD 58%)' : '#FCFEFD', padding: '8px 9px', boxShadow: '0 6px 14px rgba(31,55,43,.04)' }}>
@@ -774,12 +793,12 @@ export default function DashboardPage() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 900, color: C.g800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{managerName}</div>
                     <div style={{ marginTop: 2, fontSize: 10, fontWeight: 800, color: workload.actionRequired ? C.danger : C.g400, whiteSpace: 'nowrap' }}>
-                      {workload.actionRequired ? '확인 필요' : '조치 요청 없음'}
+                      {workload.actionRequired ? '확인 필요' : '보완 요청 없음'}
                     </div>
                   </div>
                 </div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                  <div title="조치 요청" style={{ minWidth: 48, border: `1px solid ${workload.actionRequired ? '#F4CBCB' : '#C8DAF8'}`, borderRadius: 999, background: workload.actionRequired ? '#FFF8F8' : '#EEF4FF', padding: '5px 8px', textAlign: 'center' }}>
+                  <div title="보완 요청" style={{ minWidth: 48, border: `1px solid ${workload.actionRequired ? '#F4CBCB' : '#C8DAF8'}`, borderRadius: 999, background: workload.actionRequired ? '#FFF8F8' : '#EEF4FF', padding: '5px 8px', textAlign: 'center' }}>
                     <div style={{ fontSize: 9, fontWeight: 900, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>요청</div>
                     <div style={{ marginTop: 3, fontSize: 13, fontWeight: 900, color: workload.actionRequired ? C.danger : '#2F5FB8', lineHeight: 1 }}>{workload.actionRequired}건</div>
                   </div>
@@ -823,7 +842,7 @@ export default function DashboardPage() {
                     </div>
                     <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ color: C.g400, fontSize: 11, fontWeight: 900 }}>{row.code}</span>
-                      <span style={{ height: 20, padding: '0 7px', display: 'inline-grid', placeItems: 'center', background: C.bg, border: 'none', borderRadius: 999, color: C.primary, fontSize: 10, fontWeight: 900 }}>{row.status}</span>
+                      <span style={{ height: 20, padding: '0 7px', display: 'inline-grid', placeItems: 'center', background: row.statusBg, border: `1px solid ${row.statusColor}`, borderRadius: 999, color: row.statusColor, fontSize: 10, fontWeight: 900 }}>{row.status}</span>
                     </div>
                     <div style={{ marginTop: 5, height: 3, background: '#D8DEE2', overflow: 'hidden' }}>
                       <div style={{ width: `${row.progress}%`, height: '100%', background: row.color }} />
@@ -885,8 +904,8 @@ export default function DashboardPage() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, flexWrap: 'wrap' }}>
                       <div style={{ color: C.g800, fontSize: 15, fontWeight: 900 }}>{project.constructionName}</div>
-                      <span style={{ fontSize: 10, fontWeight: 900, color: PROJECT_STATUS_META[project.projectStatusCode].color, background: PROJECT_STATUS_META[project.projectStatusCode].bg, border: 'none', borderRadius: 999, padding: '2px 7px', lineHeight: '14px', whiteSpace: 'nowrap' }}>
-                        {PROJECT_STATUS_META[project.projectStatusCode].label}
+                      <span style={{ fontSize: 10, fontWeight: 900, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, border: `1px solid ${STATUS_META[project.status].color}`, borderRadius: 999, padding: '2px 7px', lineHeight: '14px', whiteSpace: 'nowrap' }}>
+                        {STATUS_META[project.status].label}
                       </span>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '120px 110px 180px 74px', gap: 7, maxWidth: 510 }}>

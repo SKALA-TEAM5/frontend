@@ -15,18 +15,18 @@ export type WidgetPosition = { col: number; row: number };
 export type WidgetSize = { colSpan: number; rowSpan: number };
 
 export const DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; label: string }> = [
-  { id: 'actionPipeline', label: '조치 요청 파이프라인' },
-  { id: 'actionQueue', label: '처리 필요 조치 요청' },
-  { id: 'decisionLog', label: '최근 판단/요청 로그' },
+  { id: 'actionPipeline', label: '프로젝트 상태 파이프라인' },
+  { id: 'actionQueue', label: '확인 필요 프로젝트' },
+  { id: 'decisionLog', label: '최근 상태 변경' },
   { id: 'projectProgress', label: '프로젝트 공정률' },
-  { id: 'workload', label: '담당자별 업무량' },
+  { id: 'workload', label: '담당자별 프로젝트 현황' },
   { id: 'myProjects', label: '내 프로젝트 현황' },
   { id: 'timeline', label: '월별 타임라인' },
 ];
 
 export const DEFAULT_WIDGET_IDS = DASHBOARD_WIDGETS.map((widget) => widget.id);
-export const DASHBOARD_WIDGET_STORAGE_KEY = 'she.dashboard.visibleWidgets.v18';
-export const DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY = 'she.dashboard.widgetLayout.v18';
+export const DASHBOARD_WIDGET_STORAGE_KEY = 'she.dashboard.visibleWidgets.v19';
+export const DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY = 'she.dashboard.widgetLayout.v19';
 
 export const GRID_GAP = 14;
 export const GRID_ROW_GUIDE_HEIGHT = 130;
