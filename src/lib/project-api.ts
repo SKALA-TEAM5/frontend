@@ -96,7 +96,7 @@ export interface UpdateProjectInput {
 
 const statusToUiStatus = (status: ProjectStatusCode, hasActionRequest = false): ProjectStatus => {
   if (hasActionRequest) return 'supplement_required';
-  if (status === 'completed') return 'approved';
+  if (status === 'completed') return 'review_completed';
   return 'draft';
 };
 

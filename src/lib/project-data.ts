@@ -4,11 +4,9 @@ import type { AppUser } from './permissions';
 export type ProjectStatus =
   | 'draft'
   | 'upload_completed'
-  | 'approved'
   | 'supplement_required'
-  | 'supplement_uploaded'
+  | 'review_completed'
 
-export type ActionRequestStatusCode = 'open' | 'in_progress' | 'resolved' | 'closed';
 export type ProjectStatusCode = 'active' | 'completed' | 'suspended';
 
 export interface ProjectSummary {
@@ -37,7 +35,6 @@ export interface ProjectSummary {
     title: string;
     reason: string;
     assignee: string;
-    statusCode: ActionRequestStatusCode;
     dueDate: string;
     requestedAt: string;
   };
@@ -112,11 +109,17 @@ export const EMPTY_PROJECT: ProjectSummary = {
 };
 
 export const STATUS_META: Record<ProjectStatus, { label: string; color: string; bg: string }> = {
-  draft: { label: '임시저장', color: C.g600, bg: C.g100 },
+  draft: { label: '업로드 중', color: C.g600, bg: C.g100 },
   upload_completed: { label: '업로드 완료', color: C.primary, bg: C.bg },
-  approved: { label: '승인', color: C.ok, bg: '#F4FBF6' },
   supplement_required: { label: '보완 요청', color: C.danger, bg: C.dangerBg },
-  supplement_uploaded: { label: '보완 완료', color: C.ok, bg: '#F4FBF6' },
+  review_completed: { label: '검토 완료', color: C.ok, bg: '#F4FBF6' },
+};
+
+export const normalizeProjectStatus = (value?: string | null): ProjectStatus => {
+  if (value === 'review_completed' || value === 'upload_completed' || value === 'supplement_required' || value === 'draft') return value;
+  if (value === 'approved') return 'review_completed';
+  if (value === 'supplement_uploaded') return 'upload_completed';
+  return 'draft';
 };
 
 export const PROJECT_STATUS_META: Record<ProjectStatusCode, { label: string; color: string; bg: string }> = {
@@ -124,15 +127,6 @@ export const PROJECT_STATUS_META: Record<ProjectStatusCode, { label: string; col
   completed: { label: '완료', color: C.ok, bg: '#F4FBF6' },
   suspended: { label: '중단', color: C.g600, bg: C.g100 },
 };
-
-export const ACTION_REQUEST_STATUS_META: Record<ActionRequestStatusCode, { label: string; color: string; bg: string }> = {
-  open: { label: '미착수', color: C.danger, bg: C.dangerBg },
-  in_progress: { label: '조치 중', color: C.warn, bg: C.warnBg },
-  resolved: { label: '조치 완료', color: C.ok, bg: '#F4FBF6' },
-  closed: { label: '종결', color: C.g600, bg: C.g100 },
-};
-
-export const ACTION_REQUEST_STATUS_STEPS: ActionRequestStatusCode[] = ['open', 'in_progress', 'resolved', 'closed'];
 
 const splitManagerNames = (value: string) =>
   value.split(',').map((manager) => manager.trim()).filter(Boolean);
@@ -148,8 +142,8 @@ export const getDashboardCountsFromProjects = (projects: ProjectSummary[]) => ({
 
 export const getSheFilterOptionsFromProjects = (projects: ProjectSummary[]) => {
   return {
-    managers: ['전체', ...Array.from(new Set(projects.map((project) => project.manager).filter(Boolean)))],
-    statuses: ['전체', ...Array.from(new Set(projects.map((project) => STATUS_META[project.status].label)))],
+    managers: ['전체', ...Array.from(new Set(projects.flatMap((project) => getProjectManagers(project))))],
+    statuses: ['전체', ...Object.values(STATUS_META).map((meta) => meta.label)],
   };
 };
 
