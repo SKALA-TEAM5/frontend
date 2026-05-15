@@ -39,6 +39,7 @@ interface ArchiveHierarchyViewProps {
   usageItems: UsageLineItem[];
   selectedCatId: number;
   selectedUsageItemId: string;
+  actionRequest?: { title: string; message: string; dueDate?: string };
   getFiles: (kind: HierarchyEvidenceKind, catId: number, usageItemId?: string) => EvidenceFile[];
   onSelectCat: (catId: number) => void;
   onSelectUsageItem: (item: UsageLineItem) => void;
@@ -52,7 +53,7 @@ interface ArchiveHierarchyViewProps {
   getRequiredEvidence?: (kind: FolderEvidenceCategory, catId: number, usageItemId?: string) => string[];
 }
 
-export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, selectedUsageItemId, getFiles, onSelectCat, onSelectUsageItem, onRemove, onMove, onMoveUsageItem, onUpload, onPreviewFile, onDownloadFile, isProblemFile, getRequiredEvidence }: ArchiveHierarchyViewProps) {
+export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, selectedUsageItemId, actionRequest, getFiles, onSelectCat, onSelectUsageItem, onRemove, onMove, onMoveUsageItem, onUpload, onPreviewFile, onDownloadFile, isProblemFile, getRequiredEvidence }: ArchiveHierarchyViewProps) {
   const [dragPayload, setDragPayload] = useState<{ kind: HierarchyEvidenceKind; catId: number; usageItemId: string; file: EvidenceFile } | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ file: EvidenceFile; x: number; y: number } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; file: EvidenceFile } | null>(null);
@@ -63,6 +64,48 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
   const [moveTargetKind, setMoveTargetKind] = useState<FolderEvidenceCategory>('receipt');
   const filteredItems = usageItems.filter((item) => item.categoryId === selectedCatId);
   const activeItem = filteredItems.find((item) => item.id === selectedUsageItemId) || filteredItems[0];
+  const actionRequestText = `${actionRequest?.title || ''} ${actionRequest?.message || ''}`;
+  const normalizeRequestText = (value: string) => value.replace(/\s+/g, '').toLowerCase();
+  const normalizedActionRequestText = normalizeRequestText(actionRequestText);
+  const isActionRequestedCat = (catId: number) => {
+    if (!normalizedActionRequestText) return false;
+    const cat = cats.find((item) => item.id === catId);
+    return Boolean(cat && normalizeRequestText(cat.short) && normalizedActionRequestText.includes(normalizeRequestText(cat.short)));
+  };
+  const isActionRequestedUsageItem = (item: UsageLineItem) => {
+    if (!normalizedActionRequestText) return false;
+    const normalizedItemName = normalizeRequestText(item.name);
+    return Boolean(normalizedItemName && normalizedActionRequestText.includes(normalizedItemName)) || isActionRequestedCat(item.categoryId);
+  };
+  const getActionRequestEvidenceNames = () => {
+    if (!actionRequest?.message) return [];
+    const sentences = actionRequest.message
+      .split(/[.。]\s*/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
+    const requestSentence = [...sentences].reverse().find((sentence) => /제출|추가/.test(sentence)) || sentences.find((sentence) => /자료|서류/.test(sentence)) || actionRequest.message;
+    const cleanEvidenceText = (value: string) => value
+      .replace(/^.*?문제가\s*있습니다[.,]?\s*/u, '')
+      .replace(/^.*?부족\s*문제가\s*있습니다[.,]?\s*/u, '')
+      .replace(/^.*?부족\s*문제.*?[.,]?\s*/u, '')
+      .replace(/(?:자료|서류|증빙)?(?:를|을)?\s*(?:추가\s*)?제출(?:해)?\s*주세요\.?$/u, '')
+      .replace(/\s*추가$/u, '')
+      .replace(/(?:자료|서류|증빙)\s*$/u, '')
+      .trim();
+    const cleaned = cleanEvidenceText(requestSentence);
+    if (!cleaned || cleaned === actionRequest.message.trim()) return [];
+    return Array.from(new Set(cleaned.split(/\s*(?:,|\/|·| 및 |와 |과 )\s*/).map((name) => cleanEvidenceText(name)).filter(Boolean)));
+  };
+  const actionRequestEvidenceNames = getActionRequestEvidenceNames();
+  const getActionRequestEvidenceForSection = (kind: FolderEvidenceCategory) => {
+    if (!activeItem || (!isActionRequestedUsageItem(activeItem) && !isActionRequestedCat(selectedCatId))) return [];
+    return actionRequestEvidenceNames.filter((name) => {
+      if (kind === 'receipt') return /영수증|결제|거래명세|카드|입금|계좌|송금/.test(name);
+      if (kind === 'site_photo') return /사진|현장|착용|설치\s*전후|설치\s*상세/.test(name);
+      if (kind === 'tax_invoice') return /세금|계산서|전자세금/.test(name);
+      return !/영수증|결제|거래명세|카드|입금|계좌|송금|사진|현장|착용|설치\s*전후|설치\s*상세|세금|계산서|전자세금/.test(name);
+    });
+  };
 
   const dropInto = (kind: HierarchyEvidenceKind, catId: number) => {
     if (!dragPayload) return;
@@ -164,13 +207,17 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                 const items = usageItems.filter((item) => item.categoryId === cat.id);
                 const count = EVIDENCE_SECTIONS.reduce((sum, section) => sum + getFiles(section.id, cat.id).length, 0);
                 const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, cat.id).some((file) => isProblemFile?.(file)));
+                const hasActionRequest = isActionRequestedCat(cat.id);
                 const active = cat.id === selectedCatId;
                 return (
-                  <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${hasProblem ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasProblem ? C.dangerBg : active ? C.bg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-                    <div style={{ fontSize: 12, fontWeight: 900, color: hasProblem ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{cat.short}</div>
+                  <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${hasProblem || hasActionRequest ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasProblem || hasActionRequest ? C.dangerBg : active ? C.bg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: 12, fontWeight: 900, color: hasProblem || hasActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{cat.short}</div>
+                      {hasActionRequest && <span style={{ ...badgeBaseStyle, padding: '3px 7px', fontSize: 10, background: C.white, color: C.danger, border: '1px solid #FFCDD2' }}>보완 요청</span>}
+                    </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
                       <span style={{ fontSize: 10, color: C.g400, fontWeight: 800 }}>{items.length}개 세부</span>
-                      <span style={{ fontSize: 10, color: hasProblem ? C.danger : C.g400, fontWeight: 900 }}>{count}건</span>
+                      <span style={{ fontSize: 10, color: hasProblem || hasActionRequest ? C.danger : C.g400, fontWeight: 900 }}>{count}건</span>
                     </div>
                   </button>
                 );
@@ -183,12 +230,31 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
               {filteredItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 6, padding: 14, fontSize: 12, color: C.g400, textAlign: 'center', background: '#FCFEFD' }}>OCR 항목이 없습니다</div>}
               {filteredItems.map((item) => {
                 const active = item.id === activeItem.id;
+                const hasActionRequest = isActionRequestedUsageItem(item);
                 return (
-                  <button key={item.id} type="button" onClick={() => onSelectUsageItem(item)} style={{ width: '100%', border: `1px solid ${active ? C.light : C.g100}`, background: active ? C.bg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                  <div
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onSelectUsageItem(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onSelectUsageItem(item);
+                      }
+                    }}
+                    style={{ width: '100%', border: `1px solid ${hasActionRequest ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasActionRequest ? C.dangerBg : active ? C.bg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
+                  >
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'start', gap: 8 }}>
                       <div style={{ minWidth: 0 }}>
-                        <div title={item.name} style={{ fontSize: 12, fontWeight: 900, color: active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
-                        <div style={{ fontSize: 12, color: active ? C.primary : C.g800, fontWeight: 900, marginTop: 4 }}>{fmt(item.amount)}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                          <div title={item.name} style={{ minWidth: 0, fontSize: 12, fontWeight: 900, color: hasActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                          {hasActionRequest && <span style={{ ...badgeBaseStyle, padding: '3px 7px', fontSize: 10, background: C.white, color: C.danger, border: '1px solid #FFCDD2' }}>보완 요청</span>}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                          <span style={{ fontSize: 12, color: hasActionRequest ? C.danger : active ? C.primary : C.g800, fontWeight: 900 }}>{fmt(item.amount)}</span>
+                          {hasActionRequest && actionRequest?.dueDate && <span style={{ fontSize: 10, fontWeight: 900, color: C.g600, background: C.white, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '2px 6px' }}>기한 {actionRequest.dueDate}</span>}
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -201,7 +267,7 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                         이동
                       </button>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -213,6 +279,10 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                 const files = getFiles(section.id, selectedCatId, activeItem?.id);
                 const hasUnsuitableSitePhoto = section.id === 'site_photo' && files.some((file) => isProblemFile?.(file));
                 const requiredEvidence = getRequiredEvidence?.(section.id, selectedCatId, activeItem?.id) || [];
+                const actionRequiredEvidence = getActionRequestEvidenceForSection(section.id);
+                const normalizeEvidenceName = (name: string) => (name || REQUIRED_EVIDENCE_LABELS[section.id]).replace(/\s+/g, '').toLowerCase();
+                const actionRequiredEvidenceKeys = new Set(actionRequiredEvidence.map(normalizeEvidenceName));
+                const visibleRequiredEvidence = requiredEvidence.filter((name) => !actionRequiredEvidenceKeys.has(normalizeEvidenceName(name)));
                 const uploadButton = (compact = false) => (
                   <button type="button" aria-label={`${section.label} 업로드`} onClick={() => onUpload(section.id, selectedCatId, activeItem?.id || selectedUsageItemId)} style={{ width: compact ? 24 : 32, height: compact ? 24 : 32, border: `1px solid ${C.light}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                     <span aria-hidden="true" style={{ position: 'relative', width: compact ? 12 : 14, height: compact ? 12 : 14, display: 'inline-block' }}>
@@ -226,8 +296,13 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                         <span style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{section.label}</span>
-                        {requiredEvidence.map((name) => (
+                        {visibleRequiredEvidence.map((name) => (
                           <span key={name} style={{ ...badgeBaseStyle, background: '#FFF4D8', color: '#8A5A00', border: '1px solid #F2D59B' }}>
+                            {name || REQUIRED_EVIDENCE_LABELS[section.id]} 제출 필요
+                          </span>
+                        ))}
+                        {actionRequiredEvidence.map((name) => (
+                          <span key={`action-${name}`} style={{ ...badgeBaseStyle, background: C.dangerBg, color: C.danger, border: '1px solid #FFCDD2' }}>
                             {name || REQUIRED_EVIDENCE_LABELS[section.id]} 제출 필요
                           </span>
                         ))}

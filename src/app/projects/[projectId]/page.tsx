@@ -9,7 +9,7 @@ import ProjectInfoEditorModal from '../../../components/project/ProjectInfoEdito
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
-import { EMPTY_PROJECT, getProjectManagers, STATUS_META, type MonthlyUsageStatementSummary, type ProjectStatus, type ProjectSummary } from '../../../lib/project-data';
+import { EMPTY_PROJECT, getProjectManagers, normalizeProjectStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectStatus, type ProjectSummary } from '../../../lib/project-data';
 import { deleteProject, getProject, listProjectManagerCandidates, markArchiveChecked, replaceProjectAssignees, updateProject, type ProjectAssignee, type UpdateProjectInput } from '../../../lib/project-api';
 import { getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
@@ -19,7 +19,7 @@ import { useCurrentUser } from '../../../lib/dev-user';
 import ArchiveScreen from '../../../features/project-tab/ArchiveScreen';
 import VerifyScreen from '../../../features/project-tab/VerifyScreen';
 import ReportScreen from '../../../features/project-tab/ReportScreen';
-import { CATS, createEntryFromFile, type UsageLineItem } from '../../../lib/evidence-utils';
+import { CATS, VALIDATION_DASHBOARD_RESULT, createEntryFromFile, type UsageLineItem } from '../../../lib/evidence-utils';
 import type { ArchiveSeed, EvidenceFile } from '../../../types/domain';
 type DetailTab = 'overview' | 'validation' | 'report';
 type UsageStatementInfoDraft = UpdateProjectInput & {
@@ -55,7 +55,7 @@ type PendingReviewUpload = {
     categoryName: string;
     itemName: string;
 };
-type SharedWorkflowStatus = 'draft' | 'upload_completed' | 'supplement_required' | 'supplement_uploaded' | 'approved';
+type SharedWorkflowStatus = 'draft' | 'upload_completed' | 'supplement_required' | 'review_completed';
 const TABS: Array<{
     id: DetailTab;
     label: string;
@@ -66,6 +66,7 @@ const TABS: Array<{
 ];
 const DETAIL_TABS = new Set<DetailTab>(['overview', 'validation', 'report']);
 const LOCAL_USAGE_STATEMENT_PREFIX = 'iveri-mvp-usage-statement:';
+const LOCAL_VALIDATION_STATUS_PREFIX = 'iveri-mvp-validation-status:';
 const EMPTY_USAGE_STATEMENT: MonthlyUsageStatementSummary = {
     month: '',
     label: '사용내역서',
@@ -97,6 +98,13 @@ const parseAmount = (value: string) => {
 const formatMonthLabel = (month: string) => {
     const [year, monthNo] = month.split('-');
     return `${year}년 ${Number(monthNo)}월`;
+};
+const getNextMonthKey = (month?: string) => {
+    const base = month ? new Date(`${month}-01`) : new Date();
+    if (Number.isNaN(base.getTime()))
+        return new Date().toISOString().slice(0, 7);
+    base.setMonth(base.getMonth() + 1);
+    return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
 };
 const buildMvpUsageStatementArchiveData = (project: ProjectSummary, fileEntry: EvidenceFile, uploadedBy: string): MvpUsageStatementArchiveData => {
     const now = new Date();
@@ -155,17 +163,34 @@ const writeLocalUsageStatementData = (projectId: string, data: MvpUsageStatement
         return;
     window.localStorage.setItem(getLocalUsageStatementKey(projectId), JSON.stringify(data));
 };
+const getLocalValidationStatusKey = (projectId: string) => `${LOCAL_VALIDATION_STATUS_PREFIX}${projectId}`;
+const readLocalValidationStatusByMonth = (projectId: string): Record<string, 'idle' | 'running' | 'done'> => {
+    if (typeof window === 'undefined' || !projectId)
+        return {};
+    try {
+        const raw = window.localStorage.getItem(getLocalValidationStatusKey(projectId));
+        if (!raw)
+            return {};
+        const parsed = JSON.parse(raw) as Record<string, string>;
+        return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value === 'idle' || value === 'running' || value === 'done')) as Record<string, 'idle' | 'running' | 'done'>;
+    } catch {
+        return {};
+    }
+};
+const writeLocalValidationStatusByMonth = (projectId: string, data: Record<string, 'idle' | 'running' | 'done'>) => {
+    if (typeof window === 'undefined' || !projectId)
+        return;
+    window.localStorage.setItem(getLocalValidationStatusKey(projectId), JSON.stringify(data));
+};
 const normalizeWorkflowStatus = (value?: string | null): SharedWorkflowStatus => {
-    if (value === 'upload_completed' || value === 'approved' || value === 'supplement_required' || value === 'supplement_uploaded')
-        return value;
-    return 'draft';
+    return normalizeProjectStatus(value);
 };
 const applyWorkflowToProject = (project: ProjectSummary, status: SharedWorkflowStatus, actionRequestDetails?: ProjectSummary['actionRequestDetails']): ProjectSummary => ({
     ...project,
     status,
-    hasActionRequest: status === 'supplement_required' || status === 'supplement_uploaded',
-    actionRequestDetails: status === 'supplement_required' || status === 'supplement_uploaded' ? actionRequestDetails : undefined,
-    reportReady: status === 'approved' || status === 'supplement_required' || status === 'supplement_uploaded',
+    hasActionRequest: status === 'supplement_required',
+    actionRequestDetails: status === 'supplement_required' ? actionRequestDetails : undefined,
+    reportReady: status === 'review_completed' || status === 'supplement_required',
 });
 const getUsageStatementOcrFailureReason = (file: File) => {
     const fileName = file.name.toLowerCase();
@@ -240,19 +265,24 @@ export default function ProjectDetailPage() {
     const [archiveSeed, setArchiveSeed] = useState<ArchiveSeed | null>(null);
     const [archiveUsageItems, setArchiveUsageItems] = useState<UsageLineItem[]>([]);
     const [matchReady, setMatchReady] = useState(false);
-    const [selectedMonth, setSelectedMonth] = useState(latestFallbackStatement.month);
+    const [selectedMonth, setSelectedMonth] = useState('');
     const [usageStatementPage, setUsageStatementPage] = useState(requestedTabParam === 'archive' ? 1 : 0);
     const [usageUploadStage, setUsageUploadStage] = useState<UsageUploadStage>('idle');
     const [validationStatusByMonth, setValidationStatusByMonth] = useState<Record<string, 'idle' | 'running' | 'done'>>({});
     const [selectedHistoryDate, setSelectedHistoryDate] = useState('all');
     const [historyDateMenuOpen, setHistoryDateMenuOpen] = useState(false);
-    const [monthMenuOpen, setMonthMenuOpen] = useState(false);
     const [projectHeaderOpen, setProjectHeaderOpen] = useState(true);
     const [actionGuideOpen, setActionGuideOpen] = useState(false);
+    const [actionGuideClosingMotion, setActionGuideClosingMotion] = useState<{ x: number; y: number; scale: number } | null>(null);
     const [actionCompletionSent, setActionCompletionSent] = useState(false);
     const [pendingReviewUploads, setPendingReviewUploads] = useState<PendingReviewUpload[]>([]);
     const [managerModalOpen, setManagerModalOpen] = useState(false);
     const [projectInfoModalOpen, setProjectInfoModalOpen] = useState(false);
+    const [monthCreateModalOpen, setMonthCreateModalOpen] = useState(false);
+    const [newMonthYear, setNewMonthYear] = useState(String(new Date().getFullYear()));
+    const [newMonthNo, setNewMonthNo] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
+    const [newMonthError, setNewMonthError] = useState('');
+    const [monthDeleteTarget, setMonthDeleteTarget] = useState<MonthlyUsageStatementSummary | null>(null);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [deleteError, setDeleteError] = useState('');
     const [deletingProject, setDeletingProject] = useState(false);
@@ -282,7 +312,9 @@ export default function ProjectDetailPage() {
     const [projectInfoSaving, setProjectInfoSaving] = useState(false);
     const [statementOverrides, setStatementOverrides] = useState<Record<string, Partial<MonthlyUsageStatementSummary>>>({});
     const historyDateMenuRef = useRef<HTMLDivElement | null>(null);
-    const monthMenuRef = useRef<HTMLDivElement | null>(null);
+    const actionGuideCardRef = useRef<HTMLDivElement | null>(null);
+    const actionRequestBadgeRef = useRef<HTMLButtonElement | null>(null);
+    const monthHistoryPushedRef = useRef(false);
     const usageUploadTimersRef = useRef<number[]>([]);
     const monthlyStatements = useMemo(() => Object.values(dbUsageStatementsByMonth)
         .map((entry) => ({
@@ -334,6 +366,102 @@ export default function ProjectDetailPage() {
     const hasUsageStatement = monthlyStatements.length > 0 || Boolean(archiveSeed?.usage_statement?.length || archiveUsageItems.length);
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
     const workflowStatus = normalizeWorkflowStatus(project.status);
+    const validationSampleReady = VALIDATION_DASHBOARD_RESULT.categories.length > 0;
+    const canStartValidationForCurrentView = workflowStatus === 'upload_completed' || workflowStatus === 'review_completed' || validationSampleReady;
+    const pushMonthHistory = () => {
+        if (typeof window === 'undefined' || monthHistoryPushedRef.current)
+            return;
+        window.history.pushState({ iveriUsageMonth: true }, '', window.location.href);
+        monthHistoryPushedRef.current = true;
+    };
+    const selectUsageMonth = (month: string) => {
+        pushMonthHistory();
+        setSelectedMonth(month);
+        setActiveTab('overview');
+        setUsageStatementPage(0);
+        const archiveData = dbUsageStatementsByMonth[month];
+        if (archiveData) {
+            setArchiveSeed(archiveData.archiveSeed);
+            setArchiveUsageItems(archiveData.usageItems);
+        }
+    };
+    const openMonthCreateModal = () => {
+        const nextMonth = getNextMonthKey(monthlyStatements[monthlyStatements.length - 1]?.month);
+        setNewMonthYear(nextMonth.slice(0, 4));
+        setNewMonthNo(nextMonth.slice(5, 7));
+        setNewMonthError('');
+        setMonthCreateModalOpen(true);
+    };
+    const addUsageMonth = () => {
+        const year = Number(newMonthYear);
+        const monthNo = Number(newMonthNo);
+        if (!Number.isInteger(year) || year < 2000 || year > 2100 || !Number.isInteger(monthNo) || monthNo < 1 || monthNo > 12) {
+            setNewMonthError('연도와 월을 올바르게 입력해 주세요.');
+            return;
+        }
+        const month = `${year}-${String(monthNo).padStart(2, '0')}`;
+        if (dbUsageStatementsByMonth[month]) {
+            setNewMonthError('이미 추가된 월입니다.');
+            return;
+        }
+        const statementSummary: MonthlyUsageStatementSummary = {
+            month,
+            label: formatMonthLabel(month),
+            sourceFileName: '-',
+            revisionNo: 0,
+            documentWrittenDate: '-',
+            uploadedAt: '-',
+            uploadedBy: '-',
+            parseStatus: '미업로드',
+            validationStatus: '미검증',
+            currentAmount: '0',
+            cumulativeAmount: '0',
+            evidenceCount: 0,
+            issueCount: 0,
+        };
+        setDbUsageStatementsByMonth((current) => ({
+            ...current,
+            [month]: {
+                archiveSeed: current[month]?.archiveSeed || { usage_statement: [], categories: {} },
+                usageItems: current[month]?.usageItems || [],
+                overviewRows: current[month]?.overviewRows || EMPTY_OVERVIEW_ROWS,
+                statementSummary: current[month]?.statementSummary || statementSummary,
+            },
+        }));
+        setArchiveSeed({ usage_statement: [], categories: {} });
+        setArchiveUsageItems([]);
+        pushMonthHistory();
+        setSelectedMonth(month);
+        setUsageStatementPage(0);
+        setMonthCreateModalOpen(false);
+    };
+    const deleteUsageMonth = () => {
+        const targetMonth = monthDeleteTarget?.month;
+        if (!targetMonth)
+            return;
+        setDbUsageStatementsByMonth((current) => {
+            const next = { ...current };
+            delete next[targetMonth];
+            return next;
+        });
+        setStatementOverrides((current) => {
+            const next = { ...current };
+            delete next[targetMonth];
+            return next;
+        });
+        setValidationStatusByMonth((current) => {
+            const next = { ...current };
+            delete next[targetMonth];
+            return next;
+        });
+        if (selectedMonth === targetMonth) {
+            setSelectedMonth('');
+            setUsageStatementPage(0);
+            setArchiveSeed(null);
+            setArchiveUsageItems([]);
+        }
+        setMonthDeleteTarget(null);
+    };
     const headerHistoryItems = useMemo<HeaderHistoryItem[]>(() => {
         const categoryFiles = archiveSeed
             ? Object.values(archiveSeed.categories).flatMap((lineItems) => Object.values(lineItems).flatMap((byKind) => Object.values(byKind).flat()))
@@ -366,7 +494,7 @@ export default function ProjectDetailPage() {
                 time: Date.now(),
                 count: 1,
                 title: '유효성 검증 완료',
-                summary: `${selectedStatement.label} 검증 결과가 승인되어 보고서 생성이 가능합니다.`,
+                summary: `${selectedStatement.label} 검증 결과가 검토 완료되어 보고서 생성이 가능합니다.`,
             }]
             : [];
         const reportEvent = project.reportReady || selectedValidationStatus === 'done'
@@ -400,11 +528,11 @@ export default function ProjectDetailPage() {
     const visibleHeaderHistoryItems = selectedHistoryDate === 'all'
         ? headerHistoryItems
         : headerHistoryItems.filter((item) => item.dateKey === selectedHistoryDate);
-    const canViewActionGuide = user.role === 'project_manager' && (workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded') && Boolean(project.actionRequestDetails);
+    const canViewActionGuide = user.role === 'project_manager' && workflowStatus === 'supplement_required' && !actionCompletionSent && Boolean(project.actionRequestDetails);
     const canEditManagers = user.role === 'she_manager';
     const projectManagers = getProjectManagers(project);
     const managerCandidates = managerCandidateProfiles.map((manager) => manager.realName);
-    const shouldPulseActionBadge = canViewActionGuide && !actionCompletionSent;
+    const shouldPulseActionBadge = canViewActionGuide;
     useEffect(() => {
         if (!projectId)
             return;
@@ -443,8 +571,9 @@ export default function ProjectDetailPage() {
         setArchiveSeed(null);
         setArchiveUsageItems([]);
         setDbUsageStatementsByMonth({});
+        setValidationStatusByMonth(readLocalValidationStatusByMonth(project.id));
         setMatchReady(false);
-        setActionGuideOpen(user.role === 'project_manager' && (workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded'));
+        setActionGuideOpen(user.role === 'project_manager' && workflowStatus === 'supplement_required');
         setActionCompletionSent(false);
         setPendingReviewUploads([]);
         if (localData) {
@@ -477,14 +606,14 @@ export default function ProjectDetailPage() {
         return () => {
             alive = false;
         };
-    }, [project.id, user.role, workflowStatus]);
+    }, [project.id]);
+    useEffect(() => {
+        setActionGuideOpen(user.role === 'project_manager' && workflowStatus === 'supplement_required');
+    }, [user.role, workflowStatus]);
     useEffect(() => () => {
         usageUploadTimersRef.current.forEach((timer) => window.clearTimeout(timer));
         usageUploadTimersRef.current = [];
     }, []);
-    useEffect(() => {
-        setSelectedMonth(latestStatement.month);
-    }, [latestStatement.month]);
     useEffect(() => {
         const latestArchiveData = latestStatement.month ? dbUsageStatementsByMonth[latestStatement.month] : undefined;
         if (!project.id || !archiveSeed || !latestArchiveData)
@@ -495,11 +624,34 @@ export default function ProjectDetailPage() {
             overviewRows: latestArchiveData.overviewRows,
             statementSummary: latestArchiveData.statementSummary,
             workflowStatus,
-            actionRequestDetails: workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded' ? project.actionRequestDetails : undefined,
+            actionRequestDetails: workflowStatus === 'supplement_required' ? project.actionRequestDetails : undefined,
         });
     }, [archiveSeed, archiveUsageItems, dbUsageStatementsByMonth, latestStatement.month, project.actionRequestDetails, project.id, workflowStatus]);
     useEffect(() => {
+        if (!project.id)
+            return;
+        writeLocalValidationStatusByMonth(project.id, validationStatusByMonth);
+    }, [project.id, validationStatusByMonth]);
+    useEffect(() => {
         setUsageStatementPage(0);
+    }, [selectedMonth]);
+    useEffect(() => {
+        if (!selectedMonth)
+            monthHistoryPushedRef.current = false;
+    }, [selectedMonth]);
+    useEffect(() => {
+        if (!selectedMonth)
+            return;
+        const handlePopState = () => {
+            setSelectedMonth('');
+            setActiveTab('overview');
+            setUsageStatementPage(0);
+            setArchiveSeed(null);
+            setArchiveUsageItems([]);
+            monthHistoryPushedRef.current = false;
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
     }, [selectedMonth]);
     useEffect(() => {
         setActiveTab(requestedTab);
@@ -526,25 +678,6 @@ export default function ProjectDetailPage() {
             document.removeEventListener('keydown', handleKeyDown);
         };
     }, [historyDateMenuOpen]);
-    useEffect(() => {
-        if (!monthMenuOpen)
-            return;
-        const handlePointerDown = (event: PointerEvent) => {
-            if (monthMenuRef.current?.contains(event.target as Node))
-                return;
-            setMonthMenuOpen(false);
-        };
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape')
-                setMonthMenuOpen(false);
-        };
-        document.addEventListener('pointerdown', handlePointerDown);
-        document.addEventListener('keydown', handleKeyDown);
-        return () => {
-            document.removeEventListener('pointerdown', handlePointerDown);
-            document.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [monthMenuOpen]);
     const updateTab = (tab: DetailTab) => {
         if (!availableTabIds.has(tab))
             return;
@@ -569,7 +702,7 @@ export default function ProjectDetailPage() {
         ]);
     };
     const revertReviewedProjectToDraft = () => {
-        setProject((current) => current.status === 'upload_completed' || current.status === 'approved' || current.status === 'supplement_uploaded'
+        setProject((current) => current.status === 'upload_completed' || current.status === 'review_completed'
             ? applyWorkflowToProject({
                 ...current,
                 hasUploads: true,
@@ -583,9 +716,11 @@ export default function ProjectDetailPage() {
         setProject((current) => applyWorkflowToProject({
             ...current,
             hasUploads: true,
-        }, current.status === 'supplement_required' || current.status === 'supplement_uploaded' ? 'supplement_uploaded' : 'upload_completed', current.actionRequestDetails));
+        }, 'upload_completed'));
         setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'idle' }));
         setActionCompletionSent(true);
+        setActionGuideOpen(false);
+        setActionGuideClosingMotion(null);
         setPendingReviewUploads([]);
     };
     const openManagerModal = () => {
@@ -644,7 +779,7 @@ export default function ProjectDetailPage() {
                 uploadProjectFile(project.id, pickedFile, 'usage_statement')
                     .then(async (uploadedEntry) => {
                         const uploadedAt = uploadedEntry.uploadedAt || new Date().toISOString().slice(0, 10);
-                        const month = uploadedAt.slice(0, 7);
+                        const month = selectedMonth || uploadedAt.slice(0, 7);
                         const statementSummary: MonthlyUsageStatementSummary = {
                             month,
                             label: formatMonthLabel(month),
@@ -673,7 +808,7 @@ export default function ProjectDetailPage() {
                             usage_statement: [uploadedEntry, ...(current?.usage_statement || []).filter((file) => file.fileId !== uploadedEntry.fileId)],
                             categories: current?.categories || {},
                         }));
-                        setProject((current) => current.status === 'upload_completed' || current.status === 'approved' || current.status === 'supplement_uploaded'
+                        setProject((current) => current.status === 'upload_completed' || current.status === 'review_completed'
                             ? applyWorkflowToProject({
                                 ...current,
                                 hasUploads: true,
@@ -908,15 +1043,104 @@ export default function ProjectDetailPage() {
             setProjectInfoDraft((current) => ({ ...current, ...patch }));
             setProjectInfoSaveError('');
         }}/>);
+    const monthCreateModal = (
+      <Modal open={monthCreateModalOpen} onClose={() => setMonthCreateModalOpen(false)} zIndex={970} maxWidth={420}>
+        <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
+          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>사용내역서 월 추가</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.g400, lineHeight: 1.55, marginBottom: 16 }}>추가할 사용내역서의 연도와 월을 입력해 주세요.</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>년도</span>
+              <input
+                value={newMonthYear}
+                onChange={(event) => {
+                  setNewMonthYear(event.target.value.replace(/\D/g, '').slice(0, 4));
+                  setNewMonthError('');
+                }}
+                inputMode="numeric"
+                placeholder="2026"
+                style={{ height: 40, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '0 12px', color: C.g800, fontFamily: 'inherit', fontSize: 14, fontWeight: 900, outline: 'none' }}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>월</span>
+              <input
+                value={newMonthNo}
+                onChange={(event) => {
+                  setNewMonthNo(event.target.value.replace(/\D/g, '').slice(0, 2));
+                  setNewMonthError('');
+                }}
+                inputMode="numeric"
+                placeholder="04"
+                style={{ height: 40, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '0 12px', color: C.g800, fontFamily: 'inherit', fontSize: 14, fontWeight: 900, outline: 'none' }}
+              />
+            </label>
+          </div>
+          {newMonthError && <div style={{ marginTop: 10, borderRadius: 8, background: C.dangerBg, color: C.danger, padding: '9px 10px', fontSize: 12, fontWeight: 900 }}>{newMonthError}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+            <button type="button" onClick={() => setMonthCreateModalOpen(false)} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>취소</button>
+            <button type="button" onClick={addUsageMonth} style={{ height: 38, border: 'none', borderRadius: 999, background: C.primary, color: C.white, padding: '0 16px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>추가</button>
+          </div>
+        </div>
+      </Modal>
+    );
+    const monthDeleteModal = (
+      <Modal open={Boolean(monthDeleteTarget)} onClose={() => setMonthDeleteTarget(null)} zIndex={980} maxWidth={440}>
+        <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
+          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>사용내역서 월 삭제</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.6 }}>
+            {monthDeleteTarget?.label} 사용내역서를 삭제하시겠습니까? 해당 월의 사용내역서와 증빙 서류가 제거됩니다.
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+            <button type="button" onClick={() => setMonthDeleteTarget(null)} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>취소</button>
+            <button type="button" onClick={deleteUsageMonth} style={{ height: 38, border: 'none', borderRadius: 999, background: C.danger, color: C.white, padding: '0 16px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>삭제</button>
+          </div>
+        </div>
+      </Modal>
+    );
     const actionGuideTitle = project.actionRequestDetails?.title || '보완 요청';
     const actionGuideMessage = project.actionRequestDetails?.reason || '';
     const actionGuideRequestedFiles: string[] = [];
     const actionGuideMeta = project.actionRequestDetails
         ? `요청 ${project.actionRequestDetails.requestedAt} · 담당 ${project.actionRequestDetails.assignee}`
         : '';
+    const closeActionGuide = () => {
+        if (actionGuideClosingMotion)
+            return;
+        const cardRect = actionGuideCardRef.current?.getBoundingClientRect();
+        const badgeRect = actionRequestBadgeRef.current?.getBoundingClientRect();
+        if (!cardRect || !badgeRect) {
+            setActionGuideOpen(false);
+            return;
+        }
+        setActionGuideClosingMotion({
+            x: badgeRect.left + badgeRect.width / 2 - (cardRect.left + cardRect.width / 2),
+            y: badgeRect.top + badgeRect.height / 2 - (cardRect.top + cardRect.height / 2),
+            scale: Math.max(0.08, Math.min(0.18, badgeRect.width / cardRect.width)),
+        });
+        window.setTimeout(() => {
+            setActionGuideOpen(false);
+            setActionGuideClosingMotion(null);
+        }, 360);
+    };
     const actionGuideModal = canViewActionGuide && project.actionRequestDetails ? (
-        <Modal open={actionGuideOpen} onClose={() => setActionGuideOpen(false)} zIndex={960} maxWidth={680}>
-          <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
+        <Modal open={actionGuideOpen} onClose={closeActionGuide} zIndex={960} maxWidth={680}>
+          <div
+            ref={actionGuideCardRef}
+            className={actionGuideClosingMotion ? 'action-guide-collapse' : undefined}
+            style={{
+                background: C.white,
+                borderRadius: 6,
+                border: `1px solid ${C.g200}`,
+                boxShadow: '0 18px 44px rgba(0,0,0,.16)',
+                overflow: 'hidden',
+                ...(actionGuideClosingMotion ? {
+                    '--action-guide-x': `${actionGuideClosingMotion.x}px`,
+                    '--action-guide-y': `${actionGuideClosingMotion.y}px`,
+                    '--action-guide-scale': actionGuideClosingMotion.scale,
+                } as CSSProperties : {}),
+            }}
+          >
             <div style={{ padding: '20px 22px 16px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -926,7 +1150,7 @@ export default function ProjectDetailPage() {
                 <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, lineHeight: 1.35 }}>{actionGuideTitle}</div>
                 {actionGuideMeta && <div style={{ fontSize: 12, color: C.g400, fontWeight: 900, marginTop: 6 }}>{actionGuideMeta}</div>}
               </div>
-              <button type="button" aria-label="부족한 서류 안내 닫기" onClick={() => setActionGuideOpen(false)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
+              <button type="button" aria-label="부족한 서류 안내 닫기" onClick={closeActionGuide} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
             </div>
             <div style={{ padding: '18px 22px 20px' }}>
               <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.7, marginBottom: 14 }}>{actionGuideMessage}</div>
@@ -937,7 +1161,7 @@ export default function ProjectDetailPage() {
                 </div>
               </div>}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-                <button type="button" onClick={() => setActionGuideOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>닫기</button>
+                <button type="button" onClick={closeActionGuide} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>닫기</button>
               </div>
             </div>
           </div>
@@ -995,15 +1219,15 @@ export default function ProjectDetailPage() {
             code: 'LG',
             title: 'Legal Agent',
             description: '법령 기준 유효성 검증',
-            label: workflowStatus === 'approved' ? '승인 완료' : workflowStatus === 'supplement_required' ? '보완 요청' : workflowStatus === 'supplement_uploaded' ? '재검토 대기' : workflowStatus === 'upload_completed' ? '검증 가능' : '대기',
-            tone: workflowStatus === 'approved' ? 'ok' as const : workflowStatus === 'supplement_required' ? 'danger' as const : workflowStatus === 'supplement_uploaded' ? 'warn' as const : workflowStatus === 'upload_completed' ? 'warn' as const : 'idle' as const,
+            label: workflowStatus === 'review_completed' ? '검토 완료' : workflowStatus === 'supplement_required' ? '보완 요청' : workflowStatus === 'upload_completed' ? '검증 가능' : '대기',
+            tone: workflowStatus === 'review_completed' ? 'ok' as const : workflowStatus === 'supplement_required' ? 'danger' as const : workflowStatus === 'upload_completed' ? 'warn' as const : 'idle' as const,
         },
         {
             code: 'RP',
             title: 'Report Agent',
             description: '보고서 초안 생성',
-            label: workflowStatus === 'approved' || workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded' ? '생성 가능' : '대기',
-            tone: workflowStatus === 'approved' || workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded' ? 'ok' as const : 'idle' as const,
+            label: workflowStatus === 'review_completed' || workflowStatus === 'supplement_required' ? '생성 가능' : '대기',
+            tone: workflowStatus === 'review_completed' || workflowStatus === 'supplement_required' ? 'ok' as const : 'idle' as const,
         },
     ];
     const agentWorkflowCard = (<section data-ui="project-detail.agent-workflow" style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column' }}>
@@ -1193,30 +1417,79 @@ export default function ProjectDetailPage() {
         업로드 완료
       </button>
     ) : null;
-    const monthSelectDropdown = (
-      <div data-ui="project-detail.22" ref={monthMenuRef} style={{ position: 'relative', flex: '0 0 120px', maxWidth: '100%', minWidth: 0 }}>
-        <button data-ui="project-detail.23" type="button" onClick={() => setMonthMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 13px', background: C.white, color: C.g600, fontFamily: 'inherit', cursor: 'pointer', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 16px', alignItems: 'center', gap: 8, textAlign: 'left', boxShadow: '0 4px 7px rgba(31, 55, 43, .08)' }}>
-          <span style={{ minWidth: 0, fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedStatement.label}</span>
-          <span aria-hidden="true" style={{ color: C.g400, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-            <ChevronIcon direction={monthMenuOpen ? 'up' : 'down'} size={16} />
-          </span>
-        </button>
-        {monthMenuOpen && (<div data-ui="project-detail.24" style={{ position: 'absolute', top: 'calc(100% + 7px)', right: 0, zIndex: 80, width: 120, maxWidth: 'calc(100vw - 40px)', maxHeight: 260, overflowY: 'auto', background: C.white, border: `1px solid ${C.g200}`, borderRadius: 6, padding: 6, boxShadow: '0 10px 22px rgba(31,55,43,.10)', scrollbarWidth: 'thin' }}>
+    const monthGridContent = (
+      <div style={{ padding: '22px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 14, marginBottom: 18, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: C.g800 }}>월별 사용내역서</div>
+            <div style={{ marginTop: 5, fontSize: 13, fontWeight: 800, color: C.g400 }}>확인할 월을 선택하거나 새 월을 추가해 주세요.</div>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 12 }}>
           {monthlyStatements.map((statement) => {
-              const active = selectedStatement.month === statement.month;
-              return (<button data-ui="project-detail.25" key={statement.month} type="button" onClick={() => {
-                      setSelectedMonth(statement.month);
-                      setMonthMenuOpen(false);
-                  }} style={{ width: '100%', border: 'none', borderRadius: 6, padding: '9px 10px', background: active ? C.bg : 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', fontFamily: 'inherit', display: 'block', textAlign: 'left' }}>
-                <span style={{ fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap' }}>{statement.label}</span>
-              </button>);
+            const uploaded = Boolean(statement.sourceFileName && statement.sourceFileName !== '-');
+            const archiveData = dbUsageStatementsByMonth[statement.month];
+            const totalAmount = archiveData?.overviewRows?.find(([label]) => label === '계')?.[3] || statement.cumulativeAmount || '0';
+            return (
+              <button
+                key={statement.month}
+                type="button"
+                onClick={() => selectUsageMonth(statement.month)}
+                style={{ position: 'relative', border: `1px solid ${uploaded ? C.light : C.g200}`, borderRadius: 12, background: uploaded ? C.bg : C.white, padding: '16px 16px', minHeight: 128, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 12, boxShadow: '0 8px 18px rgba(31,55,43,.05)' }}
+              >
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${statement.label} 삭제`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setMonthDeleteTarget(statement);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ')
+                      return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setMonthDeleteTarget(statement);
+                  }}
+                  style={{ position: 'absolute', top: 10, right: 10, width: 22, height: 22, borderRadius: 999, border: `1px solid ${C.g200}`, background: C.white, color: C.g400, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 900, lineHeight: 1, cursor: 'pointer' }}
+                >
+                  ×
+                </span>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingRight: 24 }}>
+                    <div style={{ fontSize: 17, fontWeight: 900, color: C.g800 }}>{statement.label}</div>
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {uploaded ? '사용내역서 업로드 완료' : '사용내역서 미업로드'}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'end', gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 900, color: C.g400 }}>누계</div>
+                    <div style={{ marginTop: 4, fontSize: 15, fontWeight: 900, color: uploaded ? C.primary : C.g600 }}>{totalAmount}원</div>
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: C.primary }}>보기</div>
+                </div>
+              </button>
+            );
           })}
-        </div>)}
+          <button
+            type="button"
+            onClick={openMonthCreateModal}
+            style={{ border: `1px dashed ${C.light}`, borderRadius: 12, background: 'rgba(255,255,255,.72)', minHeight: 128, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', color: C.primary, boxShadow: '0 8px 18px rgba(31,55,43,.04)' }}
+          >
+            <span aria-hidden="true" style={{ position: 'relative', width: 38, height: 38, borderRadius: 999, border: `1px solid ${C.primary}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ position: 'absolute', width: 16, height: 2, borderRadius: 999, background: C.primary }} />
+              <span style={{ position: 'absolute', width: 2, height: 16, borderRadius: 999, background: C.primary }} />
+            </span>
+          </button>
+        </div>
       </div>
     );
     const tabContent = {
-        overview: (<Card style={{ padding: hasUsageStatement ? '22px 24px' : 0, minWidth: 0, overflow: 'hidden', borderRadius: 6 }}>
-        {!hasUsageStatement ? (
+        overview: (<Card style={{ padding: !selectedMonth ? 0 : hasUsageStatement ? '22px 24px' : 0, minWidth: 0, overflow: 'hidden', borderRadius: 6 }}>
+        {!selectedMonth ? monthGridContent : !hasUsageStatement ? (
           <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 6, background: C.bg, padding: '34px 28px', textAlign: 'center' }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 9 }}>사용내역서가 없습니다</div>
@@ -1226,7 +1499,7 @@ export default function ProjectDetailPage() {
         ) : <>
         <div data-ui="project-detail.15" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto auto', alignItems: 'center', gap: 10, marginBottom: 16, minWidth: 0 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            {monthSelectDropdown}
+            <button type="button" onClick={() => setSelectedMonth('')} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 13px', background: C.white, color: C.g600, fontFamily: 'inherit', cursor: 'pointer', fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', boxShadow: 'none' }}>{selectedStatement.label}</button>
             <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap' }}>사용내역서</div>
               <div style={{ fontSize: 12, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1318,22 +1591,26 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         </> : <>
-        <ArchiveScreen projectId={project.id} matchReady={matchReady} uncheckedMatchedFileCount={project.uncheckedMatchedFileCount} onDismissMatchReady={dismissArchiveMatchReady} archiveSeed={archiveSeed} usageItems={archiveUsageItems} onUsageItemsChange={(items) => {
+        <ArchiveScreen projectId={project.id} matchReady={matchReady} uncheckedMatchedFileCount={project.uncheckedMatchedFileCount} onDismissMatchReady={dismissArchiveMatchReady} archiveSeed={archiveSeed} usageItems={archiveUsageItems} actionRequest={canViewActionGuide ? {
+                title: actionGuideTitle,
+                message: actionGuideMessage,
+                dueDate: project.actionRequestDetails?.dueDate,
+            } : undefined} onUsageItemsChange={(items) => {
                 setArchiveUsageItems(items);
                 revertReviewedProjectToDraft();
             }} onFilesUploaded={registerPendingReviewUploads} onArchiveContentMutated={revertReviewedProjectToDraft}/>
         </>}
         </>}
       </Card>),
-        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`} canStartValidation={workflowStatus === 'upload_completed' || workflowStatus === 'approved' || workflowStatus === 'supplement_uploaded'} onValidationApproved={() => {
+        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`} canStartValidation={canStartValidationForCurrentView} onValidationApproved={() => {
                 setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
-                setProject((current) => applyWorkflowToProject(current, 'approved'));
+                setProject((current) => applyWorkflowToProject(current, 'review_completed'));
                 updateTab('report');
             }} onActionRequested={(details) => {
                 setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
                 setProject((current) => applyWorkflowToProject(current, 'supplement_required', details));
             }}/>),
-        report: (<ReportScreen projectId={project.id} validationComplete={workflowStatus === 'approved' || workflowStatus === 'supplement_required' || workflowStatus === 'supplement_uploaded' || selectedValidationStatus === 'done'} contractName={`${project.name} · ${selectedStatement.label}`}/>),
+        report: (<ReportScreen projectId={project.id} validationComplete={workflowStatus === 'review_completed' || workflowStatus === 'supplement_required' || selectedValidationStatus === 'done'} contractName={`${project.name} · ${selectedStatement.label}`}/>),
     };
     return (<AppFrame title={project.name} mainClassName="project-detail-main">
       <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20, borderRadius: 6 }}>
@@ -1358,7 +1635,7 @@ export default function ProjectDetailPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, fontWeight: 900, color: C.g400 }}>사용내역서 기본 정보</span>
               {canViewActionGuide ? (
-                <button type="button" data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: `1px solid ${STATUS_META[workflowStatus].color}`, fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META[workflowStatus].color, background: STATUS_META[workflowStatus].bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }}>
+                <button type="button" ref={actionRequestBadgeRef} data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: `1px solid ${STATUS_META[workflowStatus].color}`, fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META[workflowStatus].color, background: STATUS_META[workflowStatus].bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }}>
                   {STATUS_META[workflowStatus].label}
                 </button>
               ) : (
@@ -1388,6 +1665,8 @@ export default function ProjectDetailPage() {
       {actionGuideModal}
       {managerModal}
       {projectInfoModal}
+      {monthCreateModal}
+      {monthDeleteModal}
       {deleteProjectModal}
       <CenterModal open={Boolean(ocrFailureReason)} title="사용내역서 OCR 실패" body={<div>
         <div style={{ marginBottom: 8 }}>사용내역서를 다시 업로드해주세요.</div>
@@ -1395,16 +1674,16 @@ export default function ProjectDetailPage() {
       </div>} actionLabel="확인" onAction={() => setOcrFailureReason('')} />
       <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
 
-      <div data-ui="project-detail.28" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
+      {selectedMonth && <div data-ui="project-detail.28" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
         <div role="tablist" aria-label="프로젝트 상세 탭" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: '1 1 360px', minWidth: 0, borderBottom: `1px solid ${C.g200}`, overflowX: 'auto' }}>
           {availableTabs.map((tab) => (<button data-ui="project-detail.29" key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} onClick={() => updateTab(tab.id)} style={{ border: 'none', borderBottom: `2px solid ${activeTab === tab.id ? C.primary : 'transparent'}`, background: 'transparent', color: activeTab === tab.id ? C.primary : C.g600, opacity: activeTab === tab.id ? 1 : 0.58, padding: '8px 12px 9px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: activeTab === tab.id ? 900 : 800, whiteSpace: 'nowrap' }}>
               {tab.label}
             </button>))}
         </div>
-      </div>
+      </div>}
 
       <div data-ui="project-detail.31" style={{ minWidth: 0 }}>
-        {tabContent[activeTab]}
+        {selectedMonth ? tabContent[activeTab] : tabContent.overview}
       </div>
     </AppFrame>);
 }

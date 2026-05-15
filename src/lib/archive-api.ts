@@ -224,6 +224,7 @@ export const BACKEND_EVIDENCE_TYPE_CODES: BackendEvidenceTypeCode[] = [
   'work_photo',
   'appointment_report',
   'pay_stub',
+  'wage_statement',
   'work_log',
   'daily_output_log',
   'inspection_log',

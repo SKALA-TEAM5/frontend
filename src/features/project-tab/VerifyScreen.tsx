@@ -19,11 +19,11 @@ interface VerifyScreenProps {
   hideValidationIntro?: boolean;
   canStartValidation?: boolean;
   onValidationApproved?: () => void;
-  onActionRequested?: (details: { title: string; reason: string; assignee: string; statusCode: 'open'; dueDate: string; requestedAt: string }) => void;
+  onActionRequested?: (details: { title: string; reason: string; assignee: string; dueDate: string; requestedAt: string }) => void;
 }
 
 type VerifyStatus = 'idle' | 'loading' | 'done';
-type SheReviewDecision = 'pending' | 'approved' | 'supplement_requested';
+type SheReviewDecision = 'pending' | 'review_completed' | 'supplement_requested';
 type ResultFilter = 'all' | ValidationDecision;
 type AmountTooltip = {
   label: string;
@@ -116,7 +116,6 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
   const [manualSupplementOpen, setManualSupplementOpen] = useState(false);
   const [manualSupplementText, setManualSupplementText] = useState('');
   const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
-  const [sentActionKeys, setSentActionKeys] = useState<string[]>([]);
   const [openActionKeys, setOpenActionKeys] = useState<string[]>([]);
   const verifyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const result = VALIDATION_DASHBOARD_RESULT;
@@ -181,14 +180,8 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
     }
   };
 
-  const handleSendActionNotification = (issue: ValidationIssue & { categoryName: string; decision: ValidationDecision; riskLevel: ValidationRiskLevel }) => {
-    if (!can(user, 'requestAction')) return;
-    const notificationKey = `${issue.categoryName}-${issue.title}`;
-    setSentActionKeys((prev) => prev.includes(notificationKey) ? prev : [...prev, notificationKey]);
-  };
-
   const handleApproveValidation = () => {
-    setSheReviewDecision('approved');
+    setSheReviewDecision('review_completed');
     onValidationApproved?.();
   };
 
@@ -198,13 +191,11 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
       setManualSupplementOpen(true);
       return;
     }
-    issues.forEach((issue) => handleSendActionNotification(issue));
     const firstIssue = issues[0];
     onActionRequested?.({
       title: firstIssue?.categoryName || '보완 요청',
       reason: firstIssue ? `${firstIssue.categoryName} 항목에서 ${firstIssue.title} 문제가 있습니다. ${firstIssue.requiredAction}` : '제출 자료를 다시 확인해 주세요.',
       assignee: '프로젝트 담당자',
-      statusCode: 'open',
       dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
       requestedAt: new Date().toLocaleString('ko-KR'),
     });
@@ -218,7 +209,6 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
         title: '보완 요청',
         reason: message,
         assignee: '프로젝트 담당자',
-        statusCode: 'open',
         dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
         requestedAt: new Date().toLocaleString('ko-KR'),
       });
@@ -544,19 +534,10 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
         {list.map((issue) => {
           const meta = decisionMeta[issue.decision];
           const notificationKey = `${issue.categoryName}-${issue.title}`;
-          const sent = sentActionKeys.includes(notificationKey);
           const open = openActionKeys.includes(notificationKey);
           const toggleOpen = () => {
             setOpenActionKeys((prev) => prev.includes(notificationKey) ? prev.filter((key) => key !== notificationKey) : [...prev, notificationKey]);
           };
-          const renderNotifyButton = () => (
-            <button type="button" onClick={(event) => {
-              event.stopPropagation();
-              handleSendActionNotification(issue);
-            }} disabled={sent} style={{ border: `1px solid ${sent ? C.g200 : C.primary}`, borderRadius: 999, padding: '7px 12px', background: sent ? C.g100 : C.white, color: sent ? C.g400 : C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: sent ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
-              {sent ? '요청 전송됨' : '요청 전송'}
-            </button>
-          );
           return <div key={`${issue.categoryName}-${issue.title}`} style={{ borderRadius: 12, border: `1px solid ${open ? meta.border : C.g200}`, background: open ? meta.bg : C.white, overflow: 'hidden' }}>
             <div role="button" tabIndex={0} onClick={toggleOpen} onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
@@ -568,7 +549,6 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
                 <span style={{ width: 18, color: C.g400, fontSize: 13, fontWeight: 900, flexShrink: 0 }}>{open ? '-' : '+'}</span>
                 <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                   <div title={issue.title} style={{ fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{issue.title}</div>
-                  {can(user, 'requestAction') && <span style={{ flexShrink: 0 }}>{renderNotifyButton()}</span>}
                 </div>
               </div>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
@@ -592,9 +572,9 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
     if (!can(user, 'confirmFinalReport')) return null;
 
     const decisionMetaByStatus: Record<SheReviewDecision, { label: string; color: string; bg: string; description: string }> = {
-      pending: { label: '검토 대기', color: C.g600, bg: C.g100, description: 'AI 판단 결과와 근거를 확인한 뒤 승인하거나 프로젝트 담당자에게 보완 요청을 보낼 수 있습니다.' },
-      approved: { label: '승인', color: C.ok, bg: '#F4FBF6', description: 'SHE 담당자가 검증 결과를 승인했습니다. 유효성 검증을 완료하고 보고서 탭으로 이동합니다.' },
-      supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 보완 요청 상태를 반영했습니다. 사용내역서 또는 증빙 자료를 수정한 뒤 다시 업로드 완료를 누르면 보완 완료 상태가 됩니다.' },
+      pending: { label: '검토 대기', color: C.g600, bg: C.g100, description: 'AI 판단 결과와 근거를 확인한 뒤 검토 완료 처리하거나 프로젝트 담당자에게 보완 요청을 보낼 수 있습니다.' },
+      review_completed: { label: '검토 완료', color: C.ok, bg: '#F4FBF6', description: 'SHE 담당자가 검증 결과를 확인했습니다. 유효성 검토를 완료하고 보고서 탭으로 이동합니다.' },
+      supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 보완 요청 상태를 반영했습니다. 사용내역서 또는 증빙 자료를 수정한 뒤 다시 업로드 완료를 누르면 재검토할 수 있습니다.' },
     };
     const current = decisionMetaByStatus[sheReviewDecision];
     const reviewButtonStyle = (color: string, active: boolean): CSSProperties => ({
@@ -623,7 +603,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
             <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6 }}>{current.description}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-            <button type="button" onClick={handleApproveValidation} style={reviewButtonStyle(C.ok, sheReviewDecision === 'approved')}>승인</button>
+            <button type="button" onClick={handleApproveValidation} style={reviewButtonStyle(C.ok, sheReviewDecision === 'review_completed')}>검토 완료</button>
             <button type="button" onClick={handleSupplementRequest} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested')}>보완 요청</button>
           </div>
         </div>
@@ -643,7 +623,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
     }
 
     return <div className="screen-enter">
-      <Card style={{ padding: '1px 5px', marginBottom: 8, background: C.soft, boxShadow: 'none' }}>
+      <Card style={{ padding: '1px 5px', marginBottom: 8, background: C.soft, border: 'none', boxShadow: 'none' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 14, color: C.g600 }}>검증일 {result.checkedAt}</div>

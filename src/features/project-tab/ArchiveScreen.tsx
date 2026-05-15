@@ -23,6 +23,7 @@ interface ArchiveScreenProps {
     onArchiveSeedChange?: (seed: ArchiveSeed) => void;
     onFilesUploaded?: (files: EvidenceFile[], context?: { categoryName: string; itemName: string }) => void;
     onArchiveContentMutated?: (mutation: 'upload' | 'delete' | 'move') => void;
+    actionRequest?: { title: string; message: string; dueDate?: string };
 }
 type DragContext = {
     file: EvidenceFile;
@@ -41,7 +42,7 @@ const uniqueFiles = (files: EvidenceFile[]) => {
     });
 };
 const FOLDER_EVIDENCE_KINDS: FolderEvidenceCategory[] = ['receipt', 'site_photo', 'tax_invoice', 'other_document'];
-export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedFileCount = 0, onDismissMatchReady, archiveSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onArchiveSeedChange, onFilesUploaded, onArchiveContentMutated }: ArchiveScreenProps) {
+export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedFileCount = 0, onDismissMatchReady, archiveSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onArchiveSeedChange, onFilesUploaded, onArchiveContentMutated, actionRequest }: ArchiveScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const [viewMode, setViewMode] = useState<ArchiveViewMode>('hierarchy');
     const [dragFile, setDragFile] = useState<DragContext>(null);
@@ -522,7 +523,7 @@ export default function ArchiveScreen({ projectId, matchReady, uncheckedMatchedF
         )}
 
         <div data-ui="archive-screen.6" key={viewMode} className="screen-enter" style={{ paddingTop: 0 }}>
-          {viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} usageItems={resolvedUsageItems} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} onSelectCat={(catId) => {
+          {viewMode === 'hierarchy' ? (<ArchiveHierarchyView cats={CATS} usageItems={resolvedUsageItems} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} actionRequest={actionRequest} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} onSelectCat={(catId) => {
                 setSelectedHierarchyCatId(catId);
                 setSelectedUsageItemId(resolvedUsageItems.find((item) => item.categoryId === catId)?.id || '');
             }} onSelectUsageItem={(item) => {

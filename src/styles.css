@@ -44,6 +44,11 @@
   .action-request-pulse {
     animation: actionRequestPulse 1.05s ease-in-out infinite;
   }
+  .action-guide-collapse {
+    animation: actionGuideCollapse 0.34s cubic-bezier(.2,.9,.26,1) both;
+    transform-origin: center center;
+    pointer-events: none;
+  }
   .soft-green-focus:focus {
     border-color: var(--c-light) !important;
     box-shadow: 0 0 0 3px rgba(76, 175, 120, .18);
@@ -56,6 +61,21 @@
     50% {
       box-shadow: 0 0 0 5px rgba(229, 57, 53, 0);
       transform: translateZ(0) scale(1.04);
+    }
+  }
+  @keyframes actionGuideCollapse {
+    0% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: blur(0);
+    }
+    72% {
+      opacity: .82;
+    }
+    100% {
+      opacity: 0;
+      transform: translate3d(var(--action-guide-x), var(--action-guide-y), 0) scale(var(--action-guide-scale));
+      filter: blur(.4px);
     }
   }
   .screen-enter { animation: fadeUp 0.28s cubic-bezier(.22,1,.36,1) both; }
