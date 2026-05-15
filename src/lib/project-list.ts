@@ -1,4 +1,4 @@
-import { STATUS_META, type ProjectSummary } from './project-data';
+import { getProjectManagers, STATUS_META, type ProjectSummary } from './project-data';
 
 export type ProjectSortField = 'name' | 'startDate' | 'endDate' | 'progress';
 export type SortDirection = 'asc' | 'desc';
@@ -67,6 +67,28 @@ const matchesRecentPeriod = (project: ProjectSummary, mode: PeriodMode) => {
   return startTime <= today.getTime() && endTime >= from.getTime();
 };
 
+const parseInputDateTime = (value: string) => {
+  const time = new Date(value.trim().replace(/\//g, '-')).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
+const matchesCustomPeriod = (project: ProjectSummary, period: string) => {
+  const text = period.trim();
+  if (!text) return true;
+  if (!text.includes('~')) return project.period.toLowerCase().includes(text.toLowerCase());
+
+  const [rawStart = '', rawEnd = ''] = text.split('~');
+  const filterStartTime = parseInputDateTime(rawStart);
+  const filterEndTime = parseInputDateTime(rawEnd);
+  const { startTime, endTime } = parseProjectPeriodRange(project.period);
+
+  if (!startTime || !endTime) return false;
+  if (filterStartTime && filterEndTime) return startTime <= filterEndTime && endTime >= filterStartTime;
+  if (filterStartTime) return endTime >= filterStartTime;
+  if (filterEndTime) return startTime <= filterEndTime;
+  return true;
+};
+
 const progressValue = (project: ProjectSummary) => Number.parseInt(project.progressRate, 10) || 0;
 
 export const sortProjects = (projects: ProjectSummary[], sortBy: ProjectSortField, sortDirection: SortDirection = 'asc') => {
@@ -109,10 +131,13 @@ export const filterProjects = (projects: ProjectSummary[], options: ProjectFilte
       project.contractNumber.toLowerCase().includes(contractNumberText);
     const matchesPeriod =
       periodMode === 'custom'
-        ? !periodText || project.period.toLowerCase().includes(periodText)
+        ? matchesCustomPeriod(project, periodText)
         : matchesRecentPeriod(project, periodMode);
     const matchesManager =
-      !includeManagerStatus || !options.manager || options.manager === allManagerLabel || project.manager === options.manager;
+      !includeManagerStatus ||
+      !options.manager ||
+      options.manager === allManagerLabel ||
+      getProjectManagers(project).includes(options.manager);
     const matchesStatus =
       !includeManagerStatus ||
       !options.status ||

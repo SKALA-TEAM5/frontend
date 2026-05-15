@@ -15,20 +15,22 @@ const options: Array<{ mode: Exclude<PeriodMode, 'all'>; label: string }> = [
   { mode: '1m', label: '1개월' },
   { mode: '3m', label: '3개월' },
   { mode: '6m', label: '6개월' },
-  { mode: 'custom', label: '직접입력' },
 ];
 
 export default function PeriodFilter({ mode, value, onModeChange, onValueChange, inputStyle, compact = false }: PeriodFilterProps) {
   const updateMode = (nextMode: Exclude<PeriodMode, 'all'>) => {
     const toggledMode: PeriodMode = mode === nextMode ? 'all' : nextMode;
     onModeChange(toggledMode);
-    if (nextMode !== 'custom') {
-      onValueChange('');
-    }
+    onValueChange('');
+  };
+  const [startDate = '', endDate = ''] = value.split('~').map((item) => item.trim());
+  const updateDateRange = (nextStartDate: string, nextEndDate: string) => {
+    onModeChange(nextStartDate || nextEndDate ? 'custom' : 'all');
+    onValueChange(nextStartDate || nextEndDate ? `${nextStartDate}~${nextEndDate}` : '');
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: mode === 'custom' ? `max-content minmax(${compact ? 120 : 150}px, ${compact ? 170 : 220}px)` : 'max-content', alignItems: 'center', gap: compact ? 6 : 10, width: 'fit-content', maxWidth: '100%' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: compact ? 'max-content minmax(0, 220px)' : 'max-content minmax(280px, 360px)', alignItems: 'center', gap: compact ? 6 : 10, width: 'fit-content', maxWidth: '100%' }}>
       <div style={{ display: 'inline-flex', gap: compact ? 4 : 6, flexWrap: 'wrap' }}>
         {options.map((option) => {
           const active = mode === option.mode;
@@ -56,14 +58,23 @@ export default function PeriodFilter({ mode, value, onModeChange, onValueChange,
           );
         })}
       </div>
-      {mode === 'custom' && (
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)', alignItems: 'center', gap: compact ? 4 : 6, minWidth: 0 }}>
         <input
-          value={value}
-          onChange={(event) => onValueChange(event.target.value)}
-          placeholder="2026-04 또는 2026/04/23"
+          type="date"
+          aria-label="조회 시작일"
+          value={startDate}
+          onChange={(event) => updateDateRange(event.target.value, endDate)}
           style={{ ...inputStyle, width: '100%' }}
         />
-      )}
+        <span style={{ color: C.g400, fontSize: compact ? 11 : 13, fontWeight: 900 }}>~</span>
+        <input
+          type="date"
+          aria-label="조회 종료일"
+          value={endDate}
+          onChange={(event) => updateDateRange(startDate, event.target.value)}
+          style={{ ...inputStyle, width: '100%' }}
+        />
+      </div>
     </div>
   );
 }

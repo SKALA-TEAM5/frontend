@@ -9,7 +9,7 @@ import { AppFrame, ProjectSortControl } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { type BackendUserProfile } from '../../lib/auth-api';
 import { C } from '../../lib/theme';
-import { getSheFilterOptionsFromProjects, STATUS_META, type NewProjectInput, type ProjectSummary } from '../../lib/project-data';
+import { getSheFilterOptionsFromProjects, normalizeProjectStatus, STATUS_META, type NewProjectInput, type ProjectSummary } from '../../lib/project-data';
 import { createProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
@@ -20,7 +20,7 @@ const inputStyle: React.CSSProperties = {
   height: 38,
   boxSizing: 'border-box',
   padding: '0 12px',
-  borderRadius: 2,
+  borderRadius: 8,
   border: `1px solid ${C.g200}`,
   fontFamily: 'inherit',
   fontSize: 13,
@@ -103,12 +103,13 @@ export default function ProjectsPage() {
             if (!raw) return project;
             const parsed = JSON.parse(raw) as { workflowStatus?: ProjectSummary['status']; actionRequestDetails?: ProjectSummary['actionRequestDetails'] };
             if (!parsed.workflowStatus) return project;
+            const workflowStatus = normalizeProjectStatus(parsed.workflowStatus);
             return {
               ...project,
-              status: parsed.workflowStatus,
-              hasActionRequest: parsed.workflowStatus === 'supplement_required' || parsed.workflowStatus === 'supplement_uploaded',
-              actionRequestDetails: parsed.workflowStatus === 'supplement_required' || parsed.workflowStatus === 'supplement_uploaded' ? parsed.actionRequestDetails : undefined,
-              reportReady: parsed.workflowStatus === 'approved' || parsed.workflowStatus === 'supplement_required' || parsed.workflowStatus === 'supplement_uploaded',
+              status: workflowStatus,
+              hasActionRequest: workflowStatus === 'supplement_required',
+              actionRequestDetails: workflowStatus === 'supplement_required' ? parsed.actionRequestDetails : undefined,
+              reportReady: workflowStatus === 'review_completed' || workflowStatus === 'supplement_required',
             };
           } catch {
             return project;
@@ -220,7 +221,7 @@ export default function ProjectsPage() {
       description={`${ROLE_LABELS[user.role]} 권한으로 조회 가능한 프로젝트입니다.`}
       actions={user.role !== 'project_manager' ? <Button size="sm" onClick={() => setCreateModalOpen(true)} style={{ boxShadow: 'none' }}>새 프로젝트 등록</Button> : undefined}
     >
-      <Card style={{ padding: '16px 18px', marginBottom: 14 }}>
+      <Card style={{ padding: '16px 18px', marginBottom: 14, borderRadius: 14 }}>
         <div
           data-ui="projects.1"
           style={{
@@ -256,11 +257,11 @@ export default function ProjectsPage() {
       </div>
 
       <div data-ui="projects.3" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {loading && <Card style={{ padding: 24, textAlign: 'center', color: C.g400, fontWeight: 900 }}>프로젝트 목록을 불러오는 중입니다.</Card>}
-        {!loading && loadError && <Card style={{ padding: 24, textAlign: 'center', color: C.danger, fontWeight: 900 }}>{loadError}</Card>}
-        {!loading && !loadError && visibleProjects.length === 0 && <Card style={{ padding: 24, textAlign: 'center', color: C.g400, fontWeight: 900 }}>조회된 프로젝트가 없습니다.</Card>}
+        {loading && <Card style={{ padding: 24, borderRadius: 14, textAlign: 'center', color: C.g400, fontWeight: 900 }}>프로젝트 목록을 불러오는 중입니다.</Card>}
+        {!loading && loadError && <Card style={{ padding: 24, borderRadius: 14, textAlign: 'center', color: C.danger, fontWeight: 900 }}>{loadError}</Card>}
+        {!loading && !loadError && visibleProjects.length === 0 && <Card style={{ padding: 24, borderRadius: 14, textAlign: 'center', color: C.g400, fontWeight: 900 }}>조회된 프로젝트가 없습니다.</Card>}
         {visibleProjects.map((project) => (
-          <Card key={project.id} style={{ padding: '16px 18px' }}>
+          <Card key={project.id} style={{ padding: '16px 18px', borderRadius: 14 }}>
             <div
               data-ui="projects.4"
               role="button"
@@ -293,7 +294,7 @@ export default function ProjectsPage() {
                     ['공사기간', project.period],
                     ['공정률', project.progressRate],
                   ].map(([label, value]) => (
-                    <div key={label} style={{ minWidth: 0 }}>
+                    <div key={label} style={{ minWidth: 0, borderRadius: 10, background: '#FBFDFC', padding: '10px 12px' }}>
                       <div style={{ fontSize: 13, color: C.g400, fontWeight: 800, marginBottom: 4 }}>{label}</div>
                       <div style={{ fontSize: 14, color: C.g800, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
                     </div>
