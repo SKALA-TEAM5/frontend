@@ -18,6 +18,7 @@ interface VerifyScreenProps {
   initialStatus?: VerifyStatus;
   hideValidationIntro?: boolean;
   canStartValidation?: boolean;
+  onValidationComplete?: () => void;
   onValidationApproved?: () => void;
   onActionRequested?: (details: { title: string; reason: string; assignee: string; dueDate: string; requestedAt: string }) => void;
 }
@@ -104,7 +105,7 @@ const renderCategoryTableName = (item: CategoryValidationResult) => {
   </>;
 };
 
-const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
+const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
   const [filter, setFilter] = useState<ResultFilter>('all');
@@ -167,6 +168,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
           if (p >= 100) {
             clearVerifyTimer();
             setStatus('done');
+            onValidationComplete?.();
           }
         } catch {
           clearVerifyTimer();
@@ -533,10 +535,10 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {list.map((issue) => {
           const meta = decisionMeta[issue.decision];
-          const notificationKey = `${issue.categoryName}-${issue.title}`;
-          const open = openActionKeys.includes(notificationKey);
+          const actionKey = `${issue.categoryName}-${issue.title}`;
+          const open = openActionKeys.includes(actionKey);
           const toggleOpen = () => {
-            setOpenActionKeys((prev) => prev.includes(notificationKey) ? prev.filter((key) => key !== notificationKey) : [...prev, notificationKey]);
+            setOpenActionKeys((prev) => prev.includes(actionKey) ? prev.filter((key) => key !== actionKey) : [...prev, actionKey]);
           };
           return <div key={`${issue.categoryName}-${issue.title}`} style={{ borderRadius: 12, border: `1px solid ${open ? meta.border : C.g200}`, background: open ? meta.bg : C.white, overflow: 'hidden' }}>
             <div role="button" tabIndex={0} onClick={toggleOpen} onKeyDown={(event) => {
@@ -623,7 +625,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
     }
 
     return <div className="screen-enter">
-      <Card style={{ padding: '1px 5px', marginBottom: 8, background: C.soft, border: 'none', boxShadow: 'none' }}>
+      <Card style={{ padding: '1px 5px', marginBottom: 8, background: 'transparent', border: 'none', boxShadow: 'none' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 14, color: C.g600 }}>검증일 {result.checkedAt}</div>
@@ -641,7 +643,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
     </div>;
   };
 
-  return <div style={{ background: C.soft }}>
+  return <div style={{ background: 'transparent' }}>
     {status !== 'done' && !hideValidationIntro && renderIntro()}
     {status === 'loading' && renderProgress()}
     {status === 'idle' && renderEmpty()}

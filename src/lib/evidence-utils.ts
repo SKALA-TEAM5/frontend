@@ -11,6 +11,10 @@ export interface UsageLineItem {
   categoryId: number;
   name: string;
   amount: number;
+  date?: string;
+  unit?: string;
+  quantity?: number;
+  unitPrice?: number;
 }
 
 type UploadedEvidenceMap = Record<EvidenceCategory, EvidenceFile[]>;
@@ -29,6 +33,21 @@ export const CATS: CategoryMeta[] = [
 ];
 
 export const USAGE_LINE_ITEMS: UsageLineItem[] = [];
+export const parseUsageNumber = (value?: number | string | null) => {
+  if (value == null || value === '') return 0;
+  const numeric = typeof value === 'number'
+    ? value
+    : Number(String(value).replace(/[^\d.-]/g, ''));
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+export const calculateUsageLineAmount = (quantity?: number | string | null, unitPrice?: number | string | null) => {
+  const parsedQuantity = parseUsageNumber(quantity);
+  const parsedUnitPrice = parseUsageNumber(unitPrice);
+  if (parsedQuantity <= 0 || parsedUnitPrice < 0) return 0;
+  return Math.round(parsedQuantity * parsedUnitPrice);
+};
+
 export const VALIDATION_DASHBOARD_RESULT: ValidationDashboardResult = {
   id: 'validation-sample-2026-04',
   checkedAt: '2026. 5. 13. 오후 2:30',

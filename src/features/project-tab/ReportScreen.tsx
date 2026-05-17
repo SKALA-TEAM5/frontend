@@ -268,7 +268,7 @@ const ReportScreen = ({ contractName, projectId, validationComplete = false }: R
     boxShadow: `0 6px 14px ${C.primaryShadow}`,
   };
 
-  return <div className="screen-enter" style={{ background: C.soft }}>
+  return <div className="screen-enter" style={{ background: 'transparent' }}>
     <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>

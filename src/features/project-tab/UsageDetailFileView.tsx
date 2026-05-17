@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from '../../components/ui/Modal';
 import FileThumb from '../../components/ui/FileThumb';
@@ -19,22 +20,7 @@ const EVIDENCE_SECTIONS: Array<{ id: FolderEvidenceCategory; label: string }> = 
   { id: 'tax_invoice', label: '세금계산서' },
   { id: 'other_document', label: '기타' },
 ];
-const REQUIRED_EVIDENCE_LABELS: Record<FolderEvidenceCategory, string> = {
-  receipt: '영수증',
-  site_photo: '현장사진',
-  tax_invoice: '세금계산서',
-  other_document: '기타 자료',
-};
-const badgeBaseStyle: React.CSSProperties = {
-  borderRadius: 999,
-  padding: '4px 8px',
-  fontSize: 11,
-  fontWeight: 900,
-  lineHeight: 1.2,
-  whiteSpace: 'nowrap',
-};
-
-interface ArchiveHierarchyViewProps {
+interface UsageDetailFileViewProps {
   cats: CategoryMeta[];
   usageItems: UsageLineItem[];
   selectedCatId: number;
@@ -44,19 +30,31 @@ interface ArchiveHierarchyViewProps {
   onSelectCat: (catId: number) => void;
   onSelectUsageItem: (item: UsageLineItem) => void;
   onRemove: (kind: HierarchyEvidenceKind, catId: number, usageItemId: string, fileId: string) => void;
+  onRename: (kind: HierarchyEvidenceKind, catId: number, usageItemId: string, file: EvidenceFile, nextName: string) => void;
   onMove: (fromKind: HierarchyEvidenceKind, fromCatId: number, fromUsageItemId: string, toKind: HierarchyEvidenceKind, toCatId: number, file: EvidenceFile, toUsageItemId?: string) => void | Promise<void>;
   onMoveUsageItem: (usageItemId: string, toCatId: number) => void | Promise<void>;
+  onAddUsageItem: () => void;
+  onDeleteUsageItem: (item: UsageLineItem) => void;
   onUpload: (kind: FolderEvidenceCategory, catId: number, usageItemId: string) => void;
   onPreviewFile?: (file: EvidenceFile) => void;
   onDownloadFile?: (file: EvidenceFile) => void;
   isProblemFile?: (file: EvidenceFile) => boolean;
-  getRequiredEvidence?: (kind: FolderEvidenceCategory, catId: number, usageItemId?: string) => string[];
+  isSupplementTarget?: (catId: number, usageItemId?: string) => boolean;
+  fileHeaderAction?: ReactNode;
 }
 
-export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, selectedUsageItemId, actionRequest, getFiles, onSelectCat, onSelectUsageItem, onRemove, onMove, onMoveUsageItem, onUpload, onPreviewFile, onDownloadFile, isProblemFile, getRequiredEvidence }: ArchiveHierarchyViewProps) {
+const PlusIcon = ({ size = 14, color = C.primary }: { size?: number; color?: string }) => (
+  <span aria-hidden="true" style={{ position: 'relative', width: size, height: size, display: 'inline-block' }}>
+    <span style={{ position: 'absolute', left: 0, top: Math.floor(size / 2) - 1, width: size, height: 2, borderRadius: 999, background: color }} />
+    <span style={{ position: 'absolute', left: Math.floor(size / 2) - 1, top: 0, width: 2, height: size, borderRadius: 999, background: color }} />
+  </span>
+);
+
+export default function UsageDetailFileView({ cats, usageItems, selectedCatId, selectedUsageItemId, actionRequest, getFiles, onSelectCat, onSelectUsageItem, onRemove, onRename, onMove, onMoveUsageItem, onAddUsageItem, onDeleteUsageItem, onUpload, onPreviewFile, onDownloadFile, isProblemFile, isSupplementTarget, fileHeaderAction }: UsageDetailFileViewProps) {
   const [dragPayload, setDragPayload] = useState<{ kind: HierarchyEvidenceKind; catId: number; usageItemId: string; file: EvidenceFile } | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ file: EvidenceFile; x: number; y: number } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; file: EvidenceFile } | null>(null);
+  const [fileEditDraft, setFileEditDraft] = useState('');
   const [moveUsageItemTarget, setMoveUsageItemTarget] = useState<UsageLineItem | null>(null);
   const [moveUsageItemCatId, setMoveUsageItemCatId] = useState(selectedCatId);
   const [moveTargetCatId, setMoveTargetCatId] = useState(selectedCatId);
@@ -64,6 +62,9 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
   const [moveTargetKind, setMoveTargetKind] = useState<FolderEvidenceCategory>('receipt');
   const filteredItems = usageItems.filter((item) => item.categoryId === selectedCatId);
   const activeItem = filteredItems.find((item) => item.id === selectedUsageItemId) || filteredItems[0];
+  const layoutColumns = 'minmax(140px, .46fr) minmax(550px, 1.28fr) minmax(300px, .96fr)';
+  const usageItemGridColumns = '72px minmax(120px, .78fr) 32px 36px 78px 84px';
+  const usageItemRowColumns = `${usageItemGridColumns} 66px`;
   const actionRequestText = `${actionRequest?.title || ''} ${actionRequest?.message || ''}`;
   const normalizeRequestText = (value: string) => value.replace(/\s+/g, '').toLowerCase();
   const normalizedActionRequestText = normalizeRequestText(actionRequestText);
@@ -77,36 +78,6 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
     const normalizedItemName = normalizeRequestText(item.name);
     return Boolean(normalizedItemName && normalizedActionRequestText.includes(normalizedItemName)) || isActionRequestedCat(item.categoryId);
   };
-  const getActionRequestEvidenceNames = () => {
-    if (!actionRequest?.message) return [];
-    const sentences = actionRequest.message
-      .split(/[.。]\s*/)
-      .map((sentence) => sentence.trim())
-      .filter(Boolean);
-    const requestSentence = [...sentences].reverse().find((sentence) => /제출|추가/.test(sentence)) || sentences.find((sentence) => /자료|서류/.test(sentence)) || actionRequest.message;
-    const cleanEvidenceText = (value: string) => value
-      .replace(/^.*?문제가\s*있습니다[.,]?\s*/u, '')
-      .replace(/^.*?부족\s*문제가\s*있습니다[.,]?\s*/u, '')
-      .replace(/^.*?부족\s*문제.*?[.,]?\s*/u, '')
-      .replace(/(?:자료|서류|증빙)?(?:를|을)?\s*(?:추가\s*)?제출(?:해)?\s*주세요\.?$/u, '')
-      .replace(/\s*추가$/u, '')
-      .replace(/(?:자료|서류|증빙)\s*$/u, '')
-      .trim();
-    const cleaned = cleanEvidenceText(requestSentence);
-    if (!cleaned || cleaned === actionRequest.message.trim()) return [];
-    return Array.from(new Set(cleaned.split(/\s*(?:,|\/|·| 및 |와 |과 )\s*/).map((name) => cleanEvidenceText(name)).filter(Boolean)));
-  };
-  const actionRequestEvidenceNames = getActionRequestEvidenceNames();
-  const getActionRequestEvidenceForSection = (kind: FolderEvidenceCategory) => {
-    if (!activeItem || (!isActionRequestedUsageItem(activeItem) && !isActionRequestedCat(selectedCatId))) return [];
-    return actionRequestEvidenceNames.filter((name) => {
-      if (kind === 'receipt') return /영수증|결제|거래명세|카드|입금|계좌|송금/.test(name);
-      if (kind === 'site_photo') return /사진|현장|착용|설치\s*전후|설치\s*상세/.test(name);
-      if (kind === 'tax_invoice') return /세금|계산서|전자세금/.test(name);
-      return !/영수증|결제|거래명세|카드|입금|계좌|송금|사진|현장|착용|설치\s*전후|설치\s*상세|세금|계산서|전자세금/.test(name);
-    });
-  };
-
   const dropInto = (kind: HierarchyEvidenceKind, catId: number) => {
     if (!dragPayload) return;
     onMove(dragPayload.kind, dragPayload.catId, dragPayload.usageItemId, kind, catId, dragPayload.file, activeItem?.id);
@@ -122,8 +93,9 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
     });
   };
 
-  const openMoveModal = (kind: FolderEvidenceCategory, file: EvidenceFile) => {
+  const openFileEditModal = (kind: FolderEvidenceCategory, file: EvidenceFile) => {
     setMoveTarget({ kind, catId: selectedCatId, file });
+    setFileEditDraft(file.name);
     setMoveTargetCatId(selectedCatId);
     setMoveTargetUsageItemId(selectedUsageItemId);
     setMoveTargetKind(kind);
@@ -134,6 +106,16 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
     if (!moveTarget) return;
     onMove(moveTarget.kind, moveTarget.catId, selectedUsageItemId, moveTargetKind, moveTargetCatId, moveTarget.file, moveTargetUsageItemId);
     setMoveTarget(null);
+    setFileEditDraft('');
+  };
+  const closeFileEditModal = () => {
+    setMoveTarget(null);
+    setFileEditDraft('');
+  };
+  const confirmRenameFile = () => {
+    if (!moveTarget || !fileEditDraft.trim()) return;
+    onRename(moveTarget.kind, moveTarget.catId, selectedUsageItemId, moveTarget.file, fileEditDraft);
+    setMoveTarget({ ...moveTarget, file: { ...moveTarget.file, name: fileEditDraft.trim() } });
   };
   const openMoveUsageItemModal = (item: UsageLineItem) => {
     setMoveUsageItemTarget(item);
@@ -154,19 +136,16 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
 
   const renderFileRow = (kind: FolderEvidenceCategory, file: EvidenceFile) => {
     const problem = Boolean(isProblemFile?.(file));
-    const validation = file.visionValidation;
     return (
       <div key={file.id} draggable onMouseLeave={() => setHoverPreview(null)} onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ border: `1px solid ${problem ? '#FFCDD2' : C.g100}`, background: problem ? C.dangerBg : C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto auto 18px', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 18px', alignItems: 'center', gap: 6 }}>
           <div style={{ minWidth: 0 }}>
             <div title={file.name} onMouseEnter={(event) => openTooltip(file, event.currentTarget)} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 10, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
-              {kind === 'site_photo' && validation && <span style={{ ...badgeBaseStyle, color: validation.status === 'suitable' ? C.ok : C.danger, background: validation.status === 'suitable' ? '#F4FBF6' : C.dangerBg, border: `1px solid ${validation.status === 'suitable' ? '#BFE6C8' : '#FFCDD2'}` }}>{validation.status === 'suitable' ? '적합' : '부적합'}</span>}
             </div>
           </div>
-          <button type="button" disabled={!file.fileId} onClick={(event) => { event.stopPropagation(); onDownloadFile?.(file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: file.fileId ? C.g600 : C.g400, cursor: file.fileId ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>다운</button>
-          <button type="button" onClick={(event) => { event.stopPropagation(); openMoveModal(kind, file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>이동</button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); openFileEditModal(kind, file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>수정</button>
           <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(kind, selectedCatId, activeItem?.id || selectedUsageItemId, file.id); }} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 14 }}>×</button>
         </div>
       </div>
@@ -192,29 +171,29 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
   };
 
   return (
-    <div data-ui="archive-hierarchy-view.1" style={{ position: 'relative', width: '100%', minWidth: 0, overflow: 'visible' }}>
+    <div data-ui="usage-detail-file-view.1" style={{ position: 'relative', width: '100%', minWidth: 0, overflow: 'visible' }}>
       <section style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden', minWidth: 0 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, .72fr) minmax(210px, .9fr) minmax(0, 2fr)', borderBottom: `1px solid ${C.g200}`, background: '#F7FBF8', minWidth: 0 }}>
-          <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 13, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>9개 항목</div>
-          <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 13, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>사용내역서 세부 항목</div>
-          <div style={{ padding: '12px 14px', fontSize: 13, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>파일보기</div>
+        <div style={{ display: 'grid', gridTemplateColumns: layoutColumns, borderBottom: `1px solid ${C.g200}`, background: '#F7FBF8', minWidth: 0 }}>
+          <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 14, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>9개 항목</div>
+          <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 14, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>사용내역서 세부 항목</div>
+          <div style={{ padding: '8px 14px', fontSize: 14, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span>파일보기</span>
+            {fileHeaderAction && <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0 }}>{fileHeaderAction}</span>}
+          </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, .72fr) minmax(210px, .9fr) minmax(0, 2fr)', minHeight: 560, minWidth: 0 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: layoutColumns, minHeight: 560, minWidth: 0 }}>
           <div style={{ padding: 12, borderRight: `1px solid ${C.g200}`, overflow: 'visible', minWidth: 0, background: '#FEFFFE' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, overflow: 'visible' }}>
               {cats.map((cat) => {
                 const items = usageItems.filter((item) => item.categoryId === cat.id);
                 const count = EVIDENCE_SECTIONS.reduce((sum, section) => sum + getFiles(section.id, cat.id).length, 0);
                 const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, cat.id).some((file) => isProblemFile?.(file)));
-                const hasActionRequest = isActionRequestedCat(cat.id);
+                const hasActionRequest = isActionRequestedCat(cat.id) || Boolean(isSupplementTarget?.(cat.id));
                 const active = cat.id === selectedCatId;
                 return (
                   <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${hasProblem || hasActionRequest ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasProblem || hasActionRequest ? C.dangerBg : active ? C.bg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <div style={{ fontSize: 12, fontWeight: 900, color: hasProblem || hasActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{cat.short}</div>
-                      {hasActionRequest && <span style={{ ...badgeBaseStyle, padding: '3px 7px', fontSize: 10, background: C.white, color: C.danger, border: '1px solid #FFCDD2' }}>보완 요청</span>}
-                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: hasProblem || hasActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{cat.short}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
                       <span style={{ fontSize: 10, color: C.g400, fontWeight: 800 }}>{items.length}개 세부</span>
                       <span style={{ fontSize: 10, color: hasProblem || hasActionRequest ? C.danger : C.g400, fontWeight: 900 }}>{count}건</span>
@@ -227,49 +206,78 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
 
           <div style={{ padding: 12, borderRight: `1px solid ${C.g200}`, overflow: 'hidden', minWidth: 0, background: '#FEFFFE' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 560, overflowY: 'auto', paddingRight: 3 }}>
-              {filteredItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 6, padding: 14, fontSize: 12, color: C.g400, textAlign: 'center', background: '#FCFEFD' }}>OCR 항목이 없습니다</div>}
-              {filteredItems.map((item) => {
-                const active = item.id === activeItem.id;
-                const hasActionRequest = isActionRequestedUsageItem(item);
-                return (
-                  <div
-                    key={item.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onSelectUsageItem(item)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        onSelectUsageItem(item);
-                      }
-                    }}
-                    style={{ width: '100%', border: `1px solid ${hasActionRequest ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasActionRequest ? C.dangerBg : active ? C.bg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
-                  >
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'start', gap: 8 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                          <div title={item.name} style={{ minWidth: 0, fontSize: 12, fontWeight: 900, color: hasActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
-                          {hasActionRequest && <span style={{ ...badgeBaseStyle, padding: '3px 7px', fontSize: 10, background: C.white, color: C.danger, border: '1px solid #FFCDD2' }}>보완 요청</span>}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                          <span style={{ fontSize: 12, color: hasActionRequest ? C.danger : active ? C.primary : C.g800, fontWeight: 900 }}>{fmt(item.amount)}</span>
-                          {hasActionRequest && actionRequest?.dueDate && <span style={{ fontSize: 10, fontWeight: 900, color: C.g600, background: C.white, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '2px 6px' }}>기한 {actionRequest.dueDate}</span>}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openMoveUsageItemModal(item);
-                        }}
-                        style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px', alignSelf: 'center' }}
-                      >
-                        이동
-                      </button>
-                    </div>
+              <div className="thin-x-scroll" style={{ width: '100%', paddingBottom: 4 }}>
+                <div style={{ minWidth: 560, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: usageItemRowColumns, gap: 8, alignItems: 'center', padding: '0 10px 4px', color: C.g400, fontSize: 10, fontWeight: 900 }}>
+                    <span>사용일자</span>
+                    <span>사용내역</span>
+                    <span style={{ textAlign: 'center' }}>단위</span>
+                    <span style={{ textAlign: 'right' }}>수량</span>
+                    <span style={{ textAlign: 'right' }}>단가</span>
+                    <span style={{ textAlign: 'right' }}>계</span>
+                    <span />
                   </div>
-                );
-              })}
+                  {filteredItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 6, padding: 14, fontSize: 12, color: C.g400, textAlign: 'center', background: '#FCFEFD' }}>OCR 항목이 없습니다</div>}
+                  {filteredItems.map((item) => {
+                    const active = item.id === activeItem.id;
+                    const hasActionRequest = isActionRequestedUsageItem(item) || Boolean(isSupplementTarget?.(item.categoryId, item.id));
+                    return (
+                      <div
+                        key={item.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => onSelectUsageItem(item)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            onSelectUsageItem(item);
+                          }
+                        }}
+                        style={{ width: '100%', border: `1px solid ${hasActionRequest ? '#FFCDD2' : active ? C.light : C.g100}`, background: hasActionRequest ? C.dangerBg : active ? C.bg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
+                      >
+                        <div
+                          title={[item.date, item.name, item.unit, item.quantity, item.unitPrice ? fmt(item.unitPrice) : '', fmt(item.amount)].filter(Boolean).join(' ')}
+                          style={{ display: 'grid', gridTemplateColumns: usageItemRowColumns, gap: 8, alignItems: 'center', minWidth: 0 }}
+                        >
+                          <span style={{ fontSize: 11, color: hasActionRequest ? C.danger : C.g600, fontWeight: 900, whiteSpace: 'nowrap' }}>{item.date || '-'}</span>
+                          <span style={{ minWidth: 0, fontSize: 12, fontWeight: 900, color: hasActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'normal', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{item.name}</span>
+                          <span style={{ fontSize: 11, color: C.g600, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'center' }}>{item.unit || '-'}</span>
+                          <span style={{ fontSize: 11, color: C.g600, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>{item.quantity ?? '-'}</span>
+                          <span style={{ fontSize: 11, color: C.g600, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>{item.unitPrice ? fmt(item.unitPrice) : '-'}</span>
+                          <span style={{ fontSize: 12, color: hasActionRequest ? C.danger : active ? C.primary : C.g800, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>{fmt(item.amount)}</span>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, alignSelf: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openMoveUsageItemModal(item);
+                              }}
+                              style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}
+                            >
+                              이동
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`${item.name} 삭제`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDeleteUsageItem(item);
+                              }}
+                              style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: C.g400, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: 16, fontWeight: 900, lineHeight: 1 }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                        {hasActionRequest && actionRequest?.dueDate && <div style={{ marginTop: 5, fontSize: 10, fontWeight: 900, color: C.g600, background: C.white, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '2px 6px', display: 'inline-flex' }}>기한 {actionRequest.dueDate}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <button type="button" aria-label="사용내역서 세부 항목 추가" onClick={onAddUsageItem} style={{ minHeight: 44, width: '100%', border: `1px dashed ${C.light}`, borderRadius: 6, background: '#FCFEFD', color: C.primary, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                <PlusIcon size={15} />
+              </button>
             </div>
           </div>
 
@@ -277,12 +285,6 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, maxHeight: 532, overflowY: 'auto', paddingRight: 4 }}>
               {EVIDENCE_SECTIONS.map((section) => {
                 const files = getFiles(section.id, selectedCatId, activeItem?.id);
-                const hasUnsuitableSitePhoto = section.id === 'site_photo' && files.some((file) => isProblemFile?.(file));
-                const requiredEvidence = getRequiredEvidence?.(section.id, selectedCatId, activeItem?.id) || [];
-                const actionRequiredEvidence = getActionRequestEvidenceForSection(section.id);
-                const normalizeEvidenceName = (name: string) => (name || REQUIRED_EVIDENCE_LABELS[section.id]).replace(/\s+/g, '').toLowerCase();
-                const actionRequiredEvidenceKeys = new Set(actionRequiredEvidence.map(normalizeEvidenceName));
-                const visibleRequiredEvidence = requiredEvidence.filter((name) => !actionRequiredEvidenceKeys.has(normalizeEvidenceName(name)));
                 const uploadButton = (compact = false) => (
                   <button type="button" aria-label={`${section.label} 업로드`} onClick={() => onUpload(section.id, selectedCatId, activeItem?.id || selectedUsageItemId)} style={{ width: compact ? 24 : 32, height: compact ? 24 : 32, border: `1px solid ${C.light}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                     <span aria-hidden="true" style={{ position: 'relative', width: compact ? 12 : 14, height: compact ? 12 : 14, display: 'inline-block' }}>
@@ -296,21 +298,6 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                         <span style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{section.label}</span>
-                        {visibleRequiredEvidence.map((name) => (
-                          <span key={name} style={{ ...badgeBaseStyle, background: '#FFF4D8', color: '#8A5A00', border: '1px solid #F2D59B' }}>
-                            {name || REQUIRED_EVIDENCE_LABELS[section.id]} 제출 필요
-                          </span>
-                        ))}
-                        {actionRequiredEvidence.map((name) => (
-                          <span key={`action-${name}`} style={{ ...badgeBaseStyle, background: C.dangerBg, color: C.danger, border: '1px solid #FFCDD2' }}>
-                            {name || REQUIRED_EVIDENCE_LABELS[section.id]} 제출 필요
-                          </span>
-                        ))}
-                        {hasUnsuitableSitePhoto && (
-                          <span style={{ ...badgeBaseStyle, background: C.dangerBg, color: C.danger, border: '1px solid #FFCDD2' }}>
-                            현장사진 부적합
-                          </span>
-                        )}
                       </div>
                       <div style={{ fontSize: 10, fontWeight: 900, color: C.g400 }}>{files.length}</div>
                     </div>
@@ -327,23 +314,42 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
         </div>
       </section>
       {renderPreviewTooltip()}
-      <Modal open={Boolean(moveTarget)} onClose={() => setMoveTarget(null)} zIndex={980} maxWidth={760}>
+      <Modal open={Boolean(moveTarget)} onClose={closeFileEditModal} zIndex={980} maxWidth={760}>
         <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
           <div style={{ padding: '22px 24px 16px', borderBottom: `1px solid ${C.g100}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 22, fontWeight: 900, color: C.g800 }}>파일 이동</div>
-                <div title={moveTarget?.file.name} style={{ fontSize: 13, color: C.g600, fontWeight: 800, marginTop: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{moveTarget?.file.name}</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: C.g800 }}>파일 수정</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, minWidth: 0, flexWrap: 'wrap' }}>
+                  <div title={moveTarget?.file.name} style={{ minWidth: 0, maxWidth: 430, fontSize: 13, color: C.g600, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{moveTarget?.file.name}</div>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '5px 9px', background: C.bg, color: C.primary, whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: 10, color: C.g400, fontWeight: 900 }}>현재 위치</span>
+                    <span style={{ fontSize: 11, fontWeight: 900 }}>{cats.find((cat) => cat.id === moveTarget?.catId)?.short || '-'} · {EVIDENCE_SECTIONS.find((section) => section.id === moveTarget?.kind)?.label || '-'}</span>
+                  </span>
+                </div>
               </div>
-              <button type="button" onClick={() => setMoveTarget(null)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: C.g400, fontWeight: 900 }}>현재 위치</span>
-              <span style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '7px 11px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 900 }}>{cats.find((cat) => cat.id === moveTarget?.catId)?.short || '-'} · {EVIDENCE_SECTIONS.find((section) => section.id === moveTarget?.kind)?.label || '-'}</span>
+              <button type="button" onClick={closeFileEditModal} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
             </div>
           </div>
 
           <div style={{ padding: '18px 24px 20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 8, alignItems: 'end', marginBottom: 18 }}>
+              <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
+                <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>파일명</span>
+                <input
+                  value={fileEditDraft}
+                  onChange={(event) => setFileEditDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      confirmRenameFile();
+                    }
+                  }}
+                  style={{ height: 42, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontFamily: 'inherit', fontSize: 14, fontWeight: 800, padding: '0 12px', outline: 'none', minWidth: 0 }}
+                />
+              </label>
+              <button type="button" onClick={confirmRenameFile} disabled={!fileEditDraft.trim()} style={{ border: 'none', borderRadius: 999, padding: '10px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: fileEditDraft.trim() ? 'pointer' : 'not-allowed', opacity: fileEditDraft.trim() ? 1 : 0.45 }}>파일명 수정</button>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12, color: C.g400, fontSize: 12, fontWeight: 900 }}>
               <span>{cats.find((cat) => cat.id === moveTargetCatId)?.short || '9개 항목'}</span>
               <span>›</span>
@@ -383,7 +389,7 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
               </section>
 
               <section style={{ border: `1px solid ${C.g200}`, borderRadius: 14, overflow: 'hidden', background: '#FCFEFD' }}>
-                <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.g100}`, fontSize: 12, fontWeight: 900, color: C.g800 }}>자료 탭</div>
+                <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.g100}`, fontSize: 12, fontWeight: 900, color: C.g800 }}>유형</div>
                 <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {EVIDENCE_SECTIONS.map((section) => {
                     const active = moveTargetKind === section.id;
@@ -400,10 +406,10 @@ export default function ArchiveHierarchyView({ cats, usageItems, selectedCatId, 
 
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: '16px 24px', background: '#FCFEFD', borderTop: `1px solid ${C.g100}` }}>
             <div style={{ fontSize: 12, color: C.g400, fontWeight: 800 }}>
-              이동 후 선택한 항목의 파일보기에서 확인할 수 있습니다.
+              파일명 수정, 다운로드, 위치 이동을 처리합니다.
             </div>
             <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-              <button type="button" onClick={() => setMoveTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+              <button type="button" disabled={!moveTarget?.file.fileId} onClick={() => moveTarget && onDownloadFile?.(moveTarget.file)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: moveTarget?.file.fileId ? C.g600 : C.g400, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: moveTarget?.file.fileId ? 'pointer' : 'not-allowed' }}>다운로드</button>
               <button type="button" onClick={confirmMove} disabled={!moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: !moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId) ? 'not-allowed' : 'pointer', opacity: !moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId) ? 0.45 : 1 }}>이동</button>
             </div>
           </div>

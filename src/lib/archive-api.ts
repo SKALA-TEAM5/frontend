@@ -1,5 +1,5 @@
 import { apiFetch, apiUrl } from './api-client';
-import { CATS, createDefaultArchiveData, makeEntry, type UsageLineItem } from './evidence-utils';
+import { CATS, calculateUsageLineAmount, createDefaultArchiveData, makeEntry, parseUsageNumber, type UsageLineItem } from './evidence-utils';
 import type { MonthlyUsageStatementSummary } from './project-data';
 import type { ArchiveSeed, BackendEvidenceTypeCode, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../types/domain';
 
@@ -203,7 +203,7 @@ const formatMoney = (value?: number | string | null) => {
 };
 
 const toAmount = (value?: number | string | null) => {
-  const numeric = Number(value ?? 0);
+  const numeric = parseUsageNumber(value);
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
@@ -332,30 +332,38 @@ const projectFileToEntry = (projectId: string, file: ProjectFileResponse | Proje
   });
 };
 
-const buildOverviewRows = (summaries: UsageStatementSummaryResponse[]) => {
+const buildOverviewRows = (summaries: UsageStatementSummaryResponse[], usageItems: UsageLineItem[] = []) => {
   const rows = CATS.map((cat) => {
     const summary = summaries.find((item) => categoryCodeToId(item.categoryCode) === cat.id);
+    const calculatedCurrentAmount = usageItems
+      .filter((item) => item.categoryId === cat.id)
+      .reduce((sum, item) => sum + item.amount, 0);
+    const previousAmount = toAmount(summary?.previousAmount);
+    const hasCalculatedItems = usageItems.some((item) => item.categoryId === cat.id);
+    const currentAmount = hasCalculatedItems ? calculatedCurrentAmount : toAmount(summary?.currentAmount);
+    const cumulativeAmount = hasCalculatedItems ? previousAmount + currentAmount : toAmount(summary?.cumulativeAmount);
     return [
       `${cat.id}. ${summary?.categoryName || cat.label}`,
-      formatMoney(summary?.previousAmount),
-      formatMoney(summary?.currentAmount),
-      formatMoney(summary?.cumulativeAmount),
+      formatMoney(previousAmount),
+      formatMoney(currentAmount),
+      formatMoney(cumulativeAmount),
     ] as [string, string, string, string];
   });
-  const totals = summaries.reduce((acc, item) => ({
-    previous: acc.previous + toAmount(item.previousAmount),
-    current: acc.current + toAmount(item.currentAmount),
-    cumulative: acc.cumulative + toAmount(item.cumulativeAmount),
+  const totals = rows.reduce((acc, [, previous, current, cumulative]) => ({
+    previous: acc.previous + toAmount(previous),
+    current: acc.current + toAmount(current),
+    cumulative: acc.cumulative + toAmount(cumulative),
   }), { previous: 0, current: 0, cumulative: 0 });
   return [...rows, ['계', formatMoney(totals.previous), formatMoney(totals.current), formatMoney(totals.cumulative)] as [string, string, string, string]];
 };
 
-const buildStatementSummary = (statement: UsageStatementDetailResponse): MonthlyUsageStatementSummary => {
+const buildStatementSummary = (statement: UsageStatementDetailResponse, usageItems: UsageLineItem[]): MonthlyUsageStatementSummary => {
   const month = statement.reportMonth || new Date().toISOString().slice(0, 7);
   const evidenceCount = statement.items.reduce((sum, item) => sum + (item.evidenceFiles?.length || 0), 0);
   const issueCount = statement.items.reduce((sum, item) => sum + (item.requirements || []).filter((requirement) => !requirement.satisfied).length, 0);
-  const currentAmount = statement.summaries.reduce((sum, item) => sum + toAmount(item.currentAmount), 0);
-  const cumulativeAmount = statement.summaries.reduce((sum, item) => sum + toAmount(item.cumulativeAmount), 0);
+  const previousAmount = statement.summaries.reduce((sum, item) => sum + toAmount(item.previousAmount), 0);
+  const currentAmount = usageItems.reduce((sum, item) => sum + item.amount, 0);
+  const cumulativeAmount = previousAmount + currentAmount;
   return {
     month,
     label: formatMonthLabel(month),
@@ -390,15 +398,19 @@ const toArchiveData = (projectId: string, statement: UsageStatementDetailRespons
       id: usageItemId,
       categoryId: catId,
       name: item.itemName || '-',
-      amount: toAmount(item.totalAmount),
+      amount: calculateUsageLineAmount(item.quantity, item.unitPrice),
+      date: item.usedOn || undefined,
+      unit: item.unit || undefined,
+      quantity: item.quantity == null ? undefined : parseUsageNumber(item.quantity),
+      unitPrice: item.unitPrice == null ? undefined : toAmount(item.unitPrice),
     };
   }).filter((item) => item.categoryId > 0);
 
   return {
     archiveSeed,
     usageItems,
-    overviewRows: buildOverviewRows(statement.summaries || []),
-    statementSummary: buildStatementSummary(statement),
+    overviewRows: buildOverviewRows(statement.summaries || [], usageItems),
+    statementSummary: buildStatementSummary(statement, usageItems),
   };
 };
 
@@ -506,7 +518,11 @@ export const getProjectArchiveFromCategories = async (projectId: string): Promis
     id: String(item.itemId),
     categoryId: categoryCodeToId(categories[index]?.categoryCode),
     name: item.itemName || '-',
-    amount: toAmount(item.totalAmount),
+    amount: calculateUsageLineAmount(item.quantity, item.unitPrice),
+    date: item.usedOn || undefined,
+    unit: item.unit || undefined,
+    quantity: item.quantity == null ? undefined : parseUsageNumber(item.quantity),
+    unitPrice: item.unitPrice == null ? undefined : toAmount(item.unitPrice),
   }))).filter((item) => item.categoryId > 0);
   const archiveSeed = createDefaultArchiveData();
   const usageFiles = await listProjectFiles(projectId);
