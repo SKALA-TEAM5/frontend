@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
+import Modal from '../../components/ui/Modal';
 import ProjectInfoEditorModal from '../../components/project/ProjectInfoEditorModal';
 import { AppFrame, ProjectSortControl } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { type BackendUserProfile } from '../../lib/auth-api';
 import { C } from '../../lib/theme';
 import { getSheFilterOptionsFromProjects, normalizeProjectStatus, STATUS_META, type NewProjectInput, type ProjectSummary } from '../../lib/project-data';
-import { createProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees } from '../../lib/project-api';
+import { createProject, deleteProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
@@ -78,6 +79,9 @@ export default function ProjectsPage() {
   const [createForm, setCreateForm] = useState<NewProjectInput>(initialCreateForm);
   const [createError, setCreateError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [managerCandidates, setManagerCandidates] = useState<BackendUserProfile[]>([]);
   const filterOptions = useMemo(() => getSheFilterOptionsFromProjects(projects), [projects]);
   const [projectName, setProjectName] = useState('');
@@ -194,6 +198,30 @@ export default function ProjectsPage() {
     }
   };
 
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setDeleteTarget(null);
+    setDeleteError('');
+  };
+
+  const confirmDeleteProject = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await deleteProject(deleteTarget.id);
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(`${LOCAL_USAGE_STATEMENT_PREFIX}${deleteTarget.id}`);
+      }
+      setDeleteTarget(null);
+      loadProjects();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : '프로젝트 삭제에 실패했습니다.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const createProjectModal = (
     <ProjectInfoEditorModal
       open={createModalOpen}
@@ -213,6 +241,26 @@ export default function ProjectsPage() {
         });
       }}
     />
+  );
+
+  const deleteProjectModal = (
+    <Modal open={Boolean(deleteTarget)} onClose={closeDeleteModal} zIndex={980} maxWidth={480}>
+      <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(31,55,43,.14)', overflow: 'hidden' }}>
+        <div style={{ padding: '20px 22px 12px' }}>
+          <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 삭제</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
+            {deleteTarget?.constructionName || deleteTarget?.name} 프로젝트를 완전히 삭제합니다. 삭제 후에는 프로젝트 목록과 상세 화면에서 더 이상 확인할 수 없습니다.
+          </div>
+        </div>
+        <div style={{ padding: '16px 22px 18px' }}>
+          {deleteError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 900, lineHeight: 1.5, marginBottom: 14 }}>{deleteError}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={closeDeleteModal} disabled={deleting} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.45 : 1 }}>취소</button>
+            <button type="button" onClick={confirmDeleteProject} disabled={deleting} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: deleting ? C.g200 : C.danger, color: deleting ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: deleting ? 'wait' : 'pointer' }}>{deleting ? '삭제 중' : '삭제'}</button>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 
   return (
@@ -286,6 +334,19 @@ export default function ProjectsPage() {
                       미확인 매칭 {project.uncheckedMatchedFileCount}건
                     </span>
                   )}
+                  {user.role !== 'project_manager' && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDeleteError('');
+                        setDeleteTarget(project);
+                      }}
+                      style={{ marginLeft: 'auto', border: `1px solid #FFCDD2`, borderRadius: 999, background: C.dangerBg, color: C.danger, height: 30, padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: 'none' }}
+                    >
+                      삭제
+                    </button>
+                  )}
                 </div>
                 <div data-ui="projects.8" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 10, marginBottom: 14 }}>
                   {[
@@ -306,6 +367,7 @@ export default function ProjectsPage() {
         ))}
       </div>
       {createProjectModal}
+      {deleteProjectModal}
     </AppFrame>
   );
 }

@@ -16,7 +16,7 @@ export interface ProjectInfoEditorDraft {
   location: string;
   manager?: string;
   progressRate?: string;
-  revisionNo?: string;
+  usageRate?: string;
   uploadedAt?: string;
   documentWrittenDate?: string;
 }
@@ -31,6 +31,7 @@ interface ProjectInfoEditorModalProps {
   saving?: boolean;
   managerOptions?: string[];
   saveLabel?: string;
+  showStatementDates?: boolean;
   onClose: () => void;
   onSave: () => void;
   onChange: (patch: Partial<ProjectInfoEditorDraft>) => void;
@@ -75,6 +76,7 @@ export default function ProjectInfoEditorModal({
   saving,
   managerOptions = [],
   saveLabel,
+  showStatementDates = false,
   onClose,
   onSave,
   onChange,
@@ -186,17 +188,21 @@ export default function ProjectInfoEditorModal({
             {!isCreate && (
               <>
                 <div>
-                  <div style={labelStyle}>개정번호</div>
-                  <input inputMode="numeric" value={draft.revisionNo || ''} onChange={(event) => onChange({ revisionNo: event.target.value.replace(/[^\d]/g, '') })} style={fieldStyle} />
+                  <div style={labelStyle}>사용률</div>
+                  <input value={draft.usageRate || '-'} readOnly style={readOnlyStyle} />
                 </div>
-                <div>
-                  <div style={labelStyle}>업로드일</div>
-                  <input value={draft.uploadedAt || ''} readOnly style={readOnlyStyle} />
-                </div>
-                <div>
-                  <div style={labelStyle}>최종수정일</div>
-                  <input value={draft.documentWrittenDate || ''} readOnly style={readOnlyStyle} />
-                </div>
+                {showStatementDates && (
+                  <>
+                    <div>
+                      <div style={labelStyle}>업로드일</div>
+                      <input value={draft.uploadedAt || ''} readOnly style={readOnlyStyle} />
+                    </div>
+                    <div>
+                      <div style={labelStyle}>최종수정일</div>
+                      <input value={draft.documentWrittenDate || ''} readOnly style={readOnlyStyle} />
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>

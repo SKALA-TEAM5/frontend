@@ -37,6 +37,7 @@ export interface ProjectSummary {
     assignee: string;
     dueDate: string;
     requestedAt: string;
+    month?: string;
   };
   reportReady: boolean;
   recentActivity: string;
