@@ -16,11 +16,6 @@ interface AppFrameProps {
   children: React.ReactNode;
 }
 
-const headerNavItems = [
-  { href: '/dashboard', label: '대시보드' },
-  { href: '/projects', label: '전체 프로젝트' },
-];
-
 const menuButtonStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -46,6 +41,15 @@ export default function AppFrame({ description, actions, mainClassName, children
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const hasHeaderContent = Boolean(description || actions);
+  const headerNavItems = user.role === 'system_admin'
+    ? [{ href: '/admin/users', label: '사용자 관리' }]
+    : user.role === 'project_manager'
+      ? [{ href: '/projects', label: '담당 프로젝트' }]
+    : [
+        { href: '/dashboard', label: '대시보드' },
+        { href: '/projects', label: '전체 프로젝트' },
+      ];
+  const homeHref = user.role === 'system_admin' ? '/admin/users' : user.role === 'project_manager' ? '/projects' : '/dashboard';
   const isNavActive = (href: string) => pathname === href || (href === '/projects' && pathname.startsWith('/projects'));
   const headerLinkStyle = (active = false): React.CSSProperties => ({
     color: active ? C.primary : C.g400,
@@ -100,7 +104,7 @@ export default function AppFrame({ description, actions, mainClassName, children
   return (
     <div data-ui="app-frame.1" style={{ minHeight: '100vh', background: C.soft, '--app-left-offset': '0px' } as React.CSSProperties}>
       <header className="app-global-header">
-        <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 11, fontWeight: 900, color: C.g800, fontSize: 17, textDecoration: 'none' }}>
+        <Link href={homeHref} style={{ display: 'flex', alignItems: 'center', gap: 11, fontWeight: 900, color: C.g800, fontSize: 17, textDecoration: 'none' }}>
           <img src="/uploads/character.png" alt="i-veri" style={{ width: 34, height: 34, objectFit: 'contain' }} />
           <span>i-veri</span>
           <span style={{ color: '#2F73B7', fontSize: 22 }}>WorkPlace</span>

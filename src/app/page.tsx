@@ -39,7 +39,7 @@ export default function LoginPage() {
         id: String(result.user.id),
         name: result.user.realName,
       });
-      router.replace(role === 'she_manager' ? '/dashboard' : '/projects');
+      router.replace(role === 'system_admin' ? '/admin/users' : role === 'she_manager' ? '/dashboard' : '/projects');
     } catch (error) {
       setError(error instanceof Error ? error.message : '사번 또는 비밀번호를 확인해 주세요.');
       return;
