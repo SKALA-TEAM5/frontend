@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
+import InlineLoader from '../../components/ui/InlineLoader';
 import Modal from '../../components/ui/Modal';
-import { addActionNotification } from '../../lib/action-notifications';
+import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
+import { confirmValidation, getLatestValidation, getValidationStatus, runValidationAgent } from '../../lib/agent-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
-import { getProjectById } from '../../lib/project-data';
-import { buildReportDraftJson, type ReportDraft } from '../../lib/report-draft';
 import { C } from '../../lib/theme';
 import { VALIDATION_DASHBOARD_RESULT, fmt } from '../../lib/evidence-utils';
 import type { CategoryValidationResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
@@ -16,17 +16,17 @@ import type { CategoryValidationResult, ValidationDecision, ValidationIssue, Val
 interface VerifyScreenProps {
   contractName: string;
   projectId?: string;
-  initialTab?: VerifyTab;
+  usageStatementId?: number;
   initialStatus?: VerifyStatus;
   hideValidationIntro?: boolean;
-  onValidationApproved?: () => void;
+  canStartValidation?: boolean;
+  onValidationComplete?: () => void;
+  onValidationApproved?: () => void | Promise<void>;
+  onActionRequested?: (details: { title: string; reason: string; assignee: string; dueDate: string; requestedAt: string }) => void;
 }
 
 type VerifyStatus = 'idle' | 'loading' | 'done';
-type VerifyTab = 'dashboard' | 'report';
-type ReportGenerationStatus = 'idle' | 'generating' | 'done';
-type ReportWorkflowStatus = 'editing' | 'saved';
-type SheReviewDecision = 'pending' | 'approved' | 'supplement_requested';
+type SheReviewDecision = 'pending' | 'review_completed' | 'supplement_requested';
 type ResultFilter = 'all' | ValidationDecision;
 type AmountTooltip = {
   label: string;
@@ -43,6 +43,7 @@ type SummaryWidgetTooltip = {
   rows: Array<{ label: string; value?: string; detail?: string; color?: string }>;
   placement?: 'right' | 'left';
 } | null;
+type ValidationRunState = 'unknown' | 'running' | 'done' | 'failed';
 
 const decisionMeta: Record<ValidationDecision, { label: string; color: string; bg: string; border: string }> = {
   appropriate: { label: '적정', color: C.ok, bg: '#F4FBF6', border: C.light },
@@ -107,48 +108,78 @@ const renderCategoryTableName = (item: CategoryValidationResult) => {
   </>;
 };
 
-const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initialStatus = 'idle', hideValidationIntro = false, onValidationApproved }: VerifyScreenProps) => {
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+
+const readStringField = (source: unknown, keys: string[]) => {
+  const record = asRecord(source);
+  if (!record) return '';
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return '';
+};
+
+const readNestedStringField = (source: unknown, keys: string[]) => {
+  const direct = readStringField(source, keys);
+  if (direct) return direct;
+  const record = asRecord(source);
+  return readStringField(record?.result, keys) || readStringField(record?.data, keys);
+};
+
+const extractValidationId = (source: unknown) =>
+  readNestedStringField(source, ['validationId', 'validation_id', 'id', 'runId', 'run_id']);
+
+const extractValidationUsageStatementId = (source: unknown) =>
+  readNestedStringField(source, ['usageStatementId', 'usage_statement_id', 'statementId', 'statement_id']);
+
+const extractValidationRunState = (source: unknown): ValidationRunState => {
+  const rawStatus = readNestedStringField(source, ['status', 'statusCode', 'status_code', 'state', 'resultCode', 'result_code']).toLowerCase();
+  if (!rawStatus) return 'unknown';
+  if (['completed', 'complete', 'done', 'success', 'succeeded', 'passed', 'confirmed', 'approved'].includes(rawStatus)) return 'done';
+  if (['running', 'processing', 'pending', 'queued', 'started', 'in_progress'].includes(rawStatus)) return 'running';
+  if (['failed', 'failure', 'error', 'errored', 'cancelled', 'canceled'].includes(rawStatus)) return 'failed';
+  return 'unknown';
+};
+
+const isCurrentUsageStatementValidation = (source: unknown, usageStatementId?: number) => {
+  if (!usageStatementId) return true;
+  const sourceStatementId = extractValidationUsageStatementId(source);
+  return !sourceStatementId || sourceStatementId === String(usageStatementId);
+};
+
+const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
-  const [progress, setProgress] = useState(0);
-  const [stepsDone, setStepsDone] = useState<string[]>([]);
   const [filter, setFilter] = useState<ResultFilter>('all');
   const [selectedCategoryId, setSelectedCategoryId] = useState(4);
-  const [reportStatus, setReportStatus] = useState<ReportGenerationStatus>('idle');
-  const [reportProgress, setReportProgress] = useState(0);
-  const [reportWorkflowStatus, setReportWorkflowStatus] = useState<ReportWorkflowStatus>('editing');
   const [sheReviewDecision, setSheReviewDecision] = useState<SheReviewDecision>('pending');
-  const [reportDraft, setReportDraft] = useState<ReportDraft | null>(null);
-  const [savedAt, setSavedAt] = useState('');
-  const [exportNoticeOpen, setExportNoticeOpen] = useState(false);
-  const [docxExporting, setDocxExporting] = useState(false);
   const [amountTooltip, setAmountTooltip] = useState<AmountTooltip>(null);
   const [summaryWidgetTooltip, setSummaryWidgetTooltip] = useState<SummaryWidgetTooltip>(null);
   const [submittedEvidenceOpen, setSubmittedEvidenceOpen] = useState(false);
   const [manualSupplementOpen, setManualSupplementOpen] = useState(false);
   const [manualSupplementText, setManualSupplementText] = useState('');
-  const [sentActionKeys, setSentActionKeys] = useState<string[]>([]);
+  const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
   const [openActionKeys, setOpenActionKeys] = useState<string[]>([]);
-  const verifyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const reportTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activeTab: VerifyTab = initialTab;
+  const [validationId, setValidationId] = useState('');
+  const [validationConfirming, setValidationConfirming] = useState(false);
+  const [validationStatusText, setValidationStatusText] = useState('');
   const result = VALIDATION_DASHBOARD_RESULT;
-  const categories = result.categories;
-
-  const STEPS = ['사용내역서 금액 구조화', '9개 항목별 증빙 매칭', '누락 및 문제 파일 탐지', '법령 agent 기준 검토', '인정 가능 금액 산정'];
-  const REPORT_STEPS = ['항목별 판정 요약', '부적정 사유 정리', '보완 요청 문안 생성', '보고서 초안 저장'];
+  const categories = result.categories ?? [];
 
   const sortedCategories = useMemo(
     () => [...categories].sort((a, b) => getDecisionWeight(b.decision) - getDecisionWeight(a.decision) || a.categoryId - b.categoryId),
     [categories],
   );
   const filteredCategories = filter === 'all' ? sortedCategories : sortedCategories.filter((item) => item.decision === filter);
-  const selectedCategory = categories.find((item) => item.categoryId === selectedCategoryId) || sortedCategories[0];
+  const selectedCategory = categories.find((item) => item.categoryId === selectedCategoryId) || sortedCategories[0] || null;
   const issues = useMemo(() => flattenIssues(categories), [categories]);
   const totalUsage = sumBy(categories, 'usageAmount');
   const totalRecognized = sumBy(categories, 'recognizedAmount');
   const totalDisputed = sumBy(categories, 'disputedAmount');
-  const recognizedRate = Math.round((totalRecognized / totalUsage) * 100);
+  const recognizedRate = totalUsage > 0 ? Math.round((totalRecognized / totalUsage) * 100) : 0;
   const counts = {
     appropriate: categories.filter((item) => item.decision === 'appropriate').length,
     conditional: categories.filter((item) => item.decision === 'conditional').length,
@@ -156,243 +187,165 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     highRisk: categories.filter((item) => item.riskLevel === 'high').length,
   };
 
-  const clearVerifyTimer = () => {
-    if (!verifyTimerRef.current) return;
-    clearInterval(verifyTimerRef.current);
-    verifyTimerRef.current = null;
-  };
-
-  const clearReportTimer = () => {
-    if (!reportTimerRef.current) return;
-    clearInterval(reportTimerRef.current);
-    reportTimerRef.current = null;
-  };
-
-  useEffect(() => () => {
-    clearVerifyTimer();
-    clearReportTimer();
-  }, []);
-
   useEffect(() => {
     if (initialStatus === 'done') setStatus('done');
   }, [initialStatus]);
 
   useEffect(() => {
-    if (!reportDraft || reportDraft.report_sections.some((section) => section.section_id === 'tax_settlement')) return;
-    const templateDraft = buildReportDraftJson(projectId ? getProjectById(projectId, user) : null, result, contractName);
-    const taxSection = templateDraft.report_sections.find((section) => section.section_id === 'tax_settlement');
-    if (!taxSection) return;
-    setReportDraft((current) => {
-      if (!current || current.report_sections.some((section) => section.section_id === 'tax_settlement')) return current;
-      const evidenceIndex = current.report_sections.findIndex((section) => section.section_id === 'evidence_validation');
-      const insertIndex = evidenceIndex >= 0 ? evidenceIndex + 1 : Math.min(4, current.report_sections.length);
-      const report_sections = [...current.report_sections];
-      report_sections.splice(insertIndex, 0, taxSection);
-      return { ...current, report_sections };
-    });
-  }, [contractName, projectId, reportDraft, result, user]);
-
-  const handleVerify = () => {
-    clearVerifyTimer();
-    setStatus('loading');
-    setProgress(0);
-    setStepsDone([]);
-    setSelectedCategoryId(4);
-    setReportStatus('idle');
-    setReportDraft(null);
-    setReportWorkflowStatus('editing');
-    setSheReviewDecision('pending');
-    setSavedAt('');
-    let p = 0;
-    let stepIndex = 0;
-    verifyTimerRef.current = setInterval(() => {
-      p += Math.random() * 12 + 7;
-      if (p >= ((stepIndex + 1) * 100) / STEPS.length && stepIndex < STEPS.length) {
-        setStepsDone((prev) => [...prev, STEPS[stepIndex]]);
-        stepIndex += 1;
-      }
-      if (p >= 100) {
-        clearVerifyTimer();
-        setStatus('done');
-      }
-      setProgress(Math.min(p, 100));
-    }, 320);
-  };
-
-  const handleReportGenerate = () => {
-    if (status !== 'done') return;
-    clearReportTimer();
-    setReportStatus('generating');
-    setReportProgress(0);
-    let p = 0;
-    reportTimerRef.current = setInterval(() => {
-      p += Math.random() * 17 + 10;
-      if (p >= 100) {
-        clearReportTimer();
-        setReportDraft(buildReportDraftJson(projectId ? getProjectById(projectId, user) : null, result, contractName));
-        setReportStatus('done');
-        setReportWorkflowStatus('editing');
-        setSavedAt('');
-      }
-      setReportProgress(Math.min(p, 100));
-    }, 280);
-  };
-
-  const handleSaveDraft = () => {
-    setReportWorkflowStatus('saved');
-    setSavedAt(new Date().toLocaleString('ko-KR'));
-  };
-
-  const handleDocxExport = async () => {
-    if (!reportDraft || docxExporting) return;
-    setDocxExporting(true);
-    try {
-      const response = await fetch('/api/report-docx', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reportDraft),
+    if (!projectId || !usageStatementId) return;
+    let cancelled = false;
+    getLatestValidation(projectId)
+      .then((latestValidation) => {
+        if (cancelled || !isCurrentUsageStatementValidation(latestValidation, usageStatementId)) return;
+        const latestValidationId = extractValidationId(latestValidation);
+        const latestRunState = extractValidationRunState(latestValidation);
+        if (latestValidationId) setValidationId(latestValidationId);
+        if (latestRunState === 'done') {
+          setStatus('done');
+          setValidationStatusText('최신 검증 결과를 불러왔습니다.');
+        } else if (latestRunState === 'running' && latestValidationId) {
+          setStatus('loading');
+          setValidationStatusText('기존 검증 작업을 확인하고 있습니다.');
+        }
+      })
+      .catch(() => {
+        // 최신 결과가 없어도 새 검증은 시작할 수 있으므로 조용히 무시합니다.
       });
-      if (!response.ok) throw new Error('DOCX export failed');
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${reportDraft.report_no || 'report'}.docx`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-      setExportNoticeOpen(true);
-    } finally {
-      setDocxExporting(false);
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, usageStatementId]);
+
+  useEffect(() => {
+    if (status !== 'loading' || !projectId || !validationId) return;
+    let cancelled = false;
+    const pollValidationStatus = async () => {
+      try {
+        const validationStatus = await getValidationStatus(projectId, validationId);
+        if (cancelled) return;
+        const runState = extractValidationRunState(validationStatus);
+        if (runState === 'done') {
+          setStatus('done');
+          setValidationStatusText('검증이 완료되었습니다.');
+          onValidationComplete?.();
+        } else if (runState === 'failed') {
+          setStatus('idle');
+          setValidationStatusText('');
+          setAgentFailureTarget('legal-validation');
+        } else {
+          setValidationStatusText('검증 결과를 확인하고 있습니다.');
+        }
+      } catch {
+        if (!cancelled) {
+          setStatus('idle');
+          setValidationStatusText('');
+          setAgentFailureTarget('legal-validation');
+        }
+      }
+    };
+    pollValidationStatus();
+    const intervalId = window.setInterval(pollValidationStatus, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [onValidationComplete, projectId, status, validationId]);
+
+  const handleVerify = async () => {
+    if (!canStartValidation || !projectId || !usageStatementId) return;
+    try {
+      setStatus('loading');
+      setSelectedCategoryId(4);
+      setSheReviewDecision('pending');
+      setValidationStatusText('검증을 시작했습니다.');
+      const validationRun = await runValidationAgent(projectId, usageStatementId, status === 'done');
+      const nextValidationId = extractValidationId(validationRun);
+      const runState = extractValidationRunState(validationRun);
+      if (nextValidationId) setValidationId(nextValidationId);
+      if (runState === 'failed') {
+        throw new Error('검증 실행에 실패했습니다.');
+      }
+      if (runState === 'done' || !nextValidationId) {
+        setStatus('done');
+        setValidationStatusText('검증이 완료되었습니다.');
+        onValidationComplete?.();
+      } else {
+        setValidationStatusText('검증 결과를 확인하고 있습니다.');
+      }
+    } catch {
+      setStatus('idle');
+      setValidationStatusText('');
+      setAgentFailureTarget('legal-validation');
     }
   };
 
-  const updateReportTopField = (key: keyof Pick<ReportDraft, 'title' | 'report_no' | 'site_name' | 'report_period_label' | 'written_date_label' | 'department_label' | 'reviewer_label' | 'conclusion'>, value: string) => {
-    setReportDraft((current) => current ? { ...current, [key]: value } : current);
-    setReportWorkflowStatus('editing');
+  const handleApproveValidation = async () => {
+    if (!projectId || !validationId || validationConfirming) return;
+    setValidationConfirming(true);
+    try {
+      await confirmValidation(projectId, validationId, { decision: 'approved', comment: 'SHE 담당자 검토 완료' });
+      setSheReviewDecision('review_completed');
+      await onValidationApproved?.();
+    } catch {
+      setAgentFailureTarget('legal-validation');
+    } finally {
+      setValidationConfirming(false);
+    }
   };
 
-  const updateReportSectionTitle = (sectionIndex: number, value: string) => {
-    setReportDraft((current) => {
-      if (!current) return current;
-      const report_sections = current.report_sections.map((section, index) => index === sectionIndex ? { ...section, title: value } : section);
-      return { ...current, report_sections };
-    });
-    setReportWorkflowStatus('editing');
-  };
-
-  const updateReportParagraph = (sectionIndex: number, paragraphIndex: number, value: string) => {
-    setReportDraft((current) => {
-      if (!current) return current;
-      const report_sections = current.report_sections.map((section, index) => index === sectionIndex
-        ? { ...section, paragraphs: section.paragraphs.map((paragraph, pIndex) => pIndex === paragraphIndex ? value : paragraph) }
-        : section);
-      return { ...current, report_sections };
-    });
-    setReportWorkflowStatus('editing');
-  };
-
-  const updateReportTableTitle = (sectionIndex: number, tableIndex: number, value: string) => {
-    setReportDraft((current) => {
-      if (!current) return current;
-      const report_sections = current.report_sections.map((section, index) => index === sectionIndex
-        ? { ...section, tables: section.tables.map((table, tIndex) => tIndex === tableIndex ? { ...table, title: value || null } : table) }
-        : section);
-      return { ...current, report_sections };
-    });
-    setReportWorkflowStatus('editing');
-  };
-
-  const updateReportTableCell = (sectionIndex: number, tableIndex: number, rowIndex: number, cellIndex: number, value: string) => {
-    setReportDraft((current) => {
-      if (!current) return current;
-      const report_sections = current.report_sections.map((section, index) => index === sectionIndex
-        ? {
-          ...section,
-          tables: section.tables.map((table, tIndex) => tIndex === tableIndex
-            ? { ...table, rows: table.rows.map((row, rIndex) => rIndex === rowIndex ? row.map((cell, cIndex) => cIndex === cellIndex ? value : cell) : row) }
-            : table),
-        }
-        : section);
-      return { ...current, report_sections };
-    });
-    setReportWorkflowStatus('editing');
-  };
-
-  const handleSendActionNotification = (issue: ValidationIssue & { categoryName: string; decision: ValidationDecision; riskLevel: ValidationRiskLevel }) => {
-    if (!can(user, 'requestAction')) return;
-    const notificationKey = `${issue.categoryName}-${issue.title}`;
-    const isAmountCorrection = issue.title.includes('금액') || issue.description.includes('초과') || issue.requiredAction.includes('정정');
-    const message = isAmountCorrection
-      ? `${issue.categoryName} 항목에서 ${issue.title} 문제가 있습니다. 인정 범위를 초과하거나 사용내역서와 증빙 금액이 맞지 않으니 초과분을 정정해 주세요.`
-      : `${issue.categoryName} 항목에서 ${issue.title} 문제가 있습니다. ${issue.recommendedFiles.join(', ')} 자료를 제출해 주세요.`;
-    const targetProject = projectId ? getProjectById(projectId, user) : null;
-    addActionNotification({
-      projectId,
-      projectName: contractName,
-      categoryName: issue.categoryName,
-      title: issue.title,
-      message,
-      requestedFiles: issue.recommendedFiles,
-      senderName: user.name,
-      recipientUserName: targetProject?.manager,
-      statusCode: 'open',
-    });
-    setSentActionKeys((prev) => prev.includes(notificationKey) ? prev : [...prev, notificationKey]);
-  };
-
-  const handleApproveValidation = () => {
-    setSheReviewDecision('approved');
-    onValidationApproved?.();
-  };
-
-  const handleSupplementRequest = () => {
+  const handleSupplementRequest = async () => {
     if (!can(user, 'requestAction')) return;
     if (!issues.length) {
       setManualSupplementOpen(true);
       return;
     }
-    issues.forEach((issue) => handleSendActionNotification(issue));
-    setSheReviewDecision('supplement_requested');
+    const firstIssue = issues[0];
+    const reason = firstIssue ? `${firstIssue.categoryName} 항목에서 ${firstIssue.title} 문제가 있습니다. ${firstIssue.requiredAction}` : '제출 자료를 다시 확인해 주세요.';
+    if (!projectId || !validationId || validationConfirming) return;
+    setValidationConfirming(true);
+    try {
+      await confirmValidation(projectId, validationId, { decision: 'supplement_requested', comment: reason });
+      onActionRequested?.({
+      title: firstIssue?.categoryName || '보완 요청',
+      reason,
+      assignee: '프로젝트 담당자',
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
+      requestedAt: new Date().toLocaleString('ko-KR'),
+      });
+      setSheReviewDecision('supplement_requested');
+    } catch {
+      setAgentFailureTarget('legal-validation');
+    } finally {
+      setValidationConfirming(false);
+    }
   };
 
-  const handleManualSupplementSend = () => {
-    const message = manualSupplementText.trim();
-    if (!message) return;
-    const targetProject = projectId ? getProjectById(projectId, user) : null;
-    addActionNotification({
-      projectId,
-      projectName: contractName,
-      categoryName: '수기 보완 요청',
-      title: 'SHE 담당자 보완 요청',
-      message,
-      requestedFiles: [],
-      senderName: user.name,
-      recipientUserName: targetProject?.manager,
-      statusCode: 'open',
-    });
-    setManualSupplementText('');
-    setManualSupplementOpen(false);
-    setSheReviewDecision('supplement_requested');
+    const handleManualSupplementSend = async () => {
+      const message = manualSupplementText.trim();
+      if (!message) return;
+      if (!projectId || !validationId || validationConfirming) return;
+      setValidationConfirming(true);
+      try {
+        await confirmValidation(projectId, validationId, { decision: 'supplement_requested', comment: message });
+        onActionRequested?.({
+        title: '보완 요청',
+        reason: message,
+        assignee: '프로젝트 담당자',
+        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
+        requestedAt: new Date().toLocaleString('ko-KR'),
+        });
+        setManualSupplementText('');
+        setManualSupplementOpen(false);
+        setSheReviewDecision('supplement_requested');
+      } catch {
+        setAgentFailureTarget('legal-validation');
+      } finally {
+        setValidationConfirming(false);
+      }
   };
 
   const renderProgress = () => (
-    <Card style={{ marginBottom: 18, padding: '18px 20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 12 }}>
-        <div style={{ fontSize: 14, fontWeight: 900, color: C.g800 }}>AI 검증 실행 중</div>
-        <div style={{ fontSize: 12, fontWeight: 900, color: C.primary }}>{Math.round(progress)}%</div>
-      </div>
-      <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 12 }}>
-        <div style={{ height: '100%', width: `${progress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} />
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-        {STEPS.map((step, index) => {
-          const done = stepsDone.includes(step);
-          return <div key={step} style={{ padding: '9px 10px', borderRadius: 10, background: done ? C.bg : C.g100, color: done ? C.primary : C.g400, fontSize: 12, fontWeight: 800 }}>{done ? '완료' : `대기 ${index + 1}`} · {step}</div>;
-        })}
-      </div>
-    </Card>
+    <InlineLoader title="유효성 검증을 진행하고 있어요" body={validationStatusText || '사용내역서와 증빙 자료를 항목별로 맞춰 보고, 법령 기준과 인정 가능 금액을 함께 계산하고 있습니다.'} />
   );
 
   const renderIntro = () => (
@@ -410,9 +363,9 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
 
   const renderEmpty = () => (
     <div style={{ padding: '48px 32px', borderRadius: 18, border: `2px dashed ${C.g200}`, textAlign: 'center', background: C.white }}>
-      <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, marginBottom: 6 }}>{hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료'}</div>
-      <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.</div>
-      <button type="button" onClick={handleVerify} disabled={status === 'loading'} style={{ border: 'none', borderRadius: 999, padding: '9px 14px', background: C.primary, color: C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 700, cursor: status === 'loading' ? 'wait' : 'pointer', boxShadow: `0 6px 14px ${C.primaryShadow}` }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
+      <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, marginBottom: 6 }}>{canStartValidation ? (hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료') : '업로드 완료 대기'}</div>
+      <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>{canStartValidation ? '업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.' : '프로젝트 담당자가 업로드 완료를 눌러야 유효성 검증을 시작할 수 있습니다.'}</div>
+      <button type="button" onClick={handleVerify} disabled={status === 'loading' || !canStartValidation} style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: canStartValidation ? C.primary : C.g200, color: canStartValidation ? C.white : C.g400, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: status === 'loading' ? 'wait' : canStartValidation ? 'pointer' : 'not-allowed', boxShadow: canStartValidation ? '0 10px 22px rgba(27, 94, 59, .24)' : 'none' }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
     </div>
   );
 
@@ -438,7 +391,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     const evidenceIssueBars = [
       { label: '문제 파일', count: categories.reduce((sum, item) => sum + item.evidenceSummary.problematicFiles.length, 0), color: C.danger },
       { label: '누락 자료', count: categories.reduce((sum, item) => sum + item.evidenceSummary.missingTypes.length, 0), color: C.warn },
-      { label: '조치 요청', count: issues.length, color: C.primary },
+      { label: '보완 요청', count: issues.length, color: C.primary },
     ];
     const maxEvidenceIssueCount = Math.max(1, ...evidenceIssueBars.map((item) => item.count));
     const highRiskRows = categories
@@ -460,7 +413,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     const evidenceRows = [
       { label: '문제 파일', value: `${problematicFiles.length}건`, detail: problematicFiles.join(', ') || '문제 파일 없음', color: C.danger },
       { label: '누락 자료', value: `${missingEvidence.length}건`, detail: missingEvidence.join(', ') || '누락 자료 없음', color: C.warn },
-      { label: '조치 요청', value: `${issues.length}건`, detail: issues.map((issue) => `${issue.categoryName}: ${issue.title}`).join(', ') || '조치 요청 없음', color: C.primary },
+      { label: '보완 요청', value: `${issues.length}건`, detail: issues.map((issue) => `${issue.categoryName}: ${issue.title}`).join(', ') || '보완 요청 없음', color: C.primary },
     ];
     const renderWidgetTooltip = (source: NonNullable<SummaryWidgetTooltip>['source']) => {
       if (!summaryWidgetTooltip || summaryWidgetTooltip.source !== source) return null;
@@ -498,7 +451,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
               <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, lineHeight: 1.12 }}>{recognizedRate}%</div>
             </div>
           </div>
-          {amountTooltip && <div style={{ position: 'absolute', ...tooltipPosition, zIndex: 1000, width: 238, padding: '10px 12px', borderRadius: 4, background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 8px 20px rgba(0,0,0,.12)', pointerEvents: 'none' }}>
+          {amountTooltip && <div style={{ position: 'absolute', ...tooltipPosition, zIndex: 1000, width: 238, padding: '10px 12px', borderRadius: 6, background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 8px 20px rgba(0,0,0,.12)', pointerEvents: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
               <span style={{ width: 9, height: 9, borderRadius: 99, background: amountTooltip.color, flexShrink: 0 }} />
               <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{amountTooltip.label}</div>
@@ -583,7 +536,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
             { id: 'appropriate', label: '적정' },
           ].map((item) => {
             const active = filter === item.id;
-            return <button key={item.id} type="button" onClick={() => setFilter(item.id as ResultFilter)} style={{ border: `1px solid ${active ? C.primary : C.g200}`, background: active ? C.primary : C.white, color: active ? C.white : C.g600, borderRadius: 999, padding: '5px 9px', fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>{item.label}</button>;
+            return <button key={item.id} type="button" onClick={() => setFilter(item.id as ResultFilter)} style={{ border: active ? 'none' : `1px solid ${C.g200}`, background: active ? C.primary : C.white, color: active ? C.white : C.g600, borderRadius: 999, padding: '7px 13px', fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: active ? '0 9px 18px rgba(27, 94, 59, .22)' : '0 7px 16px rgba(31, 55, 43, .08)' }}>{item.label}</button>;
           })}
         </div>
       </div>
@@ -601,7 +554,7 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
           </thead>
           <tbody>
             {filteredCategories.map((item) => {
-              const selected = item.categoryId === selectedCategory.categoryId;
+              const selected = item.categoryId === selectedCategory?.categoryId;
               const meta = decisionMeta[item.decision];
               const risk = riskMeta[item.riskLevel];
               return <tr key={item.categoryId} onClick={() => setSelectedCategoryId(item.categoryId)} style={{ cursor: 'pointer' }}>
@@ -629,7 +582,13 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     </Card>;
   };
 
-  const renderEvidenceBlock = (item: CategoryValidationResult) => {
+  const renderEvidenceBlock = (item: CategoryValidationResult | null) => {
+    if (!item) {
+      return <Card style={{ padding: '18px 20px' }}>
+        <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>선택 항목 없음</div>
+        <div style={{ fontSize: 12, color: C.g400, lineHeight: 1.6, marginTop: 6 }}>표시할 항목별 검증 결과가 없습니다. 증빙과 사용내역서를 업로드한 뒤 다시 검증해 주세요.</div>
+      </Card>;
+    }
     const meta = decisionMeta[item.decision];
     return <Card style={{ padding: '18px 20px', border: `1px solid ${meta.border}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 14 }}>
@@ -701,20 +660,11 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {list.map((issue) => {
           const meta = decisionMeta[issue.decision];
-          const notificationKey = `${issue.categoryName}-${issue.title}`;
-          const sent = sentActionKeys.includes(notificationKey);
-          const open = openActionKeys.includes(notificationKey);
+          const actionKey = `${issue.categoryName}-${issue.title}`;
+          const open = openActionKeys.includes(actionKey);
           const toggleOpen = () => {
-            setOpenActionKeys((prev) => prev.includes(notificationKey) ? prev.filter((key) => key !== notificationKey) : [...prev, notificationKey]);
+            setOpenActionKeys((prev) => prev.includes(actionKey) ? prev.filter((key) => key !== actionKey) : [...prev, actionKey]);
           };
-          const renderNotifyButton = () => (
-            <button type="button" onClick={(event) => {
-              event.stopPropagation();
-              handleSendActionNotification(issue);
-            }} disabled={sent} style={{ border: `1px solid ${sent ? C.g200 : C.primary}`, borderRadius: 999, padding: '7px 12px', background: sent ? C.g100 : C.white, color: sent ? C.g400 : C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: sent ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
-              {sent ? '알림 전송됨' : '알림 보내기'}
-            </button>
-          );
           return <div key={`${issue.categoryName}-${issue.title}`} style={{ borderRadius: 12, border: `1px solid ${open ? meta.border : C.g200}`, background: open ? meta.bg : C.white, overflow: 'hidden' }}>
             <div role="button" tabIndex={0} onClick={toggleOpen} onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
@@ -726,7 +676,6 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
                 <span style={{ width: 18, color: C.g400, fontSize: 13, fontWeight: 900, flexShrink: 0 }}>{open ? '-' : '+'}</span>
                 <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                   <div title={issue.title} style={{ fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{issue.title}</div>
-                  {can(user, 'requestAction') && <span style={{ flexShrink: 0 }}>{renderNotifyButton()}</span>}
                 </div>
               </div>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
@@ -750,23 +699,25 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
     if (!can(user, 'confirmFinalReport')) return null;
 
     const decisionMetaByStatus: Record<SheReviewDecision, { label: string; color: string; bg: string; description: string }> = {
-      pending: { label: '검토 대기', color: C.g600, bg: C.g100, description: 'AI 판단 결과와 근거를 확인한 뒤 승인하거나 프로젝트 담당자에게 보완 요청을 보낼 수 있습니다.' },
-      approved: { label: '승인', color: C.ok, bg: '#F4FBF6', description: 'SHE 담당자가 검증 결과를 승인했습니다. 유효성 검증을 완료하고 보고서 탭으로 이동합니다.' },
-      supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 담당자 조치 목록의 보완 요청 알림을 전송했습니다.' },
+      pending: { label: '검토 대기', color: C.g600, bg: C.g100, description: 'AI 판단 결과와 근거를 확인한 뒤 검토 완료 처리하거나 프로젝트 담당자에게 보완 요청을 보낼 수 있습니다.' },
+      review_completed: { label: '검토 완료', color: C.ok, bg: '#F4FBF6', description: 'SHE 담당자가 검증 결과를 확인했습니다. 유효성 검토를 완료하고 보고서 탭으로 이동합니다.' },
+      supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 보완 요청 상태를 반영했습니다. 사용내역서 또는 증빙 자료를 수정한 뒤 다시 업로드 완료를 누르면 재검토할 수 있습니다.' },
     };
     const current = decisionMetaByStatus[sheReviewDecision];
     const reviewButtonStyle = (color: string, active: boolean): CSSProperties => ({
-      border: `1px solid ${color}`,
+      border: active ? 'none' : `1px solid ${C.g200}`,
       borderRadius: 999,
-      padding: '8px 13px',
+      padding: '9px 18px',
       minWidth: 82,
       background: active ? color : C.white,
-      color: active ? C.white : color,
+      color: active ? C.white : C.g600,
       fontFamily: 'inherit',
       fontSize: 13,
       fontWeight: 900,
-      cursor: 'pointer',
+      cursor: !validationId || validationConfirming ? 'not-allowed' : 'pointer',
       textAlign: 'center',
+      opacity: !validationId || validationConfirming ? 0.5 : 1,
+      boxShadow: active ? '0 10px 22px rgba(27, 94, 59, .22)' : '0 7px 16px rgba(31, 55, 43, .08)',
     });
 
     return (
@@ -777,20 +728,30 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
               <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>SHE 최종 판단</div>
               <span style={chipStyle(current.color, current.bg)}>{current.label}</span>
             </div>
-            <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6 }}>{current.description}</div>
+            <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6 }}>{!validationId ? '검증 작업 ID를 확인한 뒤 승인 또는 보완 요청을 보낼 수 있습니다.' : current.description}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-            <button type="button" onClick={handleApproveValidation} style={reviewButtonStyle(C.ok, sheReviewDecision === 'approved')}>승인</button>
-            <button type="button" onClick={handleSupplementRequest} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested')}>보완 요청</button>
+            <button type="button" onClick={handleApproveValidation} disabled={!validationId || validationConfirming} style={reviewButtonStyle(C.ok, sheReviewDecision === 'review_completed')}>{validationConfirming ? '처리 중' : '검토 완료'}</button>
+            <button type="button" onClick={handleSupplementRequest} disabled={!validationId || validationConfirming} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested')}>보완 요청</button>
           </div>
         </div>
       </Card>
     );
   };
 
-  const renderDashboard = () => (
-    <div className="screen-enter">
-      <Card style={{ padding: '1px 5px', marginBottom: 8, background: C.soft, boxShadow: 'none' }}>
+  const renderDashboard = () => {
+    if (categories.length === 0) {
+      return <div className="screen-enter">
+        <Card style={{ padding: '24px 26px' }}>
+          <div style={{ fontSize: 16, fontWeight: 900, color: C.g800 }}>검증 결과가 없습니다</div>
+          <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginTop: 8 }}>표시할 항목별 검증 결과가 없습니다. 사용내역서와 증빙 자료를 확인한 뒤 다시 검증해 주세요.</div>
+          <Button size="sm" onClick={handleVerify} disabled={status === 'loading'} style={{ marginTop: 16 }}>{status === 'loading' ? '분석 중...' : '재검증하기'}</Button>
+        </Card>
+      </div>;
+    }
+
+    return <div className="screen-enter">
+      <Card style={{ padding: '1px 5px', marginBottom: 8, background: 'transparent', border: 'none', boxShadow: 'none' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 14, color: C.g600 }}>검증일 {result.checkedAt}</div>
@@ -805,151 +766,23 @@ const VerifyScreen = ({ contractName, projectId, initialTab = 'dashboard', initi
         {renderEvidenceBlock(selectedCategory)}
       </div>
       {renderActionList(issues)}
-    </div>
-  );
-
-  const reportInputStyle: CSSProperties = {
-    width: '100%',
-    boxSizing: 'border-box',
-    border: `1px solid ${C.g200}`,
-    borderRadius: 10,
-    background: C.white,
-    color: C.g800,
-    fontFamily: 'inherit',
-    fontSize: 13,
-    fontWeight: 800,
-    lineHeight: 1.5,
-    outline: 'none',
-    padding: '8px 10px',
-  };
-
-  const renderReportEditor = () => {
-    if (!reportDraft) return null;
-    const isTemplateLabelCell = (sectionId: string, hasHeaders: boolean, cellIndex: number, rowIndex: number, value: string) => {
-      if (hasHeaders) return false;
-      if (sectionId === 'cover' || sectionId === 'basic_info' || sectionId === 'issue_details') return cellIndex % 2 === 0;
-      return rowIndex === 0 && cellIndex === 0 && Boolean(value);
-    };
-    const isLockedDataCell = (sectionId: string, tableIndex: number, table: ReportDraft['report_sections'][number]['tables'][number], cellIndex: number) =>
-      (sectionId === 'execution_summary' && tableIndex === 1 && cellIndex === 0) || (table.headers[0] === 'No.' && cellIndex === 0);
-    const getReportColumnTemplate = (sectionId: string, table: ReportDraft['report_sections'][number]['tables'][number]) => {
-      if (table.headers.length === 0 && (sectionId === 'cover' || sectionId === 'issue_details')) return '150px minmax(0, 1fr)';
-      if (table.headers.length === 0 && sectionId === 'basic_info') return '150px minmax(0, 1fr) 150px minmax(0, 1fr)';
-      if (sectionId === 'supplement_actions' && table.headers[0] === 'No.') return '48px minmax(140px, 1fr) minmax(280px, 2.2fr) minmax(110px, .8fr) minmax(100px, .8fr)';
-      if (table.headers[0] === 'No.') return `48px repeat(${Math.max(0, table.headers.length - 1)}, minmax(120px, 1fr))`;
-      return `repeat(${Math.max(table.headers.length, 1)}, minmax(0, 1fr))`;
-    };
-    const renderTemplateTable = (sectionIndex: number, tableIndex: number) => {
-      const section = reportDraft.report_sections[sectionIndex];
-      const table = section.tables[tableIndex];
-      const columnCount = Math.max(table.headers.length, ...table.rows.map((row) => row.length));
-      const columnTemplate = getReportColumnTemplate(section.section_id, table);
-      const minWidth = section.section_id === 'supplement_actions' ? 760 : Math.max(620, columnCount * 112);
-      return <div key={tableIndex} style={{ marginTop: tableIndex === 0 ? 0 : 14 }}>
-        {table.title !== null && (
-          <div style={{ padding: '4px 0 8px', fontSize: 13, fontWeight: 900, color: C.g800 }}>{table.title}</div>
-        )}
-        <div className="thin-x-scroll" style={{ width: '100%', overflowX: 'auto' }}>
-          <div style={{ minWidth, border: `1px solid ${C.g200}`, borderBottom: 'none' }}>
-            {table.headers.length > 0 && <div style={{ display: 'grid', gridTemplateColumns: columnTemplate, background: '#EEF3F0', borderBottom: `1px solid ${C.g200}` }}>
-              {table.headers.map((header) => <div key={header} style={{ padding: '9px 10px', borderRight: `1px solid ${C.g200}`, fontSize: 12, fontWeight: 900, color: C.g800, textAlign: 'center' }}>{header}</div>)}
-            </div>}
-            {table.rows.map((row, rowIndex) => (
-              <div key={rowIndex} style={{ display: 'grid', gridTemplateColumns: columnTemplate, borderBottom: `1px solid ${C.g200}` }}>
-                {row.map((cell, cellIndex) => {
-                  const isLabel = isTemplateLabelCell(section.section_id, table.headers.length > 0, cellIndex, rowIndex, cell) || isLockedDataCell(section.section_id, tableIndex, table, cellIndex);
-                  const commonCellStyle: CSSProperties = { minHeight: 38, borderRight: cellIndex === row.length - 1 ? 'none' : `1px solid ${C.g200}`, background: isLabel ? '#EEF3F0' : C.white, color: isLabel ? C.g600 : C.g800, textAlign: table.headers.length > 0 && cellIndex > 0 ? 'center' : 'left', fontSize: 12, fontWeight: isLabel ? 900 : 800 };
-                  return isLabel
-                    ? <div key={cellIndex} style={{ ...commonCellStyle, padding: '9px 10px', display: 'flex', alignItems: 'center' }}>{cell}</div>
-                    : <textarea key={cellIndex} value={cell} onChange={(event) => updateReportTableCell(sectionIndex, tableIndex, rowIndex, cellIndex, event.target.value)} style={{ ...reportInputStyle, ...commonCellStyle, resize: 'vertical', border: 'none', borderRight: commonCellStyle.borderRight, borderRadius: 0 }} />;
-                })}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>;
-    };
-
-    return <div style={{ border: `1px solid ${C.g200}`, borderRadius: 16, background: '#F7F8FA', padding: 16, maxHeight: 'min(760px, calc(100vh - 230px))', minHeight: 420, overflowY: 'auto', overflowX: 'hidden' }}>
-      <div style={{ maxWidth: 880, margin: '0 auto', background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 10px 28px rgba(27,94,59,.08)', padding: '34px 36px', display: 'grid', gap: 22 }}>
-        <div style={{ textAlign: 'center', padding: '24px 0 10px' }}>
-          <textarea value={reportDraft.title} onChange={(event) => updateReportTopField('title', event.target.value)} style={{ ...reportInputStyle, border: 'none', resize: 'vertical', textAlign: 'center', fontSize: 24, fontWeight: 900, lineHeight: 1.4, minHeight: 84 }} />
-        </div>
-        {reportDraft.report_sections.map((section, sectionIndex) => (
-          <section key={section.section_id} style={{ display: 'grid', gap: 10 }}>
-            {section.section_id !== 'cover' && (
-              <input value={section.title} onChange={(event) => updateReportSectionTitle(sectionIndex, event.target.value)} style={{ ...reportInputStyle, border: 'none', borderBottom: `2px solid ${C.g800}`, borderRadius: 0, padding: '10px 0 8px', fontSize: 17, fontWeight: 900, background: 'transparent' }} />
-            )}
-            {section.paragraphs.map((paragraph, paragraphIndex) => (
-              <textarea key={paragraphIndex} value={paragraph} onChange={(event) => updateReportParagraph(sectionIndex, paragraphIndex, event.target.value)} style={{ ...reportInputStyle, minHeight: paragraph.length > 90 ? 78 : 42, resize: 'vertical', border: section.kind === 'opinion' ? `1px solid ${C.g200}` : 'none', background: section.kind === 'opinion' ? C.white : 'transparent', fontWeight: 700 }} />
-            ))}
-            {section.tables.map((_, tableIndex) => renderTemplateTable(sectionIndex, tableIndex))}
-          </section>
-        ))}
-      </div>
     </div>;
   };
 
-  const renderReport = () => {
-    const canGenerateReport = status === 'done';
-    const reportWorkflowMeta = {
-      editing: { label: '초안 편집 가능', color: C.warn, bg: C.warnBg, description: '검증 결과를 기반으로 생성된 초안입니다. 담당자 검토 후 저장해 주세요.' },
-      saved: { label: '저장됨', color: C.ok, bg: '#F4FBF6', description: savedAt ? `마지막 저장: ${savedAt}` : '저장된 초안입니다.' },
-    }[reportWorkflowStatus];
-
-    return <div className="screen-enter">
-      <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 생성</div>
-            <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{canGenerateReport ? '검증 대시보드의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '유효성 검증을 먼저 완료해야 보고서를 생성할 수 있습니다.'}</div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-            <Button size="lg" onClick={handleReportGenerate} disabled={!canGenerateReport || reportStatus === 'generating'}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
-            <Button size="lg" variant="outline" onClick={handleDocxExport} disabled={reportStatus !== 'done' || !reportDraft || docxExporting}>{docxExporting ? '추출 중...' : 'DOCX 추출'}</Button>
-          </div>
-        </div>
-        {reportStatus === 'generating' && <div style={{ marginTop: 16 }}>
-          <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}><div style={{ height: '100%', width: `${reportProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} /></div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{REPORT_STEPS.map((step, index) => <span key={step} style={{ fontSize: 11, fontWeight: 800, color: reportProgress >= ((index + 1) * 100) / REPORT_STEPS.length ? C.primary : C.g400, background: C.g100, borderRadius: 999, padding: '5px 9px' }}>{step}</span>)}</div>
-        </div>}
-      </Card>
-
-      {canGenerateReport && reportStatus === 'idle' && <Card style={{ padding: '22px 24px', marginBottom: 18, background: '#F7F8FA', boxShadow: 'none', border: `1px solid ${C.g200}` }}>
-        <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>보고서가 아직 생성되지 않았습니다</div>
-        <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6, marginTop: 5 }}>보고서 생성하기를 눌러야 초안과 항목별 검토 결과가 생성됩니다.</div>
-      </Card>}
-
-      {reportStatus === 'done' && <Card style={{ padding: '18px 20px', marginBottom: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 편집/확정</div>
-            <div style={{ display: 'inline-flex', marginTop: 8, ...chipStyle(reportWorkflowMeta.color, reportWorkflowMeta.bg) }}>{reportWorkflowMeta.label}</div>
-            <div style={{ fontSize: 12, color: C.g400, marginTop: 8 }}>{reportWorkflowMeta.description}</div>
-          </div>
-          <Button size="sm" variant="outline" onClick={handleSaveDraft}>저장</Button>
-        </div>
-        {renderReportEditor()}
-      </Card>}
-
-    </div>;
-  };
-
-  return <div style={{ background: C.soft }}>
-    {activeTab === 'dashboard' && status !== 'done' && !hideValidationIntro && renderIntro()}
-    {activeTab === 'dashboard' && status === 'loading' && renderProgress()}
-    {activeTab === 'dashboard' && status === 'idle' && renderEmpty()}
-    {activeTab === 'dashboard' && status === 'done' && renderDashboard()}
-    {activeTab === 'report' && renderReport()}
-    <CenterModal open={exportNoticeOpen} title="DOCX 추출" body="편집된 보고서를 DOCX 파일로 생성했습니다." actionLabel="확인" onAction={() => setExportNoticeOpen(false)} />
+  return <div style={{ background: 'transparent' }}>
+    {status !== 'done' && !hideValidationIntro && renderIntro()}
+    {status === 'loading' && renderProgress()}
+    {status === 'idle' && renderEmpty()}
+    {status === 'done' && renderDashboard()}
+    <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
     <Modal open={manualSupplementOpen} onClose={() => setManualSupplementOpen(false)} maxWidth={560} zIndex={980}>
       <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
-        <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>보완 요청 알림 작성</div>
+        <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>보완 요청 작성</div>
         <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginBottom: 14 }}>담당자 조치 목록이 비어 있습니다. 프로젝트 담당자에게 보낼 보완 요청 내용을 직접 입력해 주세요.</div>
         <textarea value={manualSupplementText} onChange={(event) => setManualSupplementText(event.target.value)} placeholder="예: 사용내역서의 보호구 항목 증빙이 부족합니다. 지급대장과 착용 사진을 추가 제출해 주세요." style={{ width: '100%', minHeight: 140, resize: 'vertical', boxSizing: 'border-box', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '12px 14px', outline: 'none', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, lineHeight: 1.6 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
           <Button size="sm" variant="outline" onClick={() => setManualSupplementOpen(false)}>취소</Button>
-          <Button size="sm" onClick={handleManualSupplementSend} disabled={!manualSupplementText.trim()}>알림 보내기</Button>
+          <Button size="sm" onClick={handleManualSupplementSend} disabled={!manualSupplementText.trim() || !validationId || validationConfirming}>{validationConfirming ? '처리 중' : '요청 전송'}</Button>
         </div>
       </div>
     </Modal>

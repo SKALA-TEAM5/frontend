@@ -10,14 +10,15 @@ interface ProjectSortControlProps {
   direction: SortDirection;
   onFieldChange: (field: ProjectSortField) => void;
   onDirectionChange: (direction: SortDirection) => void;
+  compact?: boolean;
 }
 
 const sortFieldOptions = Object.keys(PROJECT_SORT_FIELD_LABELS) as ProjectSortField[];
-const sortDirectionOptions = Object.keys(SORT_DIRECTION_LABELS) as SortDirection[];
 
-export default function ProjectSortControl({ field, direction, onFieldChange, onDirectionChange }: ProjectSortControlProps) {
+export default function ProjectSortControl({ field, direction, onFieldChange, onDirectionChange, compact = false }: ProjectSortControlProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
+  const toggleDirection = () => onDirectionChange(direction === 'asc' ? 'desc' : 'asc');
 
   useEffect(() => {
     if (!open) return;
@@ -44,22 +45,22 @@ export default function ProjectSortControl({ field, direction, onFieldChange, on
         style={{
           border: `1px solid ${open ? C.light : C.g200}`,
           borderRadius: 999,
-          padding: '8px 12px',
+          padding: compact ? '6px 10px' : '8px 12px',
           background: open ? C.bg : C.white,
           color: C.primary,
           fontFamily: 'inherit',
-          fontSize: 14,
+          fontSize: compact ? 12 : 14,
           fontWeight: 900,
           cursor: 'pointer',
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 7,
+          gap: compact ? 5 : 7,
           boxShadow: open ? `0 4px 12px ${C.primaryShadow}` : '0 1px 4px rgba(0,0,0,.05)',
         }}
       >
         <span>{direction === 'asc' ? '↑' : '↓'}</span>
         <span>{PROJECT_SORT_FIELD_LABELS[field]}</span>
-        <ChevronIcon direction={open ? 'up' : 'down'} size={15} color={C.primary} />
+        <ChevronIcon direction={open ? 'up' : 'down'} size={compact ? 13 : 15} color={C.primary} />
       </button>
       {open && (
         <div
@@ -77,7 +78,7 @@ export default function ProjectSortControl({ field, direction, onFieldChange, on
             boxShadow: '0 18px 44px rgba(0,0,0,.14)',
           }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center' }}>
             <select
               aria-label="정렬 기준"
               value={field}
@@ -86,14 +87,30 @@ export default function ProjectSortControl({ field, direction, onFieldChange, on
             >
               {sortFieldOptions.map((item) => <option key={item} value={item}>{PROJECT_SORT_FIELD_LABELS[item]}</option>)}
             </select>
-            <select
+            <button
+              type="button"
               aria-label="정렬 방향"
-              value={direction}
-              onChange={(event) => onDirectionChange(event.target.value as SortDirection)}
-              style={{ height: 40, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '0 10px', background: C.white, color: C.g800, fontSize: 14, fontWeight: 900, fontFamily: 'inherit' }}
+              onClick={toggleDirection}
+              style={{
+                height: 40,
+                border: `1px solid ${C.light}`,
+                borderRadius: 999,
+                padding: '0 13px',
+                background: C.bg,
+                color: C.primary,
+                fontSize: 14,
+                fontWeight: 900,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                whiteSpace: 'nowrap',
+              }}
             >
-              {sortDirectionOptions.map((item) => <option key={item} value={item}>{SORT_DIRECTION_LABELS[item]}</option>)}
-            </select>
+              <span aria-hidden="true">{direction === 'asc' ? '↑' : '↓'}</span>
+              <span>{SORT_DIRECTION_LABELS[direction]}</span>
+            </button>
             <button
               type="button"
               aria-label="정렬 닫기"

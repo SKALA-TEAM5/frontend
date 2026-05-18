@@ -3,9 +3,41 @@ import type { ProjectStatus } from '../lib/project-data';
 
 export type EvidenceCategory = 'receipt' | 'site_photo' | 'usage_statement' | 'tax_invoice' | 'other_document';
 export type FolderEvidenceCategory = Exclude<EvidenceCategory, 'usage_statement'>;
+export type BackendEvidenceTypeCode =
+  | 'receipt'
+  | 'tax_invoice'
+  | 'tax_invoice_confirm'
+  | 'third_party_lookup'
+  | 'transaction_statement'
+  | 'site_photo'
+  | 'item_photo'
+  | 'wearing_photo'
+  | 'work_photo'
+  | 'appointment_report'
+  | 'pay_stub'
+  | 'wage_statement'
+  | 'work_log'
+  | 'daily_output_log'
+  | 'inspection_log'
+  | 'supply_ledger'
+  | 'inventory_ledger'
+  | 'edu_confirm'
+  | 'edu_attendance'
+  | 'transfer_confirm'
+  | 'health_checkup_result'
+  | 'health_checkup_contract'
+  | 'tech_guidance_contract'
+  | 'tech_guidance_report'
+  | 'tech_guidance_photo'
+  | 'usage_statement'
+  | 'analysis_table'
+  | 'purchase_detail'
+  | 'other_document';
 
 export interface EvidenceFile {
   id: string;
+  fileId?: number | string;
+  linkId?: number | string;
   name: string;
   kind: EvidenceCategory;
   description?: string;
@@ -16,6 +48,13 @@ export interface EvidenceFile {
   documentType?: string;
   categoryIds?: number[];
   usageItemIds?: string[];
+  visionValidation?: {
+    status: 'suitable' | 'unsuitable';
+    checkedAt: string;
+    itemName: string;
+    summary: string;
+    detections: Array<{ label: string; confidence: number; box: [number, number, number, number]; status?: 'ok' | 'bad' }>;
+  };
 }
 
 export interface ContractInfo {
@@ -111,7 +150,7 @@ export interface ValidationDashboardResult {
 
 export type ValidationStatus = 'not_started' | 'running' | 'completed' | 'needs_action';
 
-export type ActionRequestStatus = 'open' | 'supplement_uploaded' | 'resolved';
+export type ActionRequestStatus = 'open' | 'in_progress' | 'closed';
 
 export type ReportStatus = 'not_requested' | 'drafting' | 'reviewing' | 'finalized';
 
@@ -129,19 +168,6 @@ export interface ProjectValidationState {
   resultIds: string[];
   confirmedAt?: string;
   confirmedBy?: string;
-}
-
-export interface ProjectActionRequest {
-  id: string;
-  projectId: string;
-  title: string;
-  status: ActionRequestStatus;
-  requestedBy: string;
-  assignee?: string;
-  dueDate?: string;
-  reason?: string;
-  createdAt: string;
-  resolvedAt?: string;
 }
 
 export interface ProjectReportState {

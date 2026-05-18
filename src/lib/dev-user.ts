@@ -6,7 +6,12 @@ import type { AppUser, UserRole } from './permissions';
 const DEV_USER_STORAGE_KEY = 'sananbee.dev.role';
 const APP_USER_STORAGE_KEY = 'sananbee.current.user';
 
-export const DEV_USERS: Record<Extract<UserRole, 'project_manager' | 'she_manager'>, AppUser> = {
+export const DEV_USERS: Record<UserRole, AppUser> = {
+  system_admin: {
+    id: '',
+    name: '',
+    role: 'system_admin',
+  },
   project_manager: {
     id: '',
     name: '',
@@ -22,14 +27,14 @@ export const DEV_USERS: Record<Extract<UserRole, 'project_manager' | 'she_manage
 export type DevUserRole = keyof typeof DEV_USERS;
 
 const isDevUserRole = (value: string | null): value is DevUserRole =>
-  value === 'project_manager' || value === 'she_manager';
+  value === 'project_manager' || value === 'she_manager' || value === 'system_admin';
 
 const isAppUser = (value: unknown): value is AppUser => {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<AppUser>;
   return typeof candidate.id === 'string'
     && typeof candidate.name === 'string'
-    && (candidate.role === 'project_manager' || candidate.role === 'she_manager');
+    && (candidate.role === 'project_manager' || candidate.role === 'she_manager' || candidate.role === 'system_admin');
 };
 
 const readStoredRole = (): DevUserRole => {

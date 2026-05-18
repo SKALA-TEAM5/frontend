@@ -1,6 +1,6 @@
 import { apiFetch } from './api-client';
 import type { BackendRoleCode, BackendUserProfile } from './auth-api';
-import type { NewProjectInput, ProjectStatus, ProjectStatusCode, ProjectSummary } from './project-data';
+import { normalizeProjectStatus, type NewProjectInput, type ProjectStatus, type ProjectStatusCode, type ProjectSummary } from './project-data';
 
 export interface ProjectAssignee {
   userId: number;
@@ -30,6 +30,7 @@ interface ProjectCardResponse {
   latestCumulativeProgressRate: number | string | null;
   status: ProjectStatusCode;
   hasActionRequest: boolean;
+  latestUsageStatementStatusCode: string | null;
   uncheckedMatchedFileCount: number;
 }
 
@@ -70,6 +71,31 @@ interface ArchiveMarkCheckedResponse {
   checkedLinkCount: number;
 }
 
+export type ActionRequestStatusCode = 'open' | 'in_progress' | 'closed';
+
+export interface ProjectActionRequest {
+  id: number;
+  projectId: number;
+  usageStatementId: number | null;
+  usageStatementItemId: number | null;
+  requestedByUserId: number;
+  assigneeUserId: number | null;
+  title: string;
+  reason: string | null;
+  statusCode: ActionRequestStatusCode | string;
+  dueDate: string | null;
+  createdAt: string | null;
+}
+
+export interface CreateActionRequestInput {
+  title: string;
+  reason?: string;
+  assigneeUserId: number;
+  usageStatementId?: number;
+  usageStatementItemId?: number;
+  dueDate?: string;
+}
+
 export interface ProjectListParams {
   keyword?: string;
   projectName?: string;
@@ -80,12 +106,21 @@ export interface ProjectListParams {
   size?: number;
 }
 
-const statusToUiStatus = (status: ProjectStatusCode, hasActionRequest = false): ProjectStatus => {
-  if (hasActionRequest) return 'action_required';
-  if (status === 'completed') return 'completed';
-  if (status === 'suspended') return 'upload_pending';
-  return 'under_review';
-};
+export interface UpdateProjectInput {
+  contractNumber?: string;
+  constructionName?: string;
+  constructionCompany?: string;
+  representative?: string;
+  client?: string;
+  constructionAmount?: string;
+  appropriatedAmount?: string;
+  startDate?: string;
+  endDate?: string;
+  location?: string;
+  projectStatusCode?: ProjectStatusCode;
+}
+
+const statusToUiStatus = (status: ProjectStatusCode, _hasActionRequest = false, _latestUsageStatementStatusCode?: string | null): ProjectStatus => normalizeProjectStatus(status);
 
 const formatDate = (value?: string | null) => value?.replace(/-/g, '/') || '';
 const formatPeriod = (start?: string | null, end?: string | null) => {
@@ -109,7 +144,7 @@ const progressText = (value?: number | string | null) => {
 
 const managerText = (names: string[]) => names.filter(Boolean).join(', ');
 
-const emptyProjectBase = (id: number, name: string, status: ProjectStatusCode, hasActionRequest = false): ProjectSummary => ({
+const emptyProjectBase = (id: number, name: string, status: ProjectStatusCode, hasActionRequest = false, latestUsageStatementStatusCode?: string | null): ProjectSummary => ({
   id: String(id),
   contractNumber: '',
   name,
@@ -127,17 +162,17 @@ const emptyProjectBase = (id: number, name: string, status: ProjectStatusCode, h
   accumulatedAmount: '0',
   usageRate: '0%',
   projectStatusCode: status,
-  status: statusToUiStatus(status, hasActionRequest),
+  status: statusToUiStatus(status, hasActionRequest, latestUsageStatementStatusCode),
   hasUploads: false,
   hasActionRequest,
   uncheckedMatchedFileCount: 0,
-  reportReady: status === 'completed',
+  reportReady: status === 'completed' || hasActionRequest,
   recentActivity: '',
   participants: [],
 });
 
 export const projectCardToSummary = (project: ProjectCardResponse): ProjectSummary => ({
-  ...emptyProjectBase(project.id, project.projectName, project.status, project.hasActionRequest),
+  ...emptyProjectBase(project.id, project.projectName, project.status, project.hasActionRequest, project.latestUsageStatementStatusCode),
   contractNumber: project.contractNo || '',
   manager: managerText(project.assigneeNames || []),
   period: formatPeriod(project.constructionStartDate, project.constructionEndDate),
@@ -207,9 +242,30 @@ export const createProject = async (input: NewProjectInput) => {
   return projectDetailToSummary(response.data.project);
 };
 
-export const listProjectAssignees = async (projectId: string) => {
-  const response = await apiFetch<ProjectAssigneeListResponse>(`/projects/${projectId}/assignees`);
-  return response.data.assignees;
+export const updateProject = async (projectId: string, input: UpdateProjectInput) => {
+  const response = await apiFetch<ProjectDetailDataResponse>(`/projects/${projectId}`, {
+    method: 'PATCH',
+    body: {
+      contractNo: input.contractNumber,
+      constructionCompany: input.constructionCompany,
+      projectName: input.constructionName,
+      siteLocation: input.location,
+      representativeName: input.representative,
+      contractAmount: input.constructionAmount == null ? undefined : Number(input.constructionAmount),
+      constructionStartDate: input.startDate,
+      constructionEndDate: input.endDate,
+      clientName: input.client,
+      appropriatedAmount: input.appropriatedAmount == null ? undefined : Number(input.appropriatedAmount),
+      status: input.projectStatusCode,
+    },
+  });
+  return projectDetailToSummary(response.data.project);
+};
+
+export const deleteProject = async (projectId: string) => {
+  await apiFetch<null>(`/projects/${projectId}`, {
+    method: 'DELETE',
+  });
 };
 
 export const replaceProjectAssignees = async (projectId: string, assigneeUserIds: number[]) => {
@@ -218,6 +274,23 @@ export const replaceProjectAssignees = async (projectId: string, assigneeUserIds
     body: { assigneeUserIds },
   });
   return response.data.assignees;
+};
+
+export const listProjectAssignees = async (projectId: string) => {
+  const response = await apiFetch<ProjectAssigneeListResponse>(`/projects/${projectId}/assignees`);
+  return response.data.assignees;
+};
+
+export const addProjectAssignee = async (projectId: string, userId: number) => {
+  await apiFetch<null>(`/projects/${projectId}/assignees/${userId}`, {
+    method: 'POST',
+  });
+};
+
+export const removeProjectAssignee = async (projectId: string, userId: number) => {
+  await apiFetch<null>(`/projects/${projectId}/assignees/${userId}`, {
+    method: 'DELETE',
+  });
 };
 
 export const listProjectManagerCandidates = async () => {
@@ -229,5 +302,38 @@ export const markArchiveChecked = async (projectId: string) => {
   const response = await apiFetch<ArchiveMarkCheckedResponse>(`/projects/${projectId}/archive/mark-checked`, {
     method: 'POST',
   });
+  return response.data;
+};
+
+export const listActionRequests = async (projectId: string) => {
+  const response = await apiFetch<ProjectActionRequest[]>(`/projects/${projectId}/action-requests`);
+  return response.data || [];
+};
+
+export const createActionRequest = async (projectId: string, input: CreateActionRequestInput) => {
+  const response = await apiFetch<ProjectActionRequest>(`/projects/${projectId}/action-requests`, {
+    method: 'POST',
+    body: {
+      title: input.title,
+      reason: input.reason,
+      assigneeUserId: input.assigneeUserId,
+      usageStatementId: input.usageStatementId,
+      usageStatementItemId: input.usageStatementItemId,
+      dueDate: input.dueDate,
+    },
+  });
+  return response.data;
+};
+
+export const updateActionRequestStatus = async (projectId: string, actionRequestId: number, statusCode: ActionRequestStatusCode) => {
+  const response = await apiFetch<ProjectActionRequest>(`/projects/${projectId}/action-requests/${actionRequestId}/status`, {
+    method: 'PATCH',
+    body: { statusCode },
+  });
+  return response.data;
+};
+
+export const getActionRequest = async (projectId: string, actionRequestId: number) => {
+  const response = await apiFetch<ProjectActionRequest>(`/projects/${projectId}/action-requests/${actionRequestId}`);
   return response.data;
 };

@@ -39,7 +39,7 @@ export default function LoginPage() {
         id: String(result.user.id),
         name: result.user.realName,
       });
-      router.replace(role === 'she_manager' ? '/dashboard' : '/projects');
+      router.replace(role === 'system_admin' ? '/admin/users' : role === 'she_manager' ? '/dashboard' : '/projects');
     } catch (error) {
       setError(error instanceof Error ? error.message : '사번 또는 비밀번호를 확인해 주세요.');
       return;
@@ -89,9 +89,6 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div data-ui="login.5" style={{ marginTop: 18, padding: '12px 14px', borderRadius: 12, background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, lineHeight: 1.55 }}>
-          백엔드 등록 계정의 사번과 비밀번호로 로그인해 주세요.
-        </div>
       </Card>
     </main>
   );
