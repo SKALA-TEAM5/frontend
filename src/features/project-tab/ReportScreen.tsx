@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
+import { runAgent } from '../../lib/agent-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getProjectById } from '../../lib/project-data';
 import { buildReportDraftJson, type ReportDraft } from '../../lib/report-draft';
@@ -13,6 +14,7 @@ import { VALIDATION_DASHBOARD_RESULT } from '../../lib/evidence-utils';
 interface ReportScreenProps {
   contractName: string;
   projectId?: string;
+  usageStatementId?: number;
   validationComplete?: boolean;
 }
 
@@ -52,7 +54,7 @@ const reportInputStyle: CSSProperties = {
   padding: '8px 10px',
 };
 
-const ReportScreen = ({ contractName, projectId, validationComplete = false }: ReportScreenProps) => {
+const ReportScreen = ({ contractName, projectId, usageStatementId, validationComplete = false }: ReportScreenProps) => {
   const { user } = useCurrentUser();
   const [reportStatus, setReportStatus] = useState<ReportGenerationStatus>('idle');
   const [reportProgress, setReportProgress] = useState(0);
@@ -62,16 +64,7 @@ const ReportScreen = ({ contractName, projectId, validationComplete = false }: R
   const [exportNoticeOpen, setExportNoticeOpen] = useState(false);
   const [docxExporting, setDocxExporting] = useState(false);
   const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
-  const reportTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const result = VALIDATION_DASHBOARD_RESULT;
-
-  const clearReportTimer = () => {
-    if (!reportTimerRef.current) return;
-    clearInterval(reportTimerRef.current);
-    reportTimerRef.current = null;
-  };
-
-  useEffect(() => () => clearReportTimer(), []);
 
   useEffect(() => {
     if (!reportDraft || reportDraft.report_sections.some((section) => section.section_id === 'tax_settlement')) return;
@@ -88,30 +81,17 @@ const ReportScreen = ({ contractName, projectId, validationComplete = false }: R
     });
   }, [contractName, projectId, reportDraft, result, user]);
 
-  const handleReportGenerate = () => {
-    if (!validationComplete) return;
-    clearReportTimer();
+  const handleReportGenerate = async () => {
+    if (!validationComplete || !projectId || !usageStatementId) return;
     try {
       setReportStatus('generating');
-      setReportProgress(0);
-      let p = 0;
-      reportTimerRef.current = setInterval(() => {
-        try {
-          p += Math.random() * 17 + 10;
-          if (p >= 100) {
-            clearReportTimer();
-            setReportDraft(buildReportDraftJson(projectId ? getProjectById(projectId, user) : null, result, contractName));
-            setReportStatus('done');
-            setReportWorkflowStatus('editing');
-            setSavedAt('');
-          }
-          setReportProgress(Math.min(p, 100));
-        } catch {
-          clearReportTimer();
-          setReportStatus('idle');
-          setAgentFailureTarget('report-generation');
-        }
-      }, 280);
+      setReportProgress(25);
+      await runAgent(projectId, 'report', { usageStatementId });
+      setReportProgress(100);
+      setReportDraft(buildReportDraftJson(getProjectById(projectId, user), result, contractName));
+      setReportStatus('done');
+      setReportWorkflowStatus('editing');
+      setSavedAt('');
     } catch {
       setReportStatus('idle');
       setAgentFailureTarget('report-generation');

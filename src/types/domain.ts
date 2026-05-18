@@ -150,7 +150,7 @@ export interface ValidationDashboardResult {
 
 export type ValidationStatus = 'not_started' | 'running' | 'completed' | 'needs_action';
 
-export type ActionRequestStatus = 'open' | 'supplement_uploaded' | 'resolved';
+export type ActionRequestStatus = 'open' | 'in_progress' | 'closed';
 
 export type ReportStatus = 'not_requested' | 'drafting' | 'reviewing' | 'finalized';
 
@@ -168,19 +168,6 @@ export interface ProjectValidationState {
   resultIds: string[];
   confirmedAt?: string;
   confirmedBy?: string;
-}
-
-export interface ProjectActionRequest {
-  id: string;
-  projectId: string;
-  title: string;
-  status: ActionRequestStatus;
-  requestedBy: string;
-  assignee?: string;
-  dueDate?: string;
-  reason?: string;
-  createdAt: string;
-  resolvedAt?: string;
 }
 
 export interface ProjectReportState {

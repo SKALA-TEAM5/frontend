@@ -1,6 +1,6 @@
 import { apiFetch, apiUrl } from './api-client';
 import { CATS, calculateUsageLineAmount, createDefaultArchiveData, makeEntry, parseUsageNumber, type UsageLineItem } from './evidence-utils';
-import type { MonthlyUsageStatementSummary } from './project-data';
+import { normalizeUsageWorkflowStatus, type MonthlyUsageStatementSummary, type UsageWorkflowStatus } from './project-data';
 import type { ArchiveSeed, BackendEvidenceTypeCode, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../types/domain';
 
 interface LatestUsageStatementResponse {
@@ -18,6 +18,7 @@ interface UsageStatementListItemResponse {
   reportMonth: string | null;
   revisionNo: number | null;
   documentWrittenDate: string | null;
+  statusCode: string | null;
   cumulativeProgressRate: number | string | null;
   summaryCount: number;
   itemCount: number;
@@ -152,22 +153,42 @@ interface UsageStatementItemResponse {
   requirements: RequirementResponse[];
 }
 
+export interface UsageStatementItemInput {
+  categoryId: number;
+  usedOn: string;
+  itemName: string;
+  unit?: string;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+  remark?: string;
+  pageNo?: number;
+}
+
 interface UsageStatementDetailResponse {
   id: number;
   reportMonth: string | null;
   revisionNo: number | null;
   documentWrittenDate: string | null;
+  statusCode: string | null;
   cumulativeProgressRate: number | string | null;
   sourceFile: SourceFileResponse | null;
   summaries: UsageStatementSummaryResponse[];
   items: UsageStatementItemResponse[];
 }
 
+interface UsageStatementStatusResponse {
+  id: number;
+  statusCode: string;
+}
+
 export interface UsageStatementArchiveData {
+  usageStatementId?: number;
   archiveSeed: ArchiveSeed;
   usageItems: UsageLineItem[];
   overviewRows: Array<[string, string, string, string]>;
   statementSummary: MonthlyUsageStatementSummary;
+  workflowStatus?: UsageWorkflowStatus;
 }
 
 export type SafetyDocAgentRequiredEvidence = Partial<Record<FolderEvidenceCategory, string[]>>;
@@ -211,6 +232,8 @@ const categoryCodeToId = (categoryCode?: string | null) => {
   const match = categoryCode?.match(/\d+/);
   return match ? Number(match[0]) : 0;
 };
+
+export const categoryIdToCode = (categoryId: number) => `CAT_${String(categoryId).padStart(2, '0')}`;
 
 export const BACKEND_EVIDENCE_TYPE_CODES: BackendEvidenceTypeCode[] = [
   'receipt',
@@ -381,6 +404,17 @@ const buildStatementSummary = (statement: UsageStatementDetailResponse, usageIte
   };
 };
 
+const usageStatementItemToLineItem = (item: UsageStatementItemResponse): UsageLineItem => ({
+  id: String(item.itemId),
+  categoryId: categoryCodeToId(item.categoryCode),
+  name: item.itemName || '-',
+  amount: calculateUsageLineAmount(item.quantity, item.unitPrice),
+  date: item.usedOn || undefined,
+  unit: item.unit || undefined,
+  quantity: item.quantity == null ? undefined : parseUsageNumber(item.quantity),
+  unitPrice: item.unitPrice == null ? undefined : toAmount(item.unitPrice),
+});
+
 const toArchiveData = (projectId: string, statement: UsageStatementDetailResponse): UsageStatementArchiveData => {
   const archiveSeed = createDefaultArchiveData();
   if (statement.sourceFile) {
@@ -407,12 +441,26 @@ const toArchiveData = (projectId: string, statement: UsageStatementDetailRespons
   }).filter((item) => item.categoryId > 0);
 
   return {
+    usageStatementId: statement.id,
     archiveSeed,
     usageItems,
     overviewRows: buildOverviewRows(statement.summaries || [], usageItems),
     statementSummary: buildStatementSummary(statement, usageItems),
+    workflowStatus: normalizeUsageWorkflowStatus(statement.statusCode),
   };
 };
+
+const usageStatementItemBody = (input: UsageStatementItemInput) => ({
+  categoryCode: categoryIdToCode(input.categoryId),
+  usedOn: input.usedOn,
+  itemName: input.itemName,
+  unit: input.unit || null,
+  quantity: input.quantity,
+  unitPrice: input.unitPrice,
+  totalAmount: input.totalAmount,
+  remark: input.remark || null,
+  pageNo: input.pageNo || 1,
+});
 
 export const getLatestUsageStatementArchive = async (projectId: string) => {
   const response = await apiFetch<LatestUsageStatementResponse>(`/projects/${projectId}/usage-statements/latest`);
@@ -425,6 +473,64 @@ export const getUsageStatementArchiveByMonth = async (projectId: string, year: n
     `/projects/${projectId}/usage-statements/by-month?year=${year}&month=${month}`,
   );
   return toArchiveData(projectId, response.data.statement);
+};
+
+export const getUsageStatementArchive = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<{ projectId: number; statement: UsageStatementDetailResponse }>(
+    `/projects/${projectId}/usage-statements/${usageStatementId}`,
+  );
+  return toArchiveData(projectId, response.data.statement);
+};
+
+export const submitUsageStatement = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<UsageStatementStatusResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/submit`, {
+    method: 'PATCH',
+  });
+  return response.data;
+};
+
+export const requestUsageStatementSupplement = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<UsageStatementStatusResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/request-supplement`, {
+    method: 'PATCH',
+  });
+  return response.data;
+};
+
+export const completeUsageStatementReview = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<UsageStatementStatusResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/complete-review`, {
+    method: 'PATCH',
+  });
+  return response.data;
+};
+
+export const createUsageStatementItem = async (projectId: string, usageStatementId: number, input: UsageStatementItemInput) => {
+  const response = await apiFetch<UsageStatementItemResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/items`, {
+    method: 'POST',
+    body: usageStatementItemBody(input),
+  });
+  return usageStatementItemToLineItem(response.data);
+};
+
+export const updateUsageStatementItem = async (projectId: string, usageStatementId: number, itemId: string | number, input: UsageStatementItemInput) => {
+  const response = await apiFetch<UsageStatementItemResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/items/${itemId}`, {
+    method: 'PATCH',
+    body: usageStatementItemBody(input),
+  });
+  return usageStatementItemToLineItem(response.data);
+};
+
+export const deleteUsageStatementItem = async (projectId: string, usageStatementId: number, itemId: string | number) => {
+  await apiFetch<null>(`/projects/${projectId}/usage-statements/${usageStatementId}/items/${itemId}`, {
+    method: 'DELETE',
+  });
+};
+
+export const changeUsageStatementItemCategory = async (projectId: string, usageStatementId: number, itemId: string | number, categoryId: number) => {
+  const response = await apiFetch<UsageStatementItemResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/items/${itemId}/category`, {
+    method: 'PATCH',
+    body: { categoryCode: categoryIdToCode(categoryId) },
+  });
+  return usageStatementItemToLineItem(response.data);
 };
 
 export const listUsageStatementArchives = async (projectId: string) => {
@@ -536,29 +642,3 @@ export const getProjectArchiveFromCategories = async (projectId: string): Promis
   }));
   return { archiveSeed, usageItems };
 };
-
-/*
- * TODO: 백엔드에 POST /projects/{projectId}/safety-doc-agent/match API가 추가되면 복구합니다.
- *
- * export const runSafetyDocAgentMatching = async (projectId: string): Promise<SafetyDocAgentRequiredEvidenceMap> => {
- *   const response = await apiFetch<SafetyDocAgentMatchResponse>(`/projects/${projectId}/safety-doc-agent/match`, {
- *     method: 'POST',
- *   });
- *
- *   if (response.data.requiredEvidenceByLine) {
- *     return response.data.requiredEvidenceByLine;
- *   }
- *
- *   return (response.data.requirements || []).reduce<SafetyDocAgentRequiredEvidenceMap>((result, item) => {
- *     const usageItemId = String(item.usageStatementItemId ?? item.itemId ?? '');
- *     const kind = evidenceCodeToKind(item.evidenceTypeCode);
- *     const requiredName = item.requiredFileName || item.requiredEvidenceName || item.requiredDocumentName || item.name || item.evidenceTypeName || '';
- *     if (!usageItemId || !requiredName) return result;
- *     result[usageItemId] = {
- *       ...(result[usageItemId] || {}),
- *       [kind]: [...(result[usageItemId]?.[kind] || []), requiredName],
- *     };
- *     return result;
- *   }, {});
- * };
- */

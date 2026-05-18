@@ -9,17 +9,18 @@ import ProjectInfoEditorModal from '../../../components/project/ProjectInfoEdito
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
-import { EMPTY_PROJECT, getProjectManagers, normalizeProjectStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectStatus, type ProjectSummary } from '../../../lib/project-data';
-import { getProject, listProjectManagerCandidates, markArchiveChecked, replaceProjectAssignees, updateProject, type ProjectAssignee, type UpdateProjectInput } from '../../../lib/project-api';
-import { getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
+import { EMPTY_PROJECT, getProjectManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
+import { createActionRequest, getActionRequest, getProject, listActionRequests, listProjectManagerCandidates, markArchiveChecked, replaceProjectAssignees, updateActionRequestStatus, updateProject, type ProjectActionRequest, type ProjectAssignee, type UpdateProjectInput } from '../../../lib/project-api';
+import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, requestUsageStatementSupplement, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
+import { parseUsageStatementWithOcr } from '../../../lib/agent-api';
 import { can } from '../../../lib/permissions';
 import { useCurrentUser } from '../../../lib/dev-user';
 import ArchiveScreen from '../../../features/project-tab/ArchiveScreen';
 import VerifyScreen from '../../../features/project-tab/VerifyScreen';
 import ReportScreen from '../../../features/project-tab/ReportScreen';
-import { CATS, VALIDATION_DASHBOARD_RESULT, calculateUsageLineAmount, createEntryFromFile, type UsageLineItem } from '../../../lib/evidence-utils';
+import { CATS, VALIDATION_DASHBOARD_RESULT, type UsageLineItem } from '../../../lib/evidence-utils';
 import type { ArchiveSeed, EvidenceFile } from '../../../types/domain';
 type DetailTab = 'overview' | 'details' | 'validation' | 'report';
 type UsageStatementInfoDraft = UpdateProjectInput & {
@@ -55,11 +56,19 @@ type PendingReviewUpload = {
     categoryName: string;
     itemName: string;
 };
-type SharedWorkflowStatus = 'draft' | 'upload_completed' | 'supplement_required' | 'review_completed';
+type ClassificationMoveNotice = {
+    id: string;
+    itemName: string;
+    fromCategoryName: string;
+    toCategoryName: string;
+    reason?: string;
+};
+type SharedWorkflowStatus = UsageWorkflowStatus;
 type MonthUsageStatementArchiveData = UsageStatementArchiveData & {
     workflowStatus?: SharedWorkflowStatus;
     actionRequestDetails?: ProjectSummary['actionRequestDetails'];
 };
+const OPEN_ACTION_REQUEST_STATUSES = new Set(['open', 'in_progress']);
 const TABS: Array<{
     id: DetailTab;
     label: string;
@@ -92,13 +101,57 @@ interface MvpUsageStatementArchiveData extends MonthUsageStatementArchiveData {
     workflowStatus?: SharedWorkflowStatus;
     actionRequestDetails?: ProjectSummary['actionRequestDetails'];
 }
-const parseAmount = (value: string) => {
-    const numeric = Number(String(value || '').replace(/[^\d]/g, ''));
-    return Number.isFinite(numeric) && numeric > 0 ? numeric : 8500000000;
-};
 const formatMonthLabel = (month: string) => {
     const [year, monthNo] = month.split('-');
     return `${year}년 ${Number(monthNo)}월`;
+};
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+    value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+const asArray = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
+const readStringField = (source: unknown, keys: string[]) => {
+    const record = asRecord(source);
+    if (!record)
+        return '';
+    for (const key of keys) {
+        const value = record[key];
+        if (typeof value === 'string' && value.trim())
+            return value.trim();
+        if (typeof value === 'number' && Number.isFinite(value))
+            return String(value);
+    }
+    return '';
+};
+const categoryIdFromCode = (value: string) => {
+    const match = value.match(/\d+/);
+    if (!match)
+        return undefined;
+    const categoryId = Number(match[0]);
+    return Number.isFinite(categoryId) ? categoryId : undefined;
+};
+const categoryNameFromClassificationValue = (value: string) => {
+    if (!value)
+        return '';
+    const categoryId = categoryIdFromCode(value);
+    const category = categoryId ? CATS.find((cat) => cat.id === categoryId) : undefined;
+    return (category?.short || value).replace(/\s+/g, ' ').trim();
+};
+const extractClassificationMoveNotices = (workflow: unknown): ClassificationMoveNotice[] => {
+    const workflowResult = asRecord(workflow)?.result;
+    const classification = asRecord(workflowResult)?.classification || asRecord(workflow)?.classification || workflow;
+    const items = asArray(asRecord(classification)?.lineItems);
+    return items.flatMap((item, index) => {
+        const fromCategory = readStringField(item, ['givenCategoryCode', 'originalCategoryCode', 'previousCategoryCode', 'sourceCategoryCode', 'beforeCategoryCode']);
+        const toCategory = readStringField(item, ['recommendedCategoryCode', 'classifiedCategoryCode', 'targetCategoryCode', 'finalCategoryCode', 'decidedCategoryCode', 'newCategoryCode', 'changedCategoryCode']);
+        if (!fromCategory || !toCategory || fromCategory === toCategory)
+            return [];
+        return [{
+            id: `${readStringField(item, ['rowId', 'id', 'itemId']) || index}`,
+            itemName: readStringField(item, ['itemName', 'name', 'usageItemName']) || '사용내역서 세부항목',
+            fromCategoryName: categoryNameFromClassificationValue(fromCategory),
+            toCategoryName: categoryNameFromClassificationValue(toCategory),
+            reason: readStringField(item, ['reason', 'classificationReason', 'decisionReason', 'rationale']),
+        }];
+    });
 };
 const getNextMonthKey = (month?: string) => {
     const base = month ? new Date(`${month}-01`) : new Date();
@@ -106,53 +159,6 @@ const getNextMonthKey = (month?: string) => {
         return new Date().toISOString().slice(0, 7);
     base.setMonth(base.getMonth() + 1);
     return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
-};
-const buildMvpUsageStatementArchiveData = (project: ProjectSummary, fileEntry: EvidenceFile, uploadedBy: string): MvpUsageStatementArchiveData => {
-    const now = new Date();
-    const month = now.toISOString().slice(0, 7);
-    const plannedAmount = parseAmount(project.plannedAmount || project.constructionAmount);
-    const categoryAmounts = [0.18, 0.16, 0.13, 0.09, 0.1, 0.08, 0.11, 0.07, 0.08].map((ratio) => Math.round(plannedAmount * ratio));
-    const usageItems = CATS.map((cat, index) => {
-        const unitPrice = categoryAmounts[index] || 0;
-        return {
-            id: `mvp-usage-${project.id}-${cat.id}`,
-            categoryId: cat.id,
-            name: `${cat.label} (${Number(month.slice(5))}월)`,
-            amount: calculateUsageLineAmount(1, unitPrice),
-            unit: '건',
-            quantity: 1,
-            unitPrice,
-        };
-    });
-    const overviewRows = CATS.map((cat, index) => {
-        const amount = usageItems[index]?.amount || 0;
-        return [`${cat.id}. ${cat.label}`, '0', amount.toLocaleString('ko-KR'), amount.toLocaleString('ko-KR')] as [string, string, string, string];
-    });
-    const total = usageItems.reduce((sum, item) => sum + item.amount, 0);
-    const uploadedAt = now.toISOString().slice(0, 10);
-    return {
-        archiveSeed: {
-            usage_statement: [{ ...fileEntry, uploadedAt, uploadedBy, categoryIds: [], usageItemIds: [] }],
-            categories: {},
-        },
-        usageItems,
-        overviewRows: [...overviewRows, ['계', '0', total.toLocaleString('ko-KR'), total.toLocaleString('ko-KR')]],
-        statementSummary: {
-            month,
-            label: formatMonthLabel(month),
-            sourceFileName: fileEntry.name,
-            revisionNo: 1,
-            documentWrittenDate: uploadedAt,
-            uploadedAt,
-            uploadedBy,
-            parseStatus: 'OCR 완료',
-            validationStatus: '미검증',
-            currentAmount: total.toLocaleString('ko-KR'),
-            cumulativeAmount: total.toLocaleString('ko-KR'),
-            evidenceCount: 0,
-            issueCount: 0,
-        },
-    };
 };
 const getLocalUsageStatementKey = (projectId: string) => `${LOCAL_USAGE_STATEMENT_PREFIX}${projectId}`;
 const readLocalUsageStatementData = (projectId: string): MvpUsageStatementArchiveData | null => {
@@ -190,11 +196,10 @@ const writeLocalValidationStatusByMonth = (projectId: string, data: Record<strin
     window.localStorage.setItem(getLocalValidationStatusKey(projectId), JSON.stringify(data));
 };
 const normalizeWorkflowStatus = (value?: string | null): SharedWorkflowStatus => {
-    return normalizeProjectStatus(value);
+    return normalizeUsageWorkflowStatus(value) || 'draft';
 };
 const applyWorkflowToProject = (project: ProjectSummary, status: SharedWorkflowStatus, actionRequestDetails?: ProjectSummary['actionRequestDetails']): ProjectSummary => ({
     ...project,
-    status,
     hasActionRequest: status === 'supplement_required',
     actionRequestDetails: status === 'supplement_required' ? actionRequestDetails : undefined,
     reportReady: status === 'review_completed' || status === 'supplement_required',
@@ -204,6 +209,24 @@ const withActionRequestMonth = (details: ProjectSummary['actionRequestDetails'] 
         return details;
     return details.month || !month ? details : { ...details, month };
 };
+const actionRequestToDetails = (request: ProjectActionRequest | undefined, month?: string, assigneeName?: string): ProjectSummary['actionRequestDetails'] | undefined => {
+    if (!request)
+        return undefined;
+    return {
+        title: request.title || '보완 요청',
+        reason: request.reason || '',
+        assignee: assigneeName || (request.assigneeUserId ? `담당자 #${request.assigneeUserId}` : '-'),
+        dueDate: request.dueDate || '',
+        requestedAt: request.createdAt?.slice(0, 10) || '-',
+        month,
+    };
+};
+const ACTION_REQUEST_STATUS_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
+    open: { label: '요청됨', color: C.danger, bg: C.dangerBg, border: '#FFCDD2' },
+    in_progress: { label: '보완 업로드 완료', color: '#8A5A00', bg: '#FFF4D8', border: '#F2D59B' },
+    closed: { label: '승인 완료', color: C.primary, bg: C.bg, border: C.light },
+};
+const getActionRequestStatusMeta = (statusCode?: string | null) => ACTION_REQUEST_STATUS_META[statusCode || ''] || { label: statusCode || '-', color: C.g600, bg: C.g100, border: C.g200 };
 const getUsageStatementOcrFailureReason = (file: File) => {
     const fileName = file.name.toLowerCase();
     const supportedExtension = /\.(pdf|png|jpe?g|webp|xlsx)$/i.test(file.name);
@@ -259,6 +282,7 @@ export default function ProjectDetailPage() {
     const [projectError, setProjectError] = useState('');
     const [managerCandidateProfiles, setManagerCandidateProfiles] = useState<BackendUserProfile[]>([]);
     const [dbUsageStatementsByMonth, setDbUsageStatementsByMonth] = useState<Record<string, MonthUsageStatementArchiveData>>({});
+    const [actionRequests, setActionRequests] = useState<ProjectActionRequest[]>([]);
     const latestFallbackStatement = EMPTY_USAGE_STATEMENT;
     const canUploadEvidence = can(user, 'uploadEvidence');
     const canRunValidation = can(user, 'runValidation');
@@ -286,6 +310,10 @@ export default function ProjectDetailPage() {
     const [projectHeaderOpen, setProjectHeaderOpen] = useState(true);
     const [actionGuideOpen, setActionGuideOpen] = useState(false);
     const [actionGuideClosingMotion, setActionGuideClosingMotion] = useState<{ x: number; y: number; scale: number } | null>(null);
+    const [actionRequestDetailOpen, setActionRequestDetailOpen] = useState(false);
+    const [actionRequestDetail, setActionRequestDetail] = useState<ProjectActionRequest | null>(null);
+    const [actionRequestDetailLoading, setActionRequestDetailLoading] = useState(false);
+    const [actionRequestDetailError, setActionRequestDetailError] = useState('');
     const [actionCompletionSent, setActionCompletionSent] = useState(false);
     const [pendingReviewUploads, setPendingReviewUploads] = useState<PendingReviewUpload[]>([]);
     const [todoClearSignal, setTodoClearSignal] = useState(0);
@@ -300,6 +328,7 @@ export default function ProjectDetailPage() {
     const [monthDeleteTarget, setMonthDeleteTarget] = useState<MonthlyUsageStatementSummary | null>(null);
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [ocrFailureReason, setOcrFailureReason] = useState('');
+    const [classificationMoveNotices, setClassificationMoveNotices] = useState<ClassificationMoveNotice[]>([]);
     const [draftManagerIds, setDraftManagerIds] = useState<number[]>([]);
     const [managerSaveError, setManagerSaveError] = useState('');
     const [managerSaving, setManagerSaving] = useState(false);
@@ -371,21 +400,45 @@ export default function ProjectDetailPage() {
             return fallbackMonth;
         return month;
     };
+    const getActionRequestAssigneeName = (request?: ProjectActionRequest) => {
+        if (!request?.assigneeUserId)
+            return '';
+        const candidateName = managerCandidateProfiles.find((manager) => manager.id === request.assigneeUserId)?.realName;
+        if (candidateName)
+            return candidateName;
+        const projectAssigneeIndex = project.assigneeUserIds?.findIndex((id) => id === request.assigneeUserId) ?? -1;
+        return projectAssigneeIndex >= 0 ? project.participants[projectAssigneeIndex] || '' : '';
+    };
     const refreshArchiveData = async (targetProjectId: string) => {
         const localData = readLocalUsageStatementData(targetProjectId);
-        const [statementArchives, latestData, archiveData] = await Promise.all([
+        const [statementArchives, latestData, archiveData, latestActionRequests] = await Promise.all([
             listUsageStatementArchives(targetProjectId).catch(() => []),
             getLatestUsageStatementArchive(targetProjectId).catch(() => null),
             getProjectArchiveFromCategories(targetProjectId).catch(() => null),
+            listActionRequests(targetProjectId).catch(() => []),
         ]);
+        setActionRequests(latestActionRequests);
         const mergedStatementArchives = [...statementArchives];
         if (localData && !mergedStatementArchives.some((item) => item.statementSummary.month === localData.statementSummary.month)) {
             mergedStatementArchives.push(localData);
         }
-        if (mergedStatementArchives.length) {
-            setDbUsageStatementsByMonth(Object.fromEntries(mergedStatementArchives.map((item) => [item.statementSummary.month, item])) as Record<string, MonthUsageStatementArchiveData>);
+        const mergedWithActionRequests = mergedStatementArchives.map((item) => {
+            const openRequest = latestActionRequests.find((request) => request.usageStatementId === item.usageStatementId && OPEN_ACTION_REQUEST_STATUSES.has(request.statusCode));
+            if (!openRequest)
+                return item;
+            return {
+                ...item,
+                workflowStatus: 'supplement_required' as const,
+                actionRequestDetails: actionRequestToDetails(openRequest, item.statementSummary.month, getActionRequestAssigneeName(openRequest)),
+            };
+        });
+        if (mergedWithActionRequests.length) {
+            setDbUsageStatementsByMonth(Object.fromEntries(mergedWithActionRequests.map((item) => [item.statementSummary.month, item])) as Record<string, MonthUsageStatementArchiveData>);
         }
         if (latestData) {
+            const latestOpenRequest = latestActionRequests.find((request) => request.usageStatementId === latestData.usageStatementId && OPEN_ACTION_REQUEST_STATUSES.has(request.statusCode));
+            const latestWorkflowStatus = latestOpenRequest ? 'supplement_required' : latestData.workflowStatus || 'draft';
+            const latestActionRequestDetails = actionRequestToDetails(latestOpenRequest, latestData.statementSummary.month, getActionRequestAssigneeName(latestOpenRequest));
             const mergedArchiveSeed = archiveData?.archiveSeed || latestData.archiveSeed;
             setArchiveSeed({
                 usage_statement: latestData.archiveSeed.usage_statement.length ? latestData.archiveSeed.usage_statement : mergedArchiveSeed.usage_statement,
@@ -396,7 +449,7 @@ export default function ProjectDetailPage() {
                 ...current,
                 hasUploads: latestData.statementSummary.evidenceCount > 0 || Boolean(latestData.statementSummary.sourceFileName && latestData.statementSummary.sourceFileName !== '-'),
                 accumulatedAmount: latestData.statementSummary.cumulativeAmount,
-            }, normalizeWorkflowStatus(localData?.workflowStatus || current.status), withActionRequestMonth(localData?.actionRequestDetails, localData?.statementSummary.month)));
+            }, latestWorkflowStatus, latestActionRequestDetails));
             return;
         }
         if (archiveData) {
@@ -410,14 +463,15 @@ export default function ProjectDetailPage() {
     };
     const selectedStatement = monthlyStatements.find((statement) => statement.month === selectedMonth) || latestStatement;
     const selectedStatementArchive = selectedStatement.month ? dbUsageStatementsByMonth[selectedStatement.month] : undefined;
+    const selectedActionRequest = selectedStatementArchive?.usageStatementId
+        ? actionRequests.find((request) => request.usageStatementId === selectedStatementArchive.usageStatementId && OPEN_ACTION_REQUEST_STATUSES.has(request.statusCode))
+        : undefined;
     const selectedMonthHasUploadedStatement = Boolean(selectedStatement.sourceFileName && selectedStatement.sourceFileName !== '-');
     const hasUsageStatement = monthlyStatements.length > 0 || Boolean(archiveSeed?.usage_statement?.length || archiveUsageItems.length);
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
-    const workflowStatus = normalizeWorkflowStatus(project.status);
-    const inferredActionRequestMonth = workflowStatus === 'supplement_required' ? resolveActionRequestMonth(project.actionRequestDetails?.month) : '';
     const selectedMonthHasActionRequest = Boolean(
         selectedStatementArchive?.workflowStatus === 'supplement_required'
-        || (inferredActionRequestMonth && selectedStatement.month === inferredActionRequestMonth)
+        || selectedActionRequest
     );
     const selectedMonthWorkflowStatus: SharedWorkflowStatus = selectedStatementArchive?.workflowStatus
         || (selectedMonthHasActionRequest
@@ -427,10 +481,13 @@ export default function ProjectDetailPage() {
                 : selectedMonthHasUploadedStatement
                     ? 'draft'
                     : 'draft');
-    const selectedMonthActionRequestDetails = selectedStatementArchive?.actionRequestDetails
+    const selectedMonthShouldDisplayWorkflowStatus = selectedMonthHasUploadedStatement || Boolean(selectedStatementArchive?.workflowStatus || selectedActionRequest);
+    const selectedMonthActionRequestDetails = actionRequestToDetails(selectedActionRequest, selectedStatement.month, getActionRequestAssigneeName(selectedActionRequest))
+        || selectedStatementArchive?.actionRequestDetails
         || (selectedMonthHasActionRequest ? withActionRequestMonth(project.actionRequestDetails, selectedStatement.month) : undefined);
     const validationSampleReady = VALIDATION_DASHBOARD_RESULT.categories.length > 0;
-    const canStartValidationForCurrentView = selectedMonthWorkflowStatus === 'upload_completed' || selectedMonthWorkflowStatus === 'review_completed' || validationSampleReady;
+    const canStartValidationForCurrentView = Boolean(selectedStatementArchive?.usageStatementId)
+        && (selectedMonthWorkflowStatus === 'upload_completed' || selectedMonthWorkflowStatus === 'review_completed' || validationSampleReady);
     const pushMonthHistory = () => {
         if (typeof window === 'undefined' || monthHistoryPushedRef.current)
             return;
@@ -489,7 +546,6 @@ export default function ProjectDetailPage() {
                 usageItems: current[month]?.usageItems || [],
                 overviewRows: current[month]?.overviewRows || EMPTY_OVERVIEW_ROWS,
                 statementSummary: current[month]?.statementSummary || statementSummary,
-                workflowStatus: 'draft',
             },
         }));
         setArchiveSeed({ usage_statement: [], categories: {} });
@@ -648,9 +704,9 @@ export default function ProjectDetailPage() {
             setArchiveUsageItems(localData.usageItems);
             setProject((current) => applyWorkflowToProject({
                 ...current,
-                hasUploads: true,
+                hasUploads: localData.statementSummary.evidenceCount > 0 || Boolean(localData.statementSummary.sourceFileName && localData.statementSummary.sourceFileName !== '-'),
                 accumulatedAmount: localData.statementSummary.cumulativeAmount,
-            }, normalizeWorkflowStatus(localData.workflowStatus), withActionRequestMonth(localData.actionRequestDetails, localData.statementSummary.month)));
+            }, localData.workflowStatus ? normalizeWorkflowStatus(localData.workflowStatus) : 'draft', withActionRequestMonth(localData.actionRequestDetails, localData.statementSummary.month)));
         }
         refreshArchiveData(project.id)
             .catch(() => {
@@ -687,12 +743,12 @@ export default function ProjectDetailPage() {
             usageItems: archiveUsageItems,
             overviewRows: archiveData.overviewRows,
             statementSummary: archiveData.statementSummary,
-            workflowStatus: selectedMonthWorkflowStatus,
+            workflowStatus: selectedMonthShouldDisplayWorkflowStatus ? selectedMonthWorkflowStatus : undefined,
             actionRequestDetails: selectedMonthWorkflowStatus === 'supplement_required'
                 ? withActionRequestMonth(selectedMonthActionRequestDetails, selectedStatement.month)
                 : undefined,
         });
-    }, [archiveSeed, archiveUsageItems, dbUsageStatementsByMonth, project.id, selectedMonthActionRequestDetails, selectedMonthWorkflowStatus, selectedStatement.month]);
+    }, [archiveSeed, archiveUsageItems, dbUsageStatementsByMonth, project.id, selectedMonthActionRequestDetails, selectedMonthShouldDisplayWorkflowStatus, selectedMonthWorkflowStatus, selectedStatement.month]);
     useEffect(() => {
         if (!project.id)
             return;
@@ -775,21 +831,36 @@ export default function ProjectDetailPage() {
         setProject((current) => ({ ...current, hasUploads: true }));
         setValidationStatusByMonth((prev) => prev[selectedStatement.month] ? { ...prev, [selectedStatement.month]: 'idle' } : prev);
     };
-    const completeReviewRequest = () => {
+    const completeReviewRequest = async () => {
         if (!canUploadEvidence || !hasUsageStatement)
             return;
-        patchMonthWorkflow(selectedStatement.month, 'upload_completed');
-        setProject((current) => applyWorkflowToProject({
-            ...current,
-            hasUploads: true,
-        }, 'upload_completed'));
-        setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'idle' }));
-        setActionCompletionSent(true);
-        setActionGuideOpen(false);
-        setActionGuideClosingMotion(null);
-        setPendingReviewUploads([]);
-        setTodoClearSignal((signal) => signal + 1);
-        setUploadCompleteConfirmOpen(false);
+        const usageStatementId = selectedStatementArchive?.usageStatementId;
+        try {
+            if (selectedActionRequest) {
+                let updatedRequest = selectedActionRequest;
+                if (updatedRequest.statusCode === 'open') {
+                    updatedRequest = await updateActionRequestStatus(project.id, updatedRequest.id, 'in_progress');
+                }
+                setActionRequests((current) => current.map((request) => request.id === updatedRequest.id ? updatedRequest : request));
+            } else if (usageStatementId && selectedMonthWorkflowStatus === 'draft') {
+                await submitUsageStatement(project.id, usageStatementId);
+            }
+            const nextWorkflowStatus: SharedWorkflowStatus = selectedActionRequest ? 'supplement_required' : 'upload_completed';
+            patchMonthWorkflow(selectedStatement.month, nextWorkflowStatus, selectedActionRequest ? selectedMonthActionRequestDetails : undefined);
+            setProject((current) => applyWorkflowToProject({
+                ...current,
+                hasUploads: true,
+            }, nextWorkflowStatus, selectedActionRequest ? selectedMonthActionRequestDetails : undefined));
+            setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'idle' }));
+            setActionCompletionSent(true);
+            setActionGuideOpen(false);
+            setActionGuideClosingMotion(null);
+            setPendingReviewUploads([]);
+            setTodoClearSignal((signal) => signal + 1);
+            setUploadCompleteConfirmOpen(false);
+        } catch {
+            setAgentFailureTarget('server-request');
+        }
     };
     const sendReviewRequest = () => {
         if (activeArchiveTodoCount > 0) {
@@ -853,6 +924,16 @@ export default function ProjectDetailPage() {
                 setUsageStatementPage(0);
                 uploadProjectFile(project.id, pickedFile, 'usage_statement')
                     .then(async (uploadedEntry) => {
+                        if (uploadedEntry.fileId) {
+                            const ocrWorkflow = await parseUsageStatementWithOcr(project.id, uploadedEntry.fileId);
+                            if (!ocrWorkflow.usageStatementId) {
+                                throw new Error('사용내역서 OCR 결과에 사용내역서 ID가 없습니다.');
+                            }
+                            const moveNotices = extractClassificationMoveNotices(ocrWorkflow);
+                            if (moveNotices.length) {
+                                setClassificationMoveNotices(moveNotices);
+                            }
+                        }
                         const uploadedAt = uploadedEntry.uploadedAt || new Date().toISOString().slice(0, 10);
                         const month = selectedMonth || uploadedAt.slice(0, 7);
                         const statementSummary: MonthlyUsageStatementSummary = {
@@ -884,12 +965,7 @@ export default function ProjectDetailPage() {
                             usage_statement: [uploadedEntry, ...(current?.usage_statement || []).filter((file) => file.fileId !== uploadedEntry.fileId)],
                             categories: current?.categories || {},
                         }));
-                        setProject((current) => current.status === 'upload_completed' || current.status === 'review_completed'
-                            ? applyWorkflowToProject({
-                                ...current,
-                                hasUploads: true,
-                            }, 'draft')
-                            : { ...current, hasUploads: true });
+                        setProject((current) => ({ ...current, hasUploads: true }));
                         setSelectedMonth(month);
                         setUsageUploadStage('classifying');
                         await refreshArchiveData(project.id);
@@ -900,42 +976,6 @@ export default function ProjectDetailPage() {
                         setUsageUploadStage('idle');
                         setAgentFailureTarget('usage-classification');
                     });
-                /*
-                const ocrTimer = window.setTimeout(() => {
-                    try {
-                        setLatestDbStatement(processedData.statementSummary);
-                        if (!processedData.statementSummary.currentAmount || !processedData.statementSummary.sourceFileName || processedData.statementSummary.sourceFileName === '-') {
-                            setUsageUploadStage('idle');
-                            setOcrFailureReason('사용내역서에서 필요한 값을 추출하지 못했습니다.');
-                            return;
-                        }
-                        setDbOverviewUsageRows(processedData.overviewRows);
-                        setProject((current) => ({
-                            ...current,
-                            hasUploads: true,
-                            accumulatedAmount: processedData.statementSummary.cumulativeAmount,
-                        }));
-                        setSelectedMonth(processedData.statementSummary.month);
-                        setUsageUploadStage('classifying');
-                    } catch {
-                        setUsageUploadStage('idle');
-                        setAgentFailureTarget('usage-classification');
-                    }
-                }, 650);
-                const classifyTimer = window.setTimeout(() => {
-                    try {
-                        setArchiveSeed(processedData.archiveSeed);
-                        setArchiveUsageItems(processedData.usageItems);
-                        writeLocalUsageStatementData(project.id, processedData);
-                        setUsageUploadStage('idle');
-                        openArchiveView();
-                    } catch {
-                        setUsageUploadStage('idle');
-                        setAgentFailureTarget('usage-classification');
-                    }
-                }, 1400);
-                usageUploadTimersRef.current = [ocrTimer, classifyTimer];
-                */
             } catch {
                 usageUploadTimersRef.current.forEach((timer) => window.clearTimeout(timer));
                 usageUploadTimersRef.current = [];
@@ -1169,7 +1209,7 @@ export default function ProjectDetailPage() {
     const actionGuideTitle = selectedMonthActionRequestDetails?.title || '보완 요청';
     const actionGuideMessage = selectedMonthActionRequestDetails?.reason || '';
     const actionGuideRequestedFiles: string[] = [];
-    const actionGuideMonthLabel = inferredActionRequestMonth ? formatMonthLabel(inferredActionRequestMonth) : '';
+    const actionGuideMonthLabel = selectedStatement.month ? formatMonthLabel(selectedStatement.month) : '';
     const actionGuideMeta = selectedMonthActionRequestDetails
         ? `${actionGuideMonthLabel ? `${actionGuideMonthLabel} · ` : ''}요청 ${selectedMonthActionRequestDetails.requestedAt} · 담당 ${selectedMonthActionRequestDetails.assignee}`
         : '';
@@ -1192,6 +1232,39 @@ export default function ProjectDetailPage() {
             setActionGuideClosingMotion(null);
         }, 360);
     };
+    const openActionRequestDetail = async () => {
+        if (!selectedActionRequest)
+            return;
+        setActionRequestDetailOpen(true);
+        setActionRequestDetail(selectedActionRequest);
+        setActionRequestDetailLoading(true);
+        setActionRequestDetailError('');
+        try {
+            const detail = await getActionRequest(project.id, selectedActionRequest.id);
+            setActionRequestDetail(detail);
+            setActionRequests((current) => current.map((request) => request.id === detail.id ? detail : request));
+        } catch (error) {
+            setActionRequestDetailError(error instanceof Error ? error.message : '조치 요청 상세 정보를 불러오지 못했습니다.');
+        } finally {
+            setActionRequestDetailLoading(false);
+        }
+    };
+    const closeActionRequestDetail = () => {
+        setActionRequestDetailOpen(false);
+        setActionRequestDetailError('');
+    };
+    const actionRequestDetailStatusMeta = getActionRequestStatusMeta(actionRequestDetail?.statusCode);
+    const actionRequestDetailRows: Array<[string, string]> = actionRequestDetail ? [
+        ['요청 제목', actionRequestDetail.title || '-'],
+        ['요청 사유', actionRequestDetail.reason || '-'],
+        ['상태', actionRequestDetailStatusMeta.label],
+        ['처리 기한', actionRequestDetail.dueDate || '-'],
+        ['요청일', actionRequestDetail.createdAt?.slice(0, 10) || '-'],
+        ['요청자 ID', String(actionRequestDetail.requestedByUserId ?? '-')],
+        ['담당자 ID', String(actionRequestDetail.assigneeUserId ?? '-')],
+        ['사용내역서 ID', String(actionRequestDetail.usageStatementId ?? '-')],
+        ['세부항목 ID', String(actionRequestDetail.usageStatementItemId ?? '-')],
+    ] : [];
     const actionGuideModal = canViewActionGuide && selectedMonthActionRequestDetails ? (
         <Modal open={actionGuideOpen} onClose={closeActionGuide} zIndex={960} maxWidth={680}>
           <div
@@ -1230,12 +1303,52 @@ export default function ProjectDetailPage() {
                 </div>
               </div>}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+                <button type="button" onClick={openActionRequestDetail} disabled={!selectedActionRequest || actionRequestDetailLoading} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.bg, color: C.primary, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: !selectedActionRequest || actionRequestDetailLoading ? 'not-allowed' : 'pointer', opacity: !selectedActionRequest || actionRequestDetailLoading ? 0.45 : 1 }}>상세 보기</button>
                 <button type="button" onClick={closeActionGuide} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>닫기</button>
               </div>
             </div>
           </div>
         </Modal>
     ) : null;
+    const actionRequestDetailModal = (
+        <Modal open={actionRequestDetailOpen} onClose={closeActionRequestDetail} zIndex={970} maxWidth={620}>
+          <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
+            <div style={{ padding: '18px 20px 14px', borderBottom: `1px solid ${C.g100}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 7 }}>
+                  <span style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>조치 요청 상세</span>
+                  {actionRequestDetail && <span style={{ border: `1px solid ${actionRequestDetailStatusMeta.border}`, borderRadius: 999, background: actionRequestDetailStatusMeta.bg, color: actionRequestDetailStatusMeta.color, padding: '4px 9px', fontSize: 11, fontWeight: 900 }}>{actionRequestDetailStatusMeta.label}</span>}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: C.g400 }}>{selectedStatement.label}</div>
+              </div>
+              <button type="button" aria-label="조치 요청 상세 닫기" onClick={closeActionRequestDetail} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: 20 }}>
+              {actionRequestDetailLoading && <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '12px 14px', color: C.g600, fontSize: 13, fontWeight: 900, marginBottom: 12 }}>최신 상세 정보를 불러오는 중입니다.</div>}
+              {actionRequestDetailError && <div style={{ border: '1px solid #FFCDD2', borderRadius: 6, background: C.dangerBg, padding: '12px 14px', color: C.danger, fontSize: 13, fontWeight: 900, marginBottom: 12 }}>{actionRequestDetailError}</div>}
+              {actionRequestDetail ? (
+                <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden' }}>
+                  {actionRequestDetailRows.map(([label, value], index) => (
+                    <div key={label} style={{ display: 'grid', gridTemplateColumns: '130px minmax(0, 1fr)', borderTop: index === 0 ? 'none' : `1px solid ${C.g100}` }}>
+                      <div style={{ background: C.g100, padding: '10px 12px', color: C.g600, fontSize: 12, fontWeight: 900 }}>{label}</div>
+                      <div style={{ padding: '10px 12px', color: C.g800, fontSize: 13, fontWeight: 800, lineHeight: 1.55, wordBreak: 'break-word' }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: C.g400, fontSize: 13, fontWeight: 900 }}>표시할 조치 요청 정보가 없습니다.</div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+                <button type="button" onClick={() => {
+                    closeActionRequestDetail();
+                    updateTab('details');
+                }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.bg, color: C.primary, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>세부 내역으로 이동</button>
+                <button type="button" onClick={closeActionRequestDetail} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>닫기</button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+    );
     const agentWorkflowItems = [
         {
             code: 'OCR',
@@ -1411,7 +1524,7 @@ export default function ProjectDetailPage() {
     const canUploadUsageStatementFile = canUploadEvidence && Boolean(selectedMonth) && !selectedMonthHasUploadedStatement;
     const usageUploadButton = canUploadUsageStatementFile ? (
       <button type="button" onClick={uploadUsageStatementFromOverview} disabled={usageUploadStage !== 'idle'} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: usageUploadStage === 'idle' ? C.primary : C.g400, height: 34, padding: '0 13px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: usageUploadStage === 'idle' ? 'pointer' : 'wait', boxShadow: 'none', whiteSpace: 'nowrap' }}>
-        {usageUploadStage === 'ocr' ? 'OCR 처리 중' : usageUploadStage === 'classifying' ? '분류 중' : '사용내역서 업로드'}
+        {usageUploadStage === 'ocr' ? 'OCR/분류 처리 중' : usageUploadStage === 'classifying' ? '목록 갱신 중' : '사용내역서 업로드'}
       </button>
     ) : null;
     const reviewRequestHeaderButton = canUploadEvidence ? (
@@ -1437,7 +1550,6 @@ export default function ProjectDetailPage() {
         업로드 완료
       </button>
     ) : null;
-    const actionRequestMonth = inferredActionRequestMonth;
     const monthGridContent = (
       <div style={{ display: 'grid', gap: 18 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
@@ -1453,8 +1565,8 @@ export default function ProjectDetailPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
           {monthlyStatements.map((statement) => {
             const uploaded = Boolean(statement.sourceFileName && statement.sourceFileName !== '-');
-            const hasSupplementRequest = actionRequestMonth === statement.month;
             const archiveData = dbUsageStatementsByMonth[statement.month];
+            const hasSupplementRequest = archiveData?.workflowStatus === 'supplement_required';
             const totalAmount = archiveData?.overviewRows?.find(([label]) => label === '계')?.[3] || statement.cumulativeAmount || '0';
             return (
               <button
@@ -1528,7 +1640,7 @@ export default function ProjectDetailPage() {
             <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap' }}>사용내역서</div>
               <div style={{ fontSize: 12, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {usageUploadStage === 'ocr' ? 'OCR이 사용내역서 내용을 읽고 있습니다.' : usageUploadStage === 'classifying' ? '세부 항목을 9개 항목으로 분류하고 있습니다.' : '사용 현황 및 9개 항목 요약'}
+                {usageUploadStage === 'ocr' ? 'OCR 처리 후 세부 항목 분류까지 진행하고 있습니다.' : usageUploadStage === 'classifying' ? '분류 결과를 화면에 반영하고 있습니다.' : '사용 현황 및 9개 항목 요약'}
               </div>
             </div>
           </div>
@@ -1620,7 +1732,7 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         </> : null}
-        {selectedMonthHasUploadedStatement && <ArchiveScreen projectId={project.id} matchReady={matchReady} uncheckedMatchedFileCount={project.uncheckedMatchedFileCount} onDismissMatchReady={dismissArchiveMatchReady} archiveSeed={archiveSeed} usageItems={archiveUsageItems} actionRequest={canViewActionGuide ? {
+        {selectedMonthHasUploadedStatement && <ArchiveScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} matchReady={matchReady} uncheckedMatchedFileCount={project.uncheckedMatchedFileCount} onDismissMatchReady={dismissArchiveMatchReady} archiveSeed={archiveSeed} usageItems={archiveUsageItems} actionRequest={canViewActionGuide ? {
                 title: actionGuideTitle,
                 message: actionGuideMessage,
                 dueDate: selectedMonthActionRequestDetails?.dueDate,
@@ -1630,25 +1742,76 @@ export default function ProjectDetailPage() {
             }} onFilesUploaded={registerPendingReviewUploads} onArchiveContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveArchiveTodoCount} onBackToOverview={() => updateTab('overview')} uploadCompleteAction={reviewRequestHeaderButton}/>}
         </>}
       </div>),
-        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`} canStartValidation={canStartValidationForCurrentView} onValidationComplete={() => {
+        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`} canStartValidation={canStartValidationForCurrentView} onValidationComplete={() => {
                 setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
-            }} onValidationApproved={() => {
-                setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
-                patchMonthWorkflow(selectedStatement.month, 'review_completed');
-                setProject((current) => applyWorkflowToProject(current, 'review_completed'));
-                updateTab('report');
-            }} onActionRequested={(details) => {
-                setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
-                patchMonthWorkflow(selectedStatement.month, 'supplement_required', details);
-                setProject((current) => applyWorkflowToProject(current, 'supplement_required', { ...details, month: selectedStatement.month }));
+            }} onValidationApproved={async () => {
+                const usageStatementId = selectedStatementArchive?.usageStatementId;
+                if (!usageStatementId) {
+                    setAgentFailureTarget('server-request');
+                    return;
+                }
+                try {
+                    if (selectedMonthWorkflowStatus === 'draft') {
+                        await submitUsageStatement(project.id, usageStatementId);
+                    }
+                    await completeUsageStatementReview(project.id, usageStatementId);
+                    if (selectedActionRequest?.statusCode === 'in_progress') {
+                        const closedRequest = await updateActionRequestStatus(project.id, selectedActionRequest.id, 'closed');
+                        setActionRequests((current) => current.map((request) => request.id === closedRequest.id ? closedRequest : request));
+                    }
+                    setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
+                    patchMonthWorkflow(selectedStatement.month, 'review_completed');
+                    setProject((current) => applyWorkflowToProject(current, 'review_completed'));
+                    updateTab('report');
+                    await refreshArchiveData(project.id);
+                } catch {
+                    setAgentFailureTarget('server-request');
+                }
+            }} onActionRequested={async (details) => {
+                const usageStatementId = selectedStatementArchive?.usageStatementId;
+                const assigneeUserId = project.assigneeUserIds?.[0];
+                if (!usageStatementId || !assigneeUserId) {
+                    setAgentFailureTarget('server-request');
+                    return;
+                }
+                try {
+                    if (selectedMonthWorkflowStatus === 'draft') {
+                        await submitUsageStatement(project.id, usageStatementId);
+                    }
+                    if (selectedMonthWorkflowStatus !== 'supplement_required') {
+                        await requestUsageStatementSupplement(project.id, usageStatementId);
+                    }
+                    const dueDate = details.dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+                    const actionRequest = await createActionRequest(project.id, {
+                        title: details.title || '보완 요청',
+                        reason: details.reason,
+                        assigneeUserId,
+                        usageStatementId,
+                        dueDate,
+                    });
+                    const backendDetails = actionRequestToDetails(actionRequest, selectedStatement.month, getActionRequestAssigneeName(actionRequest)) || { ...details, month: selectedStatement.month };
+                    setActionRequests((current) => [actionRequest, ...current.filter((request) => request.id !== actionRequest.id)]);
+                    setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
+                    patchMonthWorkflow(selectedStatement.month, 'supplement_required', backendDetails);
+                    setProject((current) => applyWorkflowToProject(current, 'supplement_required', backendDetails));
+                    await refreshArchiveData(project.id);
+                } catch {
+                    setAgentFailureTarget('server-request');
+                }
             }}/>),
-        report: (<ReportScreen projectId={project.id} validationComplete={selectedMonthWorkflowStatus === 'review_completed' || selectedMonthWorkflowStatus === 'supplement_required' || selectedValidationStatus === 'done'} contractName={`${project.name} · ${selectedStatement.label}`}/>),
+        report: (<ReportScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} validationComplete={selectedMonthWorkflowStatus === 'review_completed' || selectedMonthWorkflowStatus === 'supplement_required' || selectedValidationStatus === 'done'} contractName={`${project.name} · ${selectedStatement.label}`}/>),
     };
     return (<AppFrame title={project.name} mainClassName="project-detail-main">
       <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20, borderRadius: 6 }}>
         <div data-ui="project-detail.19" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div data-ui="project-detail.20" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
-            <h2 data-ui="project-detail.21" style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>
+            <h2 data-ui="project-detail.21" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>
+              {selectedMonth && <button type="button" aria-label="월 목록으로 돌아가기" title="월 목록으로 돌아가기" onClick={() => setSelectedMonth('')} style={{ width: 30, height: 30, border: `1px solid ${C.g200}`, borderRadius: 999, padding: 0, background: C.white, color: C.primary, fontFamily: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', flex: '0 0 auto' }}>
+                <ChevronIcon direction="left" size={15} color={C.primary} />
+              </button>}
+              {!selectedMonth && <button type="button" aria-label="전체 프로젝트로 이동" title="전체 프로젝트로 이동" onClick={() => router.push('/projects')} style={{ width: 30, height: 30, border: `1px solid ${C.g200}`, borderRadius: 999, padding: 0, background: C.white, color: C.primary, fontFamily: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', flex: '0 0 auto' }}>
+                <ChevronIcon direction="left" size={15} color={C.primary} />
+              </button>}
               <span>{project.constructionName} 계약 정산</span>
               <span style={{ fontSize: 12, fontWeight: 900, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>{project.contractNumber}</span>
             </h2>
@@ -1662,12 +1825,9 @@ export default function ProjectDetailPage() {
           </div>
           {projectHeaderOpen && showUsageStatementHeaderInfo && <div data-ui="project-detail.26" style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 2, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {selectedMonth && <button type="button" aria-label="월 목록으로 돌아가기" title="월 목록으로 돌아가기" onClick={() => setSelectedMonth('')} style={{ width: 28, height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, padding: 0, background: C.white, color: C.primary, fontFamily: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', flex: '0 0 auto' }}>
-                <ChevronIcon direction="left" size={15} color={C.primary} />
-              </button>}
               {selectedMonth && <span style={{ fontSize: 13, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>{selectedStatement.label}</span>}
               <span style={{ fontSize: 13, fontWeight: 900, color: C.g400 }}>사용내역서 기본 정보</span>
-              {canViewActionGuide ? (
+              {selectedMonthShouldDisplayWorkflowStatus && (canViewActionGuide ? (
                 <button type="button" ref={actionRequestBadgeRef} data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }}>
                   {STATUS_META[selectedMonthWorkflowStatus].label}
                 </button>
@@ -1675,7 +1835,7 @@ export default function ProjectDetailPage() {
                 <span data-ui="project-detail.27" style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap' }}>
                   {STATUS_META[selectedMonthWorkflowStatus].label}
                 </span>
-              )}
+              ))}
               {project.uncheckedMatchedFileCount > 0 && (
                 <button type="button" onClick={openArchiveView} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '4px 10px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   미확인 매칭 {project.uncheckedMatchedFileCount}건
@@ -1700,6 +1860,7 @@ export default function ProjectDetailPage() {
         </div>
       </Card>
       {actionGuideModal}
+      {actionRequestDetailModal}
       {managerModal}
       {projectInfoModal}
       {monthCreateModal}
@@ -1709,6 +1870,22 @@ export default function ProjectDetailPage() {
         <div style={{ marginBottom: 8 }}>사용내역서를 다시 업로드해주세요.</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800 }}>{ocrFailureReason}</div>
       </div>} actionLabel="확인" onAction={() => setOcrFailureReason('')} />
+      <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 변경" body={<div>
+        <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>classi 에이전트가 일부 세부항목의 9개 항목 위치를 변경했습니다.</div>
+        <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
+          {classificationMoveNotices.map((notice) => (
+            <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
+              <div title={notice.itemName} style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
+                <span title={notice.fromCategoryName} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.fromCategoryName}</span>
+                <span style={{ color: C.primary, fontWeight: 900 }}>→</span>
+                <span title={notice.toCategoryName} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.toCategoryName}</span>
+              </div>
+              {notice.reason && <div style={{ marginTop: 7, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{notice.reason}</div>}
+            </div>
+          ))}
+        </div>
+      </div>} actionLabel="확인" onAction={() => setClassificationMoveNotices([])} />
       <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
 
       {selectedMonth && <div data-ui="project-detail.28" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>

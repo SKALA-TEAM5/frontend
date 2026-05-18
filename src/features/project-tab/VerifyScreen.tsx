@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -6,6 +6,7 @@ import CenterModal from '../../components/ui/CenterModal';
 import InlineLoader from '../../components/ui/InlineLoader';
 import Modal from '../../components/ui/Modal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
+import { confirmValidation, getLatestValidation, getValidationStatus, runValidationAgent } from '../../lib/agent-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
 import { C } from '../../lib/theme';
@@ -15,11 +16,12 @@ import type { CategoryValidationResult, ValidationDecision, ValidationIssue, Val
 interface VerifyScreenProps {
   contractName: string;
   projectId?: string;
+  usageStatementId?: number;
   initialStatus?: VerifyStatus;
   hideValidationIntro?: boolean;
   canStartValidation?: boolean;
   onValidationComplete?: () => void;
-  onValidationApproved?: () => void;
+  onValidationApproved?: () => void | Promise<void>;
   onActionRequested?: (details: { title: string; reason: string; assignee: string; dueDate: string; requestedAt: string }) => void;
 }
 
@@ -41,6 +43,7 @@ type SummaryWidgetTooltip = {
   rows: Array<{ label: string; value?: string; detail?: string; color?: string }>;
   placement?: 'right' | 'left';
 } | null;
+type ValidationRunState = 'unknown' | 'running' | 'done' | 'failed';
 
 const decisionMeta: Record<ValidationDecision, { label: string; color: string; bg: string; border: string }> = {
   appropriate: { label: '적정', color: C.ok, bg: '#F4FBF6', border: C.light },
@@ -105,7 +108,49 @@ const renderCategoryTableName = (item: CategoryValidationResult) => {
   </>;
 };
 
-const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+
+const readStringField = (source: unknown, keys: string[]) => {
+  const record = asRecord(source);
+  if (!record) return '';
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return '';
+};
+
+const readNestedStringField = (source: unknown, keys: string[]) => {
+  const direct = readStringField(source, keys);
+  if (direct) return direct;
+  const record = asRecord(source);
+  return readStringField(record?.result, keys) || readStringField(record?.data, keys);
+};
+
+const extractValidationId = (source: unknown) =>
+  readNestedStringField(source, ['validationId', 'validation_id', 'id', 'runId', 'run_id']);
+
+const extractValidationUsageStatementId = (source: unknown) =>
+  readNestedStringField(source, ['usageStatementId', 'usage_statement_id', 'statementId', 'statement_id']);
+
+const extractValidationRunState = (source: unknown): ValidationRunState => {
+  const rawStatus = readNestedStringField(source, ['status', 'statusCode', 'status_code', 'state', 'resultCode', 'result_code']).toLowerCase();
+  if (!rawStatus) return 'unknown';
+  if (['completed', 'complete', 'done', 'success', 'succeeded', 'passed', 'confirmed', 'approved'].includes(rawStatus)) return 'done';
+  if (['running', 'processing', 'pending', 'queued', 'started', 'in_progress'].includes(rawStatus)) return 'running';
+  if (['failed', 'failure', 'error', 'errored', 'cancelled', 'canceled'].includes(rawStatus)) return 'failed';
+  return 'unknown';
+};
+
+const isCurrentUsageStatementValidation = (source: unknown, usageStatementId?: number) => {
+  if (!usageStatementId) return true;
+  const sourceStatementId = extractValidationUsageStatementId(source);
+  return !sourceStatementId || sourceStatementId === String(usageStatementId);
+};
+
+const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
   const [filter, setFilter] = useState<ResultFilter>('all');
@@ -118,7 +163,9 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
   const [manualSupplementText, setManualSupplementText] = useState('');
   const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
   const [openActionKeys, setOpenActionKeys] = useState<string[]>([]);
-  const verifyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [validationId, setValidationId] = useState('');
+  const [validationConfirming, setValidationConfirming] = useState(false);
+  const [validationStatusText, setValidationStatusText] = useState('');
   const result = VALIDATION_DASHBOARD_RESULT;
   const categories = result.categories ?? [];
 
@@ -140,87 +187,165 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
     highRisk: categories.filter((item) => item.riskLevel === 'high').length,
   };
 
-  const clearVerifyTimer = () => {
-    if (!verifyTimerRef.current) return;
-    clearInterval(verifyTimerRef.current);
-    verifyTimerRef.current = null;
-  };
-
-  useEffect(() => () => {
-    clearVerifyTimer();
-  }, []);
-
   useEffect(() => {
     if (initialStatus === 'done') setStatus('done');
   }, [initialStatus]);
 
-  const handleVerify = () => {
-    if (!canStartValidation) return;
-    clearVerifyTimer();
+  useEffect(() => {
+    if (!projectId || !usageStatementId) return;
+    let cancelled = false;
+    getLatestValidation(projectId)
+      .then((latestValidation) => {
+        if (cancelled || !isCurrentUsageStatementValidation(latestValidation, usageStatementId)) return;
+        const latestValidationId = extractValidationId(latestValidation);
+        const latestRunState = extractValidationRunState(latestValidation);
+        if (latestValidationId) setValidationId(latestValidationId);
+        if (latestRunState === 'done') {
+          setStatus('done');
+          setValidationStatusText('최신 검증 결과를 불러왔습니다.');
+        } else if (latestRunState === 'running' && latestValidationId) {
+          setStatus('loading');
+          setValidationStatusText('기존 검증 작업을 확인하고 있습니다.');
+        }
+      })
+      .catch(() => {
+        // 최신 결과가 없어도 새 검증은 시작할 수 있으므로 조용히 무시합니다.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, usageStatementId]);
+
+  useEffect(() => {
+    if (status !== 'loading' || !projectId || !validationId) return;
+    let cancelled = false;
+    const pollValidationStatus = async () => {
+      try {
+        const validationStatus = await getValidationStatus(projectId, validationId);
+        if (cancelled) return;
+        const runState = extractValidationRunState(validationStatus);
+        if (runState === 'done') {
+          setStatus('done');
+          setValidationStatusText('검증이 완료되었습니다.');
+          onValidationComplete?.();
+        } else if (runState === 'failed') {
+          setStatus('idle');
+          setValidationStatusText('');
+          setAgentFailureTarget('legal-validation');
+        } else {
+          setValidationStatusText('검증 결과를 확인하고 있습니다.');
+        }
+      } catch {
+        if (!cancelled) {
+          setStatus('idle');
+          setValidationStatusText('');
+          setAgentFailureTarget('legal-validation');
+        }
+      }
+    };
+    pollValidationStatus();
+    const intervalId = window.setInterval(pollValidationStatus, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [onValidationComplete, projectId, status, validationId]);
+
+  const handleVerify = async () => {
+    if (!canStartValidation || !projectId || !usageStatementId) return;
     try {
       setStatus('loading');
       setSelectedCategoryId(4);
       setSheReviewDecision('pending');
-      let p = 0;
-      verifyTimerRef.current = setInterval(() => {
-        try {
-          p += Math.random() * 12 + 7;
-          if (p >= 100) {
-            clearVerifyTimer();
-            setStatus('done');
-            onValidationComplete?.();
-          }
-        } catch {
-          clearVerifyTimer();
-          setStatus('idle');
-          setAgentFailureTarget('legal-validation');
-        }
-      }, 320);
+      setValidationStatusText('검증을 시작했습니다.');
+      const validationRun = await runValidationAgent(projectId, usageStatementId, status === 'done');
+      const nextValidationId = extractValidationId(validationRun);
+      const runState = extractValidationRunState(validationRun);
+      if (nextValidationId) setValidationId(nextValidationId);
+      if (runState === 'failed') {
+        throw new Error('검증 실행에 실패했습니다.');
+      }
+      if (runState === 'done' || !nextValidationId) {
+        setStatus('done');
+        setValidationStatusText('검증이 완료되었습니다.');
+        onValidationComplete?.();
+      } else {
+        setValidationStatusText('검증 결과를 확인하고 있습니다.');
+      }
     } catch {
       setStatus('idle');
+      setValidationStatusText('');
       setAgentFailureTarget('legal-validation');
     }
   };
 
-  const handleApproveValidation = () => {
-    setSheReviewDecision('review_completed');
-    onValidationApproved?.();
+  const handleApproveValidation = async () => {
+    if (!projectId || !validationId || validationConfirming) return;
+    setValidationConfirming(true);
+    try {
+      await confirmValidation(projectId, validationId, { decision: 'approved', comment: 'SHE 담당자 검토 완료' });
+      setSheReviewDecision('review_completed');
+      await onValidationApproved?.();
+    } catch {
+      setAgentFailureTarget('legal-validation');
+    } finally {
+      setValidationConfirming(false);
+    }
   };
 
-  const handleSupplementRequest = () => {
+  const handleSupplementRequest = async () => {
     if (!can(user, 'requestAction')) return;
     if (!issues.length) {
       setManualSupplementOpen(true);
       return;
     }
     const firstIssue = issues[0];
-    onActionRequested?.({
+    const reason = firstIssue ? `${firstIssue.categoryName} 항목에서 ${firstIssue.title} 문제가 있습니다. ${firstIssue.requiredAction}` : '제출 자료를 다시 확인해 주세요.';
+    if (!projectId || !validationId || validationConfirming) return;
+    setValidationConfirming(true);
+    try {
+      await confirmValidation(projectId, validationId, { decision: 'supplement_requested', comment: reason });
+      onActionRequested?.({
       title: firstIssue?.categoryName || '보완 요청',
-      reason: firstIssue ? `${firstIssue.categoryName} 항목에서 ${firstIssue.title} 문제가 있습니다. ${firstIssue.requiredAction}` : '제출 자료를 다시 확인해 주세요.',
+      reason,
       assignee: '프로젝트 담당자',
       dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
       requestedAt: new Date().toLocaleString('ko-KR'),
-    });
-    setSheReviewDecision('supplement_requested');
+      });
+      setSheReviewDecision('supplement_requested');
+    } catch {
+      setAgentFailureTarget('legal-validation');
+    } finally {
+      setValidationConfirming(false);
+    }
   };
 
-    const handleManualSupplementSend = () => {
+    const handleManualSupplementSend = async () => {
       const message = manualSupplementText.trim();
       if (!message) return;
-      onActionRequested?.({
+      if (!projectId || !validationId || validationConfirming) return;
+      setValidationConfirming(true);
+      try {
+        await confirmValidation(projectId, validationId, { decision: 'supplement_requested', comment: message });
+        onActionRequested?.({
         title: '보완 요청',
         reason: message,
         assignee: '프로젝트 담당자',
         dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
         requestedAt: new Date().toLocaleString('ko-KR'),
-      });
-      setManualSupplementText('');
-      setManualSupplementOpen(false);
-      setSheReviewDecision('supplement_requested');
+        });
+        setManualSupplementText('');
+        setManualSupplementOpen(false);
+        setSheReviewDecision('supplement_requested');
+      } catch {
+        setAgentFailureTarget('legal-validation');
+      } finally {
+        setValidationConfirming(false);
+      }
   };
 
   const renderProgress = () => (
-    <InlineLoader title="유효성 검증을 진행하고 있어요" body="사용내역서와 증빙 자료를 항목별로 맞춰 보고, 법령 기준과 인정 가능 금액을 함께 계산하고 있습니다." />
+    <InlineLoader title="유효성 검증을 진행하고 있어요" body={validationStatusText || '사용내역서와 증빙 자료를 항목별로 맞춰 보고, 법령 기준과 인정 가능 금액을 함께 계산하고 있습니다.'} />
   );
 
   const renderIntro = () => (
@@ -589,8 +714,9 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
       fontFamily: 'inherit',
       fontSize: 13,
       fontWeight: 900,
-      cursor: 'pointer',
+      cursor: !validationId || validationConfirming ? 'not-allowed' : 'pointer',
       textAlign: 'center',
+      opacity: !validationId || validationConfirming ? 0.5 : 1,
       boxShadow: active ? '0 10px 22px rgba(27, 94, 59, .22)' : '0 7px 16px rgba(31, 55, 43, .08)',
     });
 
@@ -602,11 +728,11 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
               <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>SHE 최종 판단</div>
               <span style={chipStyle(current.color, current.bg)}>{current.label}</span>
             </div>
-            <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6 }}>{current.description}</div>
+            <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6 }}>{!validationId ? '검증 작업 ID를 확인한 뒤 승인 또는 보완 요청을 보낼 수 있습니다.' : current.description}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-            <button type="button" onClick={handleApproveValidation} style={reviewButtonStyle(C.ok, sheReviewDecision === 'review_completed')}>검토 완료</button>
-            <button type="button" onClick={handleSupplementRequest} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested')}>보완 요청</button>
+            <button type="button" onClick={handleApproveValidation} disabled={!validationId || validationConfirming} style={reviewButtonStyle(C.ok, sheReviewDecision === 'review_completed')}>{validationConfirming ? '처리 중' : '검토 완료'}</button>
+            <button type="button" onClick={handleSupplementRequest} disabled={!validationId || validationConfirming} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested')}>보완 요청</button>
           </div>
         </div>
       </Card>
@@ -656,7 +782,7 @@ const VerifyScreen = ({ contractName, projectId, initialStatus = 'idle', hideVal
         <textarea value={manualSupplementText} onChange={(event) => setManualSupplementText(event.target.value)} placeholder="예: 사용내역서의 보호구 항목 증빙이 부족합니다. 지급대장과 착용 사진을 추가 제출해 주세요." style={{ width: '100%', minHeight: 140, resize: 'vertical', boxSizing: 'border-box', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '12px 14px', outline: 'none', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, lineHeight: 1.6 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
           <Button size="sm" variant="outline" onClick={() => setManualSupplementOpen(false)}>취소</Button>
-          <Button size="sm" onClick={handleManualSupplementSend} disabled={!manualSupplementText.trim()}>요청 전송</Button>
+          <Button size="sm" onClick={handleManualSupplementSend} disabled={!manualSupplementText.trim() || !validationId || validationConfirming}>{validationConfirming ? '처리 중' : '요청 전송'}</Button>
         </div>
       </div>
     </Modal>
