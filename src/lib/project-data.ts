@@ -2,6 +2,11 @@ import { C } from './theme';
 import type { AppUser } from './permissions';
 
 export type ProjectStatus =
+  | 'open'
+  | 'in_progress'
+  | 'closed'
+
+export type UsageWorkflowStatus =
   | 'draft'
   | 'upload_completed'
   | 'supplement_required'
@@ -100,7 +105,7 @@ export const EMPTY_PROJECT: ProjectSummary = {
   accumulatedAmount: '',
   usageRate: '',
   projectStatusCode: 'active',
-  status: 'draft',
+  status: 'in_progress',
   hasUploads: false,
   hasActionRequest: false,
   uncheckedMatchedFileCount: 0,
@@ -109,7 +114,7 @@ export const EMPTY_PROJECT: ProjectSummary = {
   participants: [],
 };
 
-export const STATUS_META: Record<ProjectStatus, { label: string; color: string; bg: string }> = {
+export const STATUS_META: Record<UsageWorkflowStatus, { label: string; color: string; bg: string }> = {
   draft: { label: '업로드 중', color: C.g600, bg: C.g100 },
   upload_completed: { label: '업로드 완료', color: C.primary, bg: C.bg },
   supplement_required: { label: '보완 요청', color: C.danger, bg: C.dangerBg },
@@ -117,10 +122,16 @@ export const STATUS_META: Record<ProjectStatus, { label: string; color: string; 
 };
 
 export const normalizeProjectStatus = (value?: string | null): ProjectStatus => {
+  if (value === 'open' || value === 'in_progress' || value === 'closed') return value;
+  if (value === 'active') return 'in_progress';
+  if (value === 'completed') return 'closed';
+  return 'open';
+};
+
+export const normalizeUsageWorkflowStatus = (value?: string | null): UsageWorkflowStatus | undefined => {
   if (value === 'review_completed' || value === 'upload_completed' || value === 'supplement_required' || value === 'draft') return value;
   if (value === 'approved') return 'review_completed';
-  if (value === 'supplement_uploaded') return 'upload_completed';
-  return 'draft';
+  return undefined;
 };
 
 export const PROJECT_STATUS_META: Record<ProjectStatusCode, { label: string; color: string; bg: string }> = {

@@ -10,7 +10,7 @@ import { AppFrame, ProjectSortControl } from '../../components/common';
 import PeriodFilter from '../../components/common/PeriodFilter';
 import { type BackendUserProfile } from '../../lib/auth-api';
 import { C } from '../../lib/theme';
-import { getSheFilterOptionsFromProjects, normalizeProjectStatus, STATUS_META, type NewProjectInput, type ProjectSummary } from '../../lib/project-data';
+import { getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectSummary } from '../../lib/project-data';
 import { createProject, deleteProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
@@ -69,6 +69,8 @@ const createRequiredFields: Array<keyof NewProjectInput> = [
   'location',
 ];
 
+const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActionRequest;
+
 export default function ProjectsPage() {
   const router = useRouter();
   const { user } = useCurrentUser();
@@ -105,12 +107,12 @@ export default function ProjectsPage() {
           try {
             const raw = window.localStorage.getItem(`${LOCAL_USAGE_STATEMENT_PREFIX}${project.id}`);
             if (!raw) return project;
-            const parsed = JSON.parse(raw) as { workflowStatus?: ProjectSummary['status']; actionRequestDetails?: ProjectSummary['actionRequestDetails'] };
+            const parsed = JSON.parse(raw) as { workflowStatus?: string; actionRequestDetails?: ProjectSummary['actionRequestDetails'] };
             if (!parsed.workflowStatus) return project;
-            const workflowStatus = normalizeProjectStatus(parsed.workflowStatus);
+            const workflowStatus = normalizeUsageWorkflowStatus(parsed.workflowStatus);
+            if (!workflowStatus) return project;
             return {
               ...project,
-              status: workflowStatus,
               hasActionRequest: workflowStatus === 'supplement_required',
               actionRequestDetails: workflowStatus === 'supplement_required' ? parsed.actionRequestDetails : undefined,
               reportReady: workflowStatus === 'review_completed' || workflowStatus === 'supplement_required',
@@ -326,9 +328,7 @@ export default function ProjectsPage() {
               <div data-ui="projects.5" style={{ minWidth: 0 }}>
                 <div data-ui="projects.6" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
                   <div data-ui="projects.7" style={{ color: C.g800, fontSize: 18, fontWeight: 900 }}>{project.constructionName}</div>
-                  <span style={{ fontSize: 12, fontWeight: 900, color: STATUS_META[project.status].color, background: STATUS_META[project.status].bg, border: `1px solid ${STATUS_META[project.status].color}`, borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
-                    {STATUS_META[project.status].label}
-                  </span>
+                  {hasSupplementRequiredMonth(project) && <span style={{ width: 8, height: 8, borderRadius: 999, background: C.danger, boxShadow: '0 0 0 3px rgba(229,57,53,.14)', flex: '0 0 auto' }} />}
                   {project.uncheckedMatchedFileCount > 0 && (
                     <span style={{ fontSize: 12, fontWeight: 900, color: C.primary, background: C.bg, border: `1px solid ${C.primary}`, borderRadius: 999, padding: '3px 8px', lineHeight: '16px', whiteSpace: 'nowrap' }}>
                       미확인 매칭 {project.uncheckedMatchedFileCount}건
