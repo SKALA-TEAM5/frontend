@@ -1,6 +1,6 @@
 import { apiFetch } from './api-client';
 import type { BackendRoleCode, BackendUserProfile } from './auth-api';
-import { normalizeProjectStatus, type NewProjectInput, type ProjectStatus, type ProjectStatusCode, type ProjectSummary } from './project-data';
+import { PROJECT_STATUS_CODE, normalizeProjectStatus, type ActionRequestStatusCode, type NewProjectInput, type ProjectStatus, type ProjectStatusCode, type ProjectSummary } from './project-data';
 
 export interface ProjectAssignee {
   userId: number;
@@ -70,8 +70,6 @@ interface ArchiveMarkCheckedResponse {
   projectId: number;
   checkedLinkCount: number;
 }
-
-export type ActionRequestStatusCode = 'open' | 'in_progress' | 'closed';
 
 export interface ProjectActionRequest {
   id: number;
@@ -166,7 +164,7 @@ const emptyProjectBase = (id: number, name: string, status: ProjectStatusCode, h
   hasUploads: false,
   hasActionRequest,
   uncheckedMatchedFileCount: 0,
-  reportReady: status === 'completed' || hasActionRequest,
+  reportReady: status === PROJECT_STATUS_CODE.COMPLETED || hasActionRequest,
   recentActivity: '',
   participants: [],
 });
@@ -236,7 +234,7 @@ export const createProject = async (input: NewProjectInput) => {
       constructionEndDate: input.endDate,
       clientName: input.client,
       appropriatedAmount: Number(input.appropriatedAmount || input.constructionAmount),
-      status: 'active',
+      status: PROJECT_STATUS_CODE.ACTIVE,
     },
   });
   return projectDetailToSummary(response.data.project);

@@ -9,7 +9,7 @@ import ProjectInfoEditorModal from '../../../components/project/ProjectInfoEdito
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
-import { EMPTY_PROJECT, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
+import { ACTION_REQUEST_STATUS, EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
 import { createActionRequest, getProject, listActionRequests, listProjectManagerCandidates, markArchiveChecked, updateActionRequestStatus, updateProject, type ProjectActionRequest, type UpdateProjectInput } from '../../../lib/project-api';
 import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, requestUsageStatementSupplement, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
@@ -52,7 +52,7 @@ type MonthUsageStatementArchiveData = UsageStatementArchiveData & {
     workflowStatus?: SharedWorkflowStatus;
     actionRequestDetails?: ProjectSummary['actionRequestDetails'];
 };
-const OPEN_ACTION_REQUEST_STATUSES = new Set(['open', 'in_progress']);
+const OPEN_ACTION_REQUEST_STATUSES: ReadonlySet<string> = new Set([ACTION_REQUEST_STATUS.OPEN, ACTION_REQUEST_STATUS.IN_PROGRESS]);
 const TABS: Array<{
     id: DetailTab;
     label: string;
@@ -186,13 +186,13 @@ const writeLocalValidationStatusByMonth = (projectId: string, data: Record<strin
     window.localStorage.setItem(getLocalValidationStatusKey(projectId), JSON.stringify(data));
 };
 const normalizeWorkflowStatus = (value?: string | null): SharedWorkflowStatus => {
-    return normalizeUsageWorkflowStatus(value) || 'draft';
+    return normalizeUsageWorkflowStatus(value) || USAGE_WORKFLOW_STATUS.DRAFT;
 };
 const applyWorkflowToProject = (project: ProjectSummary, status: SharedWorkflowStatus, actionRequestDetails?: ProjectSummary['actionRequestDetails']): ProjectSummary => ({
     ...project,
-    hasActionRequest: status === 'supplement_required',
-    actionRequestDetails: status === 'supplement_required' ? actionRequestDetails : undefined,
-    reportReady: status === 'review_completed' || status === 'supplement_required',
+    hasActionRequest: status === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
+    actionRequestDetails: status === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? actionRequestDetails : undefined,
+    reportReady: status === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || status === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
 });
 const withActionRequestMonth = (details: ProjectSummary['actionRequestDetails'] | undefined, month?: string): ProjectSummary['actionRequestDetails'] | undefined => {
     if (!details)
@@ -287,7 +287,7 @@ export default function ProjectDetailPage() {
         startDate: '',
         endDate: '',
         location: '',
-        projectStatusCode: 'active',
+        projectStatusCode: PROJECT_STATUS_CODE.ACTIVE,
         progressRate: '',
         usageRate: '',
         uploadedAt: '',
@@ -328,7 +328,7 @@ export default function ProjectDetailPage() {
                 [month]: {
                     ...entry,
                     workflowStatus: status,
-                    actionRequestDetails: status === 'supplement_required' ? withActionRequestMonth(actionRequestDetails, month) : undefined,
+                    actionRequestDetails: status === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? withActionRequestMonth(actionRequestDetails, month) : undefined,
                 },
             };
         });
@@ -362,7 +362,7 @@ export default function ProjectDetailPage() {
                 return item;
             return {
                 ...item,
-                workflowStatus: 'supplement_required' as const,
+                workflowStatus: USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
                 actionRequestDetails: actionRequestToDetails(openRequest, item.statementSummary.month, getActionRequestAssigneeName(openRequest)),
             };
         });
@@ -382,7 +382,7 @@ export default function ProjectDetailPage() {
         }
         if (latestData) {
             const latestOpenRequest = latestActionRequests.find((request) => request.usageStatementId === latestData.usageStatementId && OPEN_ACTION_REQUEST_STATUSES.has(request.statusCode));
-            const latestWorkflowStatus = latestOpenRequest ? 'supplement_required' : latestData.workflowStatus || 'draft';
+            const latestWorkflowStatus = latestOpenRequest ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : latestData.workflowStatus || USAGE_WORKFLOW_STATUS.DRAFT;
             const latestActionRequestDetails = actionRequestToDetails(latestOpenRequest, latestData.statementSummary.month, getActionRequestAssigneeName(latestOpenRequest));
             const mergedArchiveSeed = archiveData?.archiveSeed || latestData.archiveSeed;
             setArchiveSeed({
@@ -415,24 +415,24 @@ export default function ProjectDetailPage() {
     const hasUsageStatement = monthlyStatements.length > 0 || Boolean(archiveSeed?.usage_statement?.length || archiveUsageItems.length);
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
     const selectedMonthHasActionRequest = Boolean(
-        selectedStatementArchive?.workflowStatus === 'supplement_required'
+        selectedStatementArchive?.workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
         || selectedActionRequest
     );
     const selectedMonthWorkflowStatus: SharedWorkflowStatus = selectedStatementArchive?.workflowStatus
         || (selectedMonthHasActionRequest
-            ? 'supplement_required'
+            ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
             : selectedValidationStatus === 'done'
-                ? 'review_completed'
+                ? USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED
                 : selectedMonthHasUploadedStatement
-                    ? 'draft'
-                    : 'draft');
+                    ? USAGE_WORKFLOW_STATUS.DRAFT
+                    : USAGE_WORKFLOW_STATUS.DRAFT);
     const selectedMonthShouldDisplayWorkflowStatus = selectedMonthHasUploadedStatement || Boolean(selectedStatementArchive?.workflowStatus || selectedActionRequest);
     const selectedMonthActionRequestDetails = actionRequestToDetails(selectedActionRequest, selectedStatement.month, getActionRequestAssigneeName(selectedActionRequest))
         || selectedStatementArchive?.actionRequestDetails
         || (selectedMonthHasActionRequest ? withActionRequestMonth(project.actionRequestDetails, selectedStatement.month) : undefined);
     const validationSampleReady = VALIDATION_DASHBOARD_RESULT.categories.length > 0;
     const canStartValidationForCurrentView = Boolean(selectedStatementArchive?.usageStatementId)
-        && (selectedMonthWorkflowStatus === 'upload_completed' || selectedMonthWorkflowStatus === 'review_completed' || validationSampleReady);
+        && (selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || validationSampleReady);
     const pushMonthHistory = () => {
         if (typeof window === 'undefined' || monthHistoryPushedRef.current)
             return;
@@ -589,7 +589,7 @@ export default function ProjectDetailPage() {
                 ...current,
                 hasUploads: normalizedLocalData.statementSummary.evidenceCount > 0 || Boolean(normalizedLocalData.statementSummary.sourceFileName && normalizedLocalData.statementSummary.sourceFileName !== '-'),
                 accumulatedAmount: normalizedLocalData.statementSummary.cumulativeAmount,
-            }, normalizedLocalData.workflowStatus ? normalizeWorkflowStatus(normalizedLocalData.workflowStatus) : 'draft', normalizedLocalData.actionRequestDetails));
+            }, normalizedLocalData.workflowStatus ? normalizeWorkflowStatus(normalizedLocalData.workflowStatus) : USAGE_WORKFLOW_STATUS.DRAFT, normalizedLocalData.actionRequestDetails));
         }
         refreshArchiveData(project.id)
             .catch(() => {
@@ -627,7 +627,7 @@ export default function ProjectDetailPage() {
             overviewRows: archiveData.overviewRows,
             statementSummary: archiveData.statementSummary,
             workflowStatus: selectedMonthShouldDisplayWorkflowStatus ? selectedMonthWorkflowStatus : undefined,
-            actionRequestDetails: selectedMonthWorkflowStatus === 'supplement_required'
+            actionRequestDetails: selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
                 ? withActionRequestMonth(selectedMonthActionRequestDetails, selectedStatement.month)
                 : undefined,
         });
@@ -671,7 +671,7 @@ export default function ProjectDetailPage() {
         router.replace(`/projects/${project.id}?tab=details`);
     };
     const revertReviewedProjectToDraft = () => {
-        patchMonthWorkflow(selectedStatement.month, 'draft');
+        patchMonthWorkflow(selectedStatement.month, USAGE_WORKFLOW_STATUS.DRAFT);
         setProject((current) => ({ ...current, hasUploads: true }));
         setValidationStatusByMonth((prev) => prev[selectedStatement.month] ? { ...prev, [selectedStatement.month]: 'idle' } : prev);
     };
@@ -682,14 +682,14 @@ export default function ProjectDetailPage() {
         try {
             if (selectedActionRequest) {
                 let updatedRequest = selectedActionRequest;
-                if (updatedRequest.statusCode === 'open') {
-                    updatedRequest = await updateActionRequestStatus(project.id, updatedRequest.id, 'in_progress');
+                if (updatedRequest.statusCode === ACTION_REQUEST_STATUS.OPEN) {
+                    updatedRequest = await updateActionRequestStatus(project.id, updatedRequest.id, ACTION_REQUEST_STATUS.IN_PROGRESS);
                 }
                 setActionRequests((current) => current.map((request) => request.id === updatedRequest.id ? updatedRequest : request));
-            } else if (usageStatementId && selectedMonthWorkflowStatus === 'draft') {
+            } else if (usageStatementId && selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT) {
                 await submitUsageStatement(project.id, usageStatementId);
             }
-            const nextWorkflowStatus: SharedWorkflowStatus = selectedActionRequest ? 'supplement_required' : 'upload_completed';
+            const nextWorkflowStatus: SharedWorkflowStatus = selectedActionRequest ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED;
             patchMonthWorkflow(selectedStatement.month, nextWorkflowStatus, selectedActionRequest ? selectedMonthActionRequestDetails : undefined);
             setProject((current) => applyWorkflowToProject({
                 ...current,
@@ -791,7 +791,7 @@ export default function ProjectDetailPage() {
                                 usageItems: current[month]?.usageItems || [],
                                 overviewRows: current[month]?.overviewRows || EMPTY_OVERVIEW_ROWS,
                                 statementSummary,
-                                workflowStatus: 'draft',
+                                workflowStatus: USAGE_WORKFLOW_STATUS.DRAFT,
                             },
                         }));
                         setArchiveSeed((current) => ({
@@ -1121,7 +1121,7 @@ export default function ProjectDetailPage() {
           {monthlyStatements.map((statement) => {
             const uploaded = Boolean(statement.sourceFileName && statement.sourceFileName !== '-');
             const archiveData = dbUsageStatementsByMonth[statement.month];
-            const hasSupplementRequest = archiveData?.workflowStatus === 'supplement_required';
+            const hasSupplementRequest = archiveData?.workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
             const totalAmount = archiveData?.overviewRows?.find(([label]) => label === '계')?.[3] || statement.cumulativeAmount || '0';
             return (
               <button
@@ -1306,17 +1306,17 @@ export default function ProjectDetailPage() {
                     return;
                 }
                 try {
-                    if (selectedMonthWorkflowStatus === 'draft') {
+                    if (selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT) {
                         await submitUsageStatement(project.id, usageStatementId);
                     }
                     await completeUsageStatementReview(project.id, usageStatementId);
-                    if (selectedActionRequest?.statusCode === 'in_progress') {
-                        const closedRequest = await updateActionRequestStatus(project.id, selectedActionRequest.id, 'closed');
+                    if (selectedActionRequest?.statusCode === ACTION_REQUEST_STATUS.IN_PROGRESS) {
+                        const closedRequest = await updateActionRequestStatus(project.id, selectedActionRequest.id, ACTION_REQUEST_STATUS.CLOSED);
                         setActionRequests((current) => current.map((request) => request.id === closedRequest.id ? closedRequest : request));
                     }
                     setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
-                    patchMonthWorkflow(selectedStatement.month, 'review_completed');
-                    setProject((current) => applyWorkflowToProject(current, 'review_completed'));
+                    patchMonthWorkflow(selectedStatement.month, USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED);
+                    setProject((current) => applyWorkflowToProject(current, USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED));
                     updateTab('report');
                     await refreshArchiveData(project.id);
                 } catch {
@@ -1330,10 +1330,10 @@ export default function ProjectDetailPage() {
                     return;
                 }
                 try {
-                    if (selectedMonthWorkflowStatus === 'draft') {
+                    if (selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT) {
                         await submitUsageStatement(project.id, usageStatementId);
                     }
-                    if (selectedMonthWorkflowStatus !== 'supplement_required') {
+                    if (selectedMonthWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) {
                         await requestUsageStatementSupplement(project.id, usageStatementId);
                     }
                     const dueDate = details.dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -1347,14 +1347,14 @@ export default function ProjectDetailPage() {
                     const backendDetails = actionRequestToDetails(actionRequest, selectedStatement.month, getActionRequestAssigneeName(actionRequest)) || { ...details, month: selectedStatement.month };
                     setActionRequests((current) => [actionRequest, ...current.filter((request) => request.id !== actionRequest.id)]);
                     setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
-                    patchMonthWorkflow(selectedStatement.month, 'supplement_required', backendDetails);
-                    setProject((current) => applyWorkflowToProject(current, 'supplement_required', backendDetails));
+                    patchMonthWorkflow(selectedStatement.month, USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED, backendDetails);
+                    setProject((current) => applyWorkflowToProject(current, USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED, backendDetails));
                     await refreshArchiveData(project.id);
                 } catch {
                     setAgentFailureTarget('server-request');
                 }
             }}/>),
-        report: (<ReportScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} validationComplete={selectedMonthWorkflowStatus === 'review_completed' || selectedMonthWorkflowStatus === 'supplement_required' || selectedValidationStatus === 'done'} contractName={`${project.name} · ${selectedStatement.label}`}/>),
+        report: (<ReportScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} validationComplete={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED || selectedValidationStatus === 'done'} contractName={`${project.name} · ${selectedStatement.label}`}/>),
     };
     return (<AppFrame title={project.name} mainClassName="project-detail-main">
       <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20, borderRadius: 12, border: `1px solid ${C.g200}`, boxShadow: projectDetailCardShadow }}>

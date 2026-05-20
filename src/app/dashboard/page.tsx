@@ -9,7 +9,7 @@ import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { VALIDATION_DASHBOARD_RESULT } from '../../lib/evidence-utils';
 import { C } from '../../lib/theme';
-import { getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
+import { USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
 import { listProjects } from '../../lib/project-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { ROLE_LABELS } from '../../lib/permissions';
@@ -60,9 +60,9 @@ const mergeWorkflowStatus = (project: ProjectSummary) => {
     if (!workflowStatus) return project;
     return {
       ...project,
-      hasActionRequest: workflowStatus === 'supplement_required',
-      actionRequestDetails: workflowStatus === 'supplement_required' ? parsed.actionRequestDetails : undefined,
-      reportReady: workflowStatus === 'review_completed' || workflowStatus === 'supplement_required',
+      hasActionRequest: workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
+      actionRequestDetails: workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? parsed.actionRequestDetails : undefined,
+      reportReady: workflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
     };
   } catch {
     return project;
@@ -127,7 +127,7 @@ const readUsageWorkflowStatus = (projectId: string): UsageWorkflowStatus | undef
 };
 
 const getProjectMonthWorkflowStatus = (project: ProjectSummary): UsageWorkflowStatus | undefined =>
-  hasSupplementRequiredMonth(project) ? 'supplement_required' : readUsageWorkflowStatus(project.id);
+  hasSupplementRequiredMonth(project) ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : readUsageWorkflowStatus(project.id);
 
 const getSupplementReasonMatchIds = (sourceText: string) => {
   const normalized = sourceText.toLowerCase();
@@ -402,23 +402,23 @@ export default function DashboardPage() {
   };
 
   const workflowProjects = {
-    draft: projects.filter((project) => getProjectMonthWorkflowStatus(project) === 'draft'),
-    upload_completed: projects.filter((project) => getProjectMonthWorkflowStatus(project) === 'upload_completed'),
-    supplement_required: projects.filter((project) => getProjectMonthWorkflowStatus(project) === 'supplement_required'),
-    review_completed: projects.filter((project) => getProjectMonthWorkflowStatus(project) === 'review_completed'),
+    [USAGE_WORKFLOW_STATUS.DRAFT]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.DRAFT),
+    [USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED),
+    [USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED),
+    [USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED),
   };
   const currentMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
   const monthlyReviewedCount = projects.filter((project) => readUsageStatementMonth(project.id) === currentMonthKey).length;
   const validationTargetCount = projects.filter((project) => {
     const workflow = getProjectMonthWorkflowStatus(project);
-    return workflow && workflow !== 'draft';
+    return workflow && workflow !== USAGE_WORKFLOW_STATUS.DRAFT;
   }).length;
   const validationCompletedCount = projects.filter((project) => {
     const workflow = getProjectMonthWorkflowStatus(project);
-    return workflow === 'review_completed' || workflow === 'supplement_required';
+    return workflow === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
   }).length;
-  const reviewCompletedCount = projects.filter((project) => getProjectMonthWorkflowStatus(project) === 'review_completed').length;
-  const supplementRequiredCount = workflowProjects.supplement_required.length;
+  const reviewCompletedCount = projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED).length;
+  const supplementRequiredCount = workflowProjects[USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED].length;
   const statusSummaryCards = [
     {
       eyebrow: `${currentMonthKey.replace('-', '년 ')}월 기준`,
@@ -478,23 +478,23 @@ export default function DashboardPage() {
   const queueProjects = projects
     .filter((project) => {
       const workflow = getProjectMonthWorkflowStatus(project);
-      return workflow === 'upload_completed' || workflow === 'supplement_required';
+      return workflow === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
     })
     .map((project) => ({
       workflow: getProjectMonthWorkflowStatus(project),
       id: `project-${project.id}`,
       projectId: project.id,
       projectName: project.constructionName,
-      title: getProjectMonthWorkflowStatus(project) === 'supplement_required'
+      title: getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
         ? (project.actionRequestDetails?.title || '보완 요청 확인 필요')
         : '업로드 완료 검토 필요',
       message:
-        getProjectMonthWorkflowStatus(project) === 'supplement_required'
+        getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
           ? (project.actionRequestDetails?.reason || '프로젝트 담당자가 사용내역서 또는 증빙 자료를 수정해야 합니다.')
           : '프로젝트 담당자가 업로드를 완료했습니다. SHE 담당자의 유효성 검증이 필요합니다.',
       assignee: project.manager || '프로젝트 담당자',
-      createdAt: getProjectMonthWorkflowStatus(project) === 'supplement_required' ? (project.actionRequestDetails?.requestedAt || '-') : '-',
-      status: getProjectMonthWorkflowStatus(project) || 'draft',
+      createdAt: getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? (project.actionRequestDetails?.requestedAt || '-') : '-',
+      status: getProjectMonthWorkflowStatus(project) || USAGE_WORKFLOW_STATUS.DRAFT,
     }))
     .slice(0, 6);
   const validationReasonMatchIds = VALIDATION_DASHBOARD_RESULT.categories.flatMap((category) => {
@@ -506,12 +506,12 @@ export default function DashboardPage() {
     return issueTexts.flatMap(getSupplementReasonMatchIds);
   });
   const projectReasonMatchIds = projects.flatMap((project) => {
-    if (getProjectMonthWorkflowStatus(project) !== 'supplement_required') return [];
+    if (getProjectMonthWorkflowStatus(project) !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) return [];
     const sourceText = `${project.actionRequestDetails?.title || ''} ${project.actionRequestDetails?.reason || ''}`;
     return getSupplementReasonMatchIds(sourceText);
   });
   const selectedSupplementReasonProject = projects.find((project) => project.id === selectedSupplementReasonProjectId);
-  const selectedSupplementProjectReasonMatchIds = selectedSupplementReasonProject && getProjectMonthWorkflowStatus(selectedSupplementReasonProject) === 'supplement_required'
+  const selectedSupplementProjectReasonMatchIds = selectedSupplementReasonProject && getProjectMonthWorkflowStatus(selectedSupplementReasonProject) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
     ? getSupplementReasonMatchIds(`${selectedSupplementReasonProject.actionRequestDetails?.title || ''} ${selectedSupplementReasonProject.actionRequestDetails?.reason || ''}`)
     : [];
   const combinedReasonMatchIds = selectedSupplementReasonProjectId
@@ -562,7 +562,7 @@ export default function DashboardPage() {
   const reasonTrendRows = reasonTrendMonthKeys.map((monthKey) => {
     const activeMonth = monthKey === selectedReasonProjectMonth;
     const reasons = SUPPLEMENT_REASON_TYPES.map((reasonType) => {
-      const projectCount = activeMonth && Boolean(selectedReasonProject) && getProjectMonthWorkflowStatus(selectedReasonProject) === 'supplement_required'
+      const projectCount = activeMonth && Boolean(selectedReasonProject) && getProjectMonthWorkflowStatus(selectedReasonProject) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
         ? getSupplementReasonMatchIds(selectedReasonSourceText).filter((id) => id === reasonType.id).length
         : 0;
       return { ...reasonType, count: projectCount };
@@ -594,7 +594,7 @@ export default function DashboardPage() {
     projects.reduce((map, project) => {
       const projectManagers = project.participants.length > 0 ? project.participants : getProjectManagers(project);
       const managers = projectManagers.length > 0 ? projectManagers : ['미지정'];
-      const actionAssignees = getProjectMonthWorkflowStatus(project) === 'supplement_required'
+      const actionAssignees = getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
         ? (project.actionRequestDetails?.assignee || managers[0]).split(',').map((name) => name.trim()).filter(Boolean)
         : [];
 
@@ -834,7 +834,7 @@ export default function DashboardPage() {
                   const progress = Math.min(100, Math.max(0, Number.parseInt(project.progressRate, 10) || 0));
                   const safetyBudgetUsage = 0.1;
                   const workflow = getProjectMonthWorkflowStatus(project);
-                  const hasSupplementDot = workflow === 'supplement_required';
+                  const hasSupplementDot = workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
                   return (
                     <tr key={project.id} onClick={() => router.push(`/projects/${project.id}`)} style={{ cursor: 'pointer' }}>
                       <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g800, fontSize: 13, fontWeight: 700 }}>

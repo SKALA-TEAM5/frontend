@@ -9,6 +9,7 @@ import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent
 import { confirmValidation, getLatestValidation, getValidationStatus, runValidationAgent } from '../../lib/agent-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
+import { AGENT_LOG_STATUS } from '../../lib/project-data';
 import { C } from '../../lib/theme';
 import { VALIDATION_DASHBOARD_RESULT, fmt } from '../../lib/evidence-utils';
 import type { CategoryValidationResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
@@ -124,9 +125,9 @@ const extractValidationUsageStatementId = (source: unknown) =>
 const extractValidationRunState = (source: unknown): ValidationRunState => {
   const rawStatus = readNestedStringField(source, ['status', 'statusCode', 'status_code', 'state', 'resultCode', 'result_code']).toLowerCase();
   if (!rawStatus) return 'unknown';
-  if (['completed', 'complete', 'done', 'success', 'succeeded', 'passed', 'confirmed', 'approved'].includes(rawStatus)) return 'done';
-  if (['running', 'processing', 'pending', 'queued', 'started', 'in_progress'].includes(rawStatus)) return 'running';
-  if (['failed', 'failure', 'error', 'errored', 'cancelled', 'canceled'].includes(rawStatus)) return 'failed';
+  if ([AGENT_LOG_STATUS.COMPLETED, AGENT_LOG_STATUS.SUCCEEDED, 'complete', 'done', 'success', 'passed', 'confirmed', 'approved'].includes(rawStatus)) return 'done';
+  if ([AGENT_LOG_STATUS.RUNNING, 'processing', 'pending', 'queued', 'started', 'in_progress'].includes(rawStatus)) return 'running';
+  if ([AGENT_LOG_STATUS.FAILED, 'failure', 'error', 'errored', 'cancelled', 'canceled'].includes(rawStatus)) return 'failed';
   return 'unknown';
 };
 

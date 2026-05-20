@@ -6,7 +6,7 @@ import CenterModal from '../../components/ui/CenterModal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { runAgent } from '../../lib/agent-api';
 import { useCurrentUser } from '../../lib/dev-user';
-import { getProjectById } from '../../lib/project-data';
+import { AGENT_TYPE_CODE, getProjectById } from '../../lib/project-data';
 import { buildReportDraftJson, type ReportDraft } from '../../lib/report-draft';
 import { C } from '../../lib/theme';
 import { VALIDATION_DASHBOARD_RESULT } from '../../lib/evidence-utils';
@@ -88,7 +88,7 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
       setReportStatus('generating');
       setReportProgress(25);
       if (!validationComplete || !projectId || !usageStatementId) throw new Error('보고서 Agent 실행에 필요한 상태가 없습니다.');
-      await runAgent(projectId, 'report', { usageStatementId });
+      await runAgent(projectId, AGENT_TYPE_CODE.REPORT, { usageStatementId });
       setReportProgress(100);
       setReportDraft(buildExampleDraft());
       setReportStatus('done');

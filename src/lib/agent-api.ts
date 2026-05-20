@@ -1,14 +1,15 @@
 import { apiFetch } from './api-client';
 import { backendEvidenceTypeToCategory } from './archive-api';
+import type { AgentTypeCode } from './project-data';
 import type { FolderEvidenceCategory } from '../types/domain';
 
-export type AgentType = 'ocr' | 'validator' | 'classifier' | 'safety_doc' | 'report';
+export type AgentType = AgentTypeCode;
 
 export interface AgentRunResponse {
-  requestId: string;
+  runId: string;
   agentType: string;
   status: string;
-  validationLogIds: number[];
+  logIds: number[];
   result: Record<string, unknown>;
 }
 

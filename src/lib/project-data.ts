@@ -1,18 +1,53 @@
 import { C } from './theme';
 import type { AppUser } from './permissions';
 
-export type ProjectStatus =
-  | 'open'
-  | 'in_progress'
-  | 'closed'
+export const PROJECT_STATUS = {
+  OPEN: 'open',
+  IN_PROGRESS: 'in_progress',
+  CLOSED: 'closed',
+} as const;
 
-export type UsageWorkflowStatus =
-  | 'draft'
-  | 'upload_completed'
-  | 'supplement_required'
-  | 'review_completed'
+export const USAGE_WORKFLOW_STATUS = {
+  DRAFT: 'draft',
+  UPLOAD_COMPLETED: 'upload_completed',
+  SUPPLEMENT_REQUIRED: 'supplement_required',
+  REVIEW_COMPLETED: 'review_completed',
+} as const;
 
-export type ProjectStatusCode = 'active' | 'completed' | 'suspended';
+export const PROJECT_STATUS_CODE = {
+  ACTIVE: 'active',
+  COMPLETED: 'completed',
+  SUSPENDED: 'suspended',
+} as const;
+
+export const ACTION_REQUEST_STATUS = {
+  OPEN: 'open',
+  IN_PROGRESS: 'in_progress',
+  CLOSED: 'closed',
+} as const;
+
+export const AGENT_TYPE_CODE = {
+  CLASSI: 'classi',
+  SAFETY_DOC: 'safety-doc',
+  LINK: 'link',
+  VISION: 'vision',
+  LEGAL: 'legal',
+  REPORT: 'report',
+} as const;
+
+export const AGENT_LOG_STATUS = {
+  RUNNING: 'running',
+  SUCCEEDED: 'succeeded',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+} as const;
+
+export type ProjectStatus = typeof PROJECT_STATUS[keyof typeof PROJECT_STATUS];
+export type UsageWorkflowStatus = typeof USAGE_WORKFLOW_STATUS[keyof typeof USAGE_WORKFLOW_STATUS];
+export type ProjectStatusCode = typeof PROJECT_STATUS_CODE[keyof typeof PROJECT_STATUS_CODE];
+export type ActionRequestStatusCode = typeof ACTION_REQUEST_STATUS[keyof typeof ACTION_REQUEST_STATUS];
+export type AgentTypeCode = typeof AGENT_TYPE_CODE[keyof typeof AGENT_TYPE_CODE];
+export type AgentLogStatusCode = typeof AGENT_LOG_STATUS[keyof typeof AGENT_LOG_STATUS];
 
 export interface ProjectSummary {
   id: string;
@@ -104,8 +139,8 @@ export const EMPTY_PROJECT: ProjectSummary = {
   plannedAmount: '',
   accumulatedAmount: '',
   usageRate: '',
-  projectStatusCode: 'active',
-  status: 'in_progress',
+  projectStatusCode: PROJECT_STATUS_CODE.ACTIVE,
+  status: PROJECT_STATUS.IN_PROGRESS,
   hasUploads: false,
   hasActionRequest: false,
   uncheckedMatchedFileCount: 0,
@@ -115,29 +150,34 @@ export const EMPTY_PROJECT: ProjectSummary = {
 };
 
 export const STATUS_META: Record<UsageWorkflowStatus, { label: string; color: string; bg: string }> = {
-  draft: { label: '업로드 중', color: C.g600, bg: C.g100 },
-  upload_completed: { label: '업로드 완료', color: C.primary, bg: C.bg },
-  supplement_required: { label: '보완 요청', color: C.danger, bg: C.dangerBg },
-  review_completed: { label: '검토 완료', color: C.ok, bg: '#F4FBF6' },
+  [USAGE_WORKFLOW_STATUS.DRAFT]: { label: '업로드 중', color: C.g600, bg: C.g100 },
+  [USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED]: { label: '업로드 완료', color: C.primary, bg: C.bg },
+  [USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED]: { label: '보완 요청', color: C.danger, bg: C.dangerBg },
+  [USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED]: { label: '검토 완료', color: C.ok, bg: '#F4FBF6' },
 };
 
 export const normalizeProjectStatus = (value?: string | null): ProjectStatus => {
-  if (value === 'open' || value === 'in_progress' || value === 'closed') return value;
-  if (value === 'active') return 'in_progress';
-  if (value === 'completed') return 'closed';
-  return 'open';
+  if (value === PROJECT_STATUS.OPEN || value === PROJECT_STATUS.IN_PROGRESS || value === PROJECT_STATUS.CLOSED) return value;
+  if (value === PROJECT_STATUS_CODE.ACTIVE) return PROJECT_STATUS.IN_PROGRESS;
+  if (value === PROJECT_STATUS_CODE.COMPLETED) return PROJECT_STATUS.CLOSED;
+  return PROJECT_STATUS.OPEN;
 };
 
 export const normalizeUsageWorkflowStatus = (value?: string | null): UsageWorkflowStatus | undefined => {
-  if (value === 'review_completed' || value === 'upload_completed' || value === 'supplement_required' || value === 'draft') return value;
-  if (value === 'approved') return 'review_completed';
+  if (
+    value === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED
+    || value === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED
+    || value === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+    || value === USAGE_WORKFLOW_STATUS.DRAFT
+  ) return value;
+  if (value === 'approved') return USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED;
   return undefined;
 };
 
 export const PROJECT_STATUS_META: Record<ProjectStatusCode, { label: string; color: string; bg: string }> = {
-  active: { label: '진행 중', color: C.primary, bg: C.bg },
-  completed: { label: '완료', color: C.ok, bg: '#F4FBF6' },
-  suspended: { label: '중단', color: C.g600, bg: C.g100 },
+  [PROJECT_STATUS_CODE.ACTIVE]: { label: '진행 중', color: C.primary, bg: C.bg },
+  [PROJECT_STATUS_CODE.COMPLETED]: { label: '완료', color: C.ok, bg: '#F4FBF6' },
+  [PROJECT_STATUS_CODE.SUSPENDED]: { label: '중단', color: C.g600, bg: C.g100 },
 };
 
 const splitManagerNames = (value: string) =>
@@ -147,9 +187,9 @@ export const getProjectManagers = (project: ProjectSummary) => splitManagerNames
 
 export const getDashboardCountsFromProjects = (projects: ProjectSummary[]) => ({
   myProjects: projects.length,
-  active: projects.filter((project) => project.projectStatusCode === 'active').length,
-  completed: projects.filter((project) => project.projectStatusCode === 'completed').length,
-  suspended: projects.filter((project) => project.projectStatusCode === 'suspended').length,
+  active: projects.filter((project) => project.projectStatusCode === PROJECT_STATUS_CODE.ACTIVE).length,
+  completed: projects.filter((project) => project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED).length,
+  suspended: projects.filter((project) => project.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED).length,
 });
 
 export const getSheFilterOptionsFromProjects = (projects: ProjectSummary[]) => {

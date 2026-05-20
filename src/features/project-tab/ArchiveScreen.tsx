@@ -11,6 +11,7 @@ import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFi
 import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadProjectFile, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
 import { listSafeLeeEvidenceRequirements, parseAndMatchEvidenceWithOcr, runAgent, safeLeeRequirementsToMap } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
+import { AGENT_TYPE_CODE } from '../../lib/project-data';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 type ArchiveValidationStatus = 'idle' | 'running' | 'done';
 interface ArchiveScreenProps {
@@ -735,7 +736,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             : archiveVerificationStep === 'safety'
                 ? {
                     title: '필수 증빙 규칙을 대조하고 있어요',
-                    body: 'safety_doc_agent가 세부 항목별로 필요한 증빙과 보완 대상을 확인합니다.',
+                    body: 'safety-doc agent가 세부 항목별로 필요한 증빙과 보완 대상을 확인합니다.',
                 }
                 : archiveVerificationStep === 'vision'
                     ? {
@@ -772,7 +773,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
         setMatchingError('');
         setMatchingNotice('');
         try {
-            await Promise.all(resolvedUsageItems.map((item) => runAgent(projectId, 'safety_doc', {
+            await Promise.all(resolvedUsageItems.map((item) => runAgent(projectId, AGENT_TYPE_CODE.SAFETY_DOC, {
                 usageStatementId,
                 usageStatementItemId: item.id,
             })));
@@ -888,7 +889,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
         setPhotoValidationNotice(null);
         setPhotoValidationStatus('running');
         try {
-            await runAgent(projectId, 'validator', {
+            await runAgent(projectId, AGENT_TYPE_CODE.VISION, {
                 usageStatementId,
                 options: { scope: 'site_photo' },
             });
@@ -922,7 +923,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             usageStatementId,
             usageStatementItemId: file.usageItemId,
         }))).catch(() => {
-            setMatchingNotice('OCR/link agent 응답을 받지 못해 예시 매칭 흐름으로 계속 진행합니다.');
+            setMatchingNotice('link agent 응답을 받지 못해 예시 매칭 흐름으로 계속 진행합니다.');
         });
     };
     const runArchiveVerification = async () => {

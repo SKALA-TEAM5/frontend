@@ -9,7 +9,7 @@ import ProjectInfoEditorModal from '../../components/project/ProjectInfoEditorMo
 import { AppFrame, DateRangePicker } from '../../components/common';
 import { type BackendUserProfile } from '../../lib/auth-api';
 import { C } from '../../lib/theme';
-import { getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectSummary } from '../../lib/project-data';
+import { USAGE_WORKFLOW_STATUS, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectSummary } from '../../lib/project-data';
 import { createProject, deleteProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
@@ -104,9 +104,9 @@ export default function ProjectsPage() {
             if (!workflowStatus) return project;
             return {
               ...project,
-              hasActionRequest: workflowStatus === 'supplement_required',
-              actionRequestDetails: workflowStatus === 'supplement_required' ? parsed.actionRequestDetails : undefined,
-              reportReady: workflowStatus === 'review_completed' || workflowStatus === 'supplement_required',
+              hasActionRequest: workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
+              actionRequestDetails: workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? parsed.actionRequestDetails : undefined,
+              reportReady: workflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
             };
           } catch {
             return project;
