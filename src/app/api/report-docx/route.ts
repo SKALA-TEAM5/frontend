@@ -3,7 +3,7 @@ import type { ReportDraft } from '../../../lib/report-draft';
 
 export async function POST(request: Request) {
   const draft = await request.json() as ReportDraft;
-  const bytes = buildReportDocx(draft);
+  const bytes = await buildReportDocx(draft);
   return new Response(bytes, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

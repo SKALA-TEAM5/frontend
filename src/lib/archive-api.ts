@@ -194,25 +194,14 @@ export interface UsageStatementArchiveData {
 export type SafetyDocAgentRequiredEvidence = Partial<Record<FolderEvidenceCategory, string[]>>;
 export type SafetyDocAgentRequiredEvidenceMap = Record<string, SafetyDocAgentRequiredEvidence>;
 
-interface SafetyDocAgentRequirementResponse {
-  usageStatementItemId?: number | string | null;
-  itemId?: number | string | null;
-  evidenceTypeCode?: string | null;
-  evidenceTypeName?: string | null;
-  requiredFileName?: string | null;
-  requiredEvidenceName?: string | null;
-  requiredDocumentName?: string | null;
-  name?: string | null;
-}
-
-interface SafetyDocAgentMatchResponse {
-  requiredEvidenceByLine?: SafetyDocAgentRequiredEvidenceMap;
-  requirements?: SafetyDocAgentRequirementResponse[];
-}
-
 const formatMonthLabel = (monthKey: string) => {
   const [year, month] = monthKey.split('-');
   return `${year}년 ${Number(month)}월`;
+};
+
+const normalizeMonthKey = (month?: string | null) => {
+  const match = month?.match(/^(\d{4})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}` : month || new Date().toISOString().slice(0, 7);
 };
 
 const formatDate = (value?: string | null) => value?.slice(0, 10) || '-';
@@ -381,7 +370,7 @@ const buildOverviewRows = (summaries: UsageStatementSummaryResponse[], usageItem
 };
 
 const buildStatementSummary = (statement: UsageStatementDetailResponse, usageItems: UsageLineItem[]): MonthlyUsageStatementSummary => {
-  const month = statement.reportMonth || new Date().toISOString().slice(0, 7);
+  const month = normalizeMonthKey(statement.reportMonth);
   const evidenceCount = statement.items.reduce((sum, item) => sum + (item.evidenceFiles?.length || 0), 0);
   const issueCount = statement.items.reduce((sum, item) => sum + (item.requirements || []).filter((requirement) => !requirement.satisfied).length, 0);
   const previousAmount = statement.summaries.reduce((sum, item) => sum + toAmount(item.previousAmount), 0);

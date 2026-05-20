@@ -1,2 +1,2 @@
 export { default as AppFrame } from './AppFrame';
-export { default as ProjectSortControl } from './ProjectSortControl';
+export { default as DateRangePicker } from './DateRangePicker';

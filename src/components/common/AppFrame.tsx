@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { ROLE_LABELS } from '../../lib/permissions';
-import { C } from '../../lib/theme';
+import { APP_THEMES, C, useAppTheme, type AppThemeId } from '../../lib/theme';
 
 interface AppFrameProps {
   title: string;
@@ -24,40 +24,99 @@ const menuButtonStyle: React.CSSProperties = {
   padding: '10px 8px',
   border: 'none',
   background: 'transparent',
-  borderRadius: 14,
+  borderRadius: 10,
   color: C.g800,
   fontSize: 14,
-  fontWeight: 900,
+  fontWeight: 800,
   fontFamily: 'inherit',
   textAlign: 'left',
   cursor: 'pointer',
+};
+
+type HeaderIconName = 'dashboard' | 'projects' | 'users' | 'user';
+
+const HeaderIcon = ({ name, color }: { name: HeaderIconName; color: string }) => {
+  const common = {
+    width: 16,
+    height: 16,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    xmlns: 'http://www.w3.org/2000/svg',
+    'aria-hidden': true,
+  };
+  const strokeProps = {
+    stroke: color,
+    strokeWidth: 2,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+
+  if (name === 'dashboard') {
+    return (
+      <svg {...common}>
+        <path {...strokeProps} d="M3.5 10.5 12 4l8.5 6.5" />
+        <path {...strokeProps} d="M5.5 9.5V20h13V9.5" />
+        <path {...strokeProps} d="M9.5 20v-6h5v6" />
+      </svg>
+    );
+  }
+  if (name === 'projects') {
+    return (
+      <svg {...common}>
+        <path {...strokeProps} d="M4 7.5h6l1.5 2H20v9.5H4z" />
+        <path {...strokeProps} d="M4 7.5V5h5.5L11 7.5" />
+      </svg>
+    );
+  }
+  if (name === 'users') {
+    return (
+      <svg {...common}>
+        <path {...strokeProps} d="M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+        <path {...strokeProps} d="M2.8 20a5.7 5.7 0 0 1 11.4 0" />
+        <path {...strokeProps} d="M17 9.5a2.8 2.8 0 1 0 0-5.6" />
+        <path {...strokeProps} d="M16.2 14.2A4.8 4.8 0 0 1 21.2 20" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path {...strokeProps} d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+      <path {...strokeProps} d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+    </svg>
+  );
 };
 
 export default function AppFrame({ description, actions, mainClassName, children }: AppFrameProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, clearCurrentUser } = useCurrentUser();
+  const { themeId, setThemeId } = useAppTheme();
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const hasHeaderContent = Boolean(description || actions);
   const headerNavItems = user.role === 'system_admin'
-    ? [{ href: '/admin/users', label: '사용자 관리' }]
+    ? [{ href: '/admin/users', label: '사용자 관리', icon: 'users' as const }]
     : user.role === 'project_manager'
-      ? [{ href: '/projects', label: '담당 프로젝트' }]
+      ? [{ href: '/projects', label: '담당 프로젝트', icon: 'projects' as const }]
     : [
-        { href: '/dashboard', label: '대시보드' },
-        { href: '/projects', label: '전체 프로젝트' },
+        { href: '/dashboard', label: '대시보드', icon: 'dashboard' as const },
+        { href: '/projects', label: '전체 프로젝트', icon: 'projects' as const },
       ];
   const homeHref = user.role === 'system_admin' ? '/admin/users' : user.role === 'project_manager' ? '/projects' : '/dashboard';
   const isNavActive = (href: string) => pathname === href || (href === '/projects' && pathname.startsWith('/projects'));
   const headerLinkStyle = (active = false): React.CSSProperties => ({
-    color: active ? C.primary : C.g400,
+    color: active ? C.primary : C.g600,
     textDecoration: 'none',
-    fontSize: 13,
-    fontWeight: 900,
+    fontSize: 14,
+    fontWeight: 800,
     lineHeight: 1,
     whiteSpace: 'nowrap',
+    padding: '8px 2px',
+    borderBottom: active ? `2px solid ${C.primary}` : '2px solid transparent',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 7,
   });
   const userInitials = useMemo(() => {
     const trimmed = user.name.trim();
@@ -66,6 +125,8 @@ export default function AppFrame({ description, actions, mainClassName, children
     if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
     return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase();
   }, [user.name]);
+  const themeOptions = useMemo(() => Object.entries(APP_THEMES) as Array<[AppThemeId, (typeof APP_THEMES)[AppThemeId]]>, []);
+  const activeThemeGradient = APP_THEMES[themeId].gradient;
 
   useEffect(() => {
     if (!userMenuOpen) return;
@@ -102,12 +163,12 @@ export default function AppFrame({ description, actions, mainClassName, children
   };
 
   return (
-    <div data-ui="app-frame.1" style={{ minHeight: '100vh', background: C.soft, '--app-left-offset': '0px' } as React.CSSProperties}>
+    <div data-ui="app-frame.1" style={{ minHeight: '100vh', background: 'transparent', '--app-left-offset': '0px' } as React.CSSProperties}>
       <header className="app-global-header">
         <Link href={homeHref} style={{ display: 'flex', alignItems: 'center', gap: 11, fontWeight: 900, color: C.g800, fontSize: 17, textDecoration: 'none' }}>
           <img src="/uploads/character.png" alt="i-veri" style={{ width: 34, height: 34, objectFit: 'contain' }} />
           <span>i-veri</span>
-          <span style={{ color: '#2F73B7', fontSize: 22 }}>WorkPlace</span>
+          <span style={{ color: C.primary, fontSize: 22 }}>WorkPlace</span>
         </Link>
 
         <nav aria-label="상단 메뉴" style={{ display: 'flex', alignItems: 'center', gap: 24, minWidth: 0 }}>
@@ -119,6 +180,7 @@ export default function AppFrame({ description, actions, mainClassName, children
                 href={item.href}
                 style={headerLinkStyle(active)}
               >
+                <HeaderIcon name={item.icon} color={active ? C.primary : C.g600} />
                 {item.label}
               </Link>
             );
@@ -130,8 +192,9 @@ export default function AppFrame({ description, actions, mainClassName, children
               aria-haspopup="menu"
               aria-expanded={userMenuOpen}
               onClick={() => setUserMenuOpen((current) => !current)}
-              style={{ ...headerLinkStyle(false), border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+              style={{ ...headerLinkStyle(false), border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit' }}
             >
+              <HeaderIcon name="user" color={C.g600} />
               사용자
             </button>
 
@@ -144,17 +207,17 @@ export default function AppFrame({ description, actions, mainClassName, children
                   position: 'absolute',
                   top: 'calc(100% + 10px)',
                   right: 0,
-                  width: 220,
-                  borderRadius: 20,
+                  width: 292,
+                  borderRadius: 18,
                   border: `1px solid ${C.g200}`,
                   background: C.white,
-                  boxShadow: '0 16px 36px rgba(18, 42, 31, .12)',
-                  padding: 12,
+                  boxShadow: '0 18px 42px rgba(31, 47, 39, .14)',
+                  padding: 14,
                   zIndex: 980,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 8px 12px' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 999, background: '#FFC928', color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 900, flexShrink: 0 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 999, background: C.primary, color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 900, flexShrink: 0 }}>
                     {userInitials}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
@@ -162,6 +225,36 @@ export default function AppFrame({ description, actions, mainClassName, children
                     <div style={{ fontSize: 11, fontWeight: 800, color: C.g400, marginTop: 3 }}>{ROLE_LABELS[user.role]}</div>
                   </div>
                   <div aria-hidden="true" style={{ color: C.g400, fontSize: 22, lineHeight: 1 }}>›</div>
+                </div>
+
+                <div style={{ height: 1, background: C.g100, margin: '0 8px 8px' }} />
+
+                <div style={{ padding: '8px 6px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>테마</div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 999, background: C.g100, padding: 6 }}>
+                      <span aria-hidden="true" style={{ width: 17, height: 17, borderRadius: 999, background: activeThemeGradient, boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.4)' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px 10px' }}>
+                    {themeOptions.map(([id, theme]) => {
+                      const active = id === themeId;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={active}
+                          aria-label={`${theme.label} 테마`}
+                          onClick={() => setThemeId(id)}
+                          title={`${theme.label} 테마`}
+                          style={{ border: 'none', background: 'transparent', padding: '2px 0', minWidth: 0, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', justifyItems: 'center' }}
+                        >
+                          <span style={{ width: 42, height: 42, borderRadius: 999, background: theme.gradient, boxShadow: active ? `0 0 0 3px ${C.white}, 0 0 0 6px ${C.light}` : '0 8px 18px rgba(31,47,39,.10)', transition: 'box-shadow .18s ease, transform .18s ease', transform: active ? 'scale(1.03)' : 'none' }} />
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div style={{ height: 1, background: C.g100, margin: '0 8px 8px' }} />
@@ -195,6 +288,15 @@ export default function AppFrame({ description, actions, mainClassName, children
         )}
         {children}
       </main>
+      <footer className={mainClassName ? `app-footer ${mainClassName}-footer` : 'app-footer'}>
+        <div>© 2026 i-veri. All rights reserved.</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 22, minWidth: 0 }}>
+          <span>이용약관</span>
+          <span>개인정보처리방침</span>
+          <span style={{ width: 1, height: 14, background: C.g200 }} />
+          <span>v1.2.0</span>
+        </div>
+      </footer>
     </div>
   );
 }

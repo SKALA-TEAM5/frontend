@@ -2,11 +2,9 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Card from '../../components/ui/Card';
-import Button from '../../components/ui/Button';
-import { AppFrame, ProjectSortControl } from '../../components/common';
-import PeriodFilter from '../../components/common/PeriodFilter';
+import { AppFrame } from '../../components/common';
 import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { VALIDATION_DASHBOARD_RESULT } from '../../lib/evidence-utils';
@@ -15,39 +13,8 @@ import { getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWork
 import { listProjects } from '../../lib/project-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { ROLE_LABELS } from '../../lib/permissions';
-import {
-  DASHBOARD_WIDGETS,
-  DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY,
-  DASHBOARD_WIDGET_SIZE_STORAGE_KEY,
-  DASHBOARD_WIDGET_STORAGE_KEY,
-  DEFAULT_WIDGET_IDS,
-  DEFAULT_WIDGET_LAYOUT,
-  GRID_COLUMN_COUNT,
-  GRID_EDIT_PADDING,
-  GRID_GAP,
-  GRID_ROW_GUIDE_HEIGHT,
-  WIDGET_SIZE_LIMITS,
-  WIDGET_SIZES,
-  dashboardEditGridStyle,
-  dashboardGridStyle,
-  getGridCellMetrics,
-  resolveLayoutWithPushDown,
-  widgetPlacementStyle,
-  type DashboardWidgetId,
-  type WidgetHelpId,
-  type WidgetPosition,
-  type WidgetSize,
-} from '../../features/dashboard/widget-layout';
 
 const LOCAL_USAGE_STATEMENT_PREFIX = 'iveri-mvp-usage-statement:';
-
-const DASHBOARD_WIDGET_ACCENTS: Record<WidgetHelpId, { bg: string; border: string; text: string; meta: string }> = {
-  supplementReasons: { bg: '#F6FBFD', border: '#C9DFEA', text: '#255B73', meta: '#5F8191' },
-  supplementReasonTrend: { bg: '#FFF8FA', border: '#F1CDD8', text: '#A84F68', meta: '#9B6575' },
-  projectProgress: { bg: '#FFF7ED', border: '#F1DEC0', text: '#98642A', meta: '#9E835A' },
-  workload: { bg: '#F5F1FD', border: '#E0D7F4', text: '#6550A1', meta: '#8174A8' },
-  myProjects: { bg: '#EEF8F2', border: '#D4E7D9', text: '#2C7554', meta: '#648970' },
-};
 
 const SUPPLEMENT_REASON_TYPES = [
   {
@@ -74,6 +41,12 @@ const SUPPLEMENT_REASON_TYPES = [
     keywords: ['증빙', '영수증', '사진', '세금계산서', '자료', '제출', '첨부'],
     color: '#2AA879',
   },
+] as const;
+
+const EXAMPLE_SUPPLEMENT_REASON_TRENDS = [
+  { key: '2026-03', label: '3월', counts: { purpose: 1, allocation: 0, labor: 1, evidence: 2 } },
+  { key: '2026-04', label: '4월', counts: { purpose: 0, allocation: 1, labor: 1, evidence: 3 } },
+  { key: '2026-05', label: '5월', counts: { purpose: 1, allocation: 1, labor: 0, evidence: 2 } },
 ] as const;
 
 const mergeWorkflowStatus = (project: ProjectSummary) => {
@@ -110,6 +83,37 @@ const readUsageStatementMonth = (projectId: string) => {
   }
 };
 
+const readUsageStatementMonths = (projectId: string) => {
+  if (typeof window === 'undefined') return [] as string[];
+  try {
+    const raw = window.localStorage.getItem(`${LOCAL_USAGE_STATEMENT_PREFIX}${projectId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const months = new Set<string>();
+    const addMonth = (value: unknown) => {
+      if (typeof value !== 'string') return;
+      const match = value.match(/^(\d{4}-\d{2})/);
+      if (match) months.add(match[1]);
+    };
+    const collectMonths = (value: unknown) => {
+      if (!value || typeof value !== 'object') return;
+      if (Array.isArray(value)) {
+        value.forEach(collectMonths);
+        return;
+      }
+      Object.entries(value as Record<string, unknown>).forEach(([key, childValue]) => {
+        if (/^\d{4}-\d{2}/.test(key)) addMonth(key);
+        if (['month', 'usageMonth', 'statementMonth'].includes(key)) addMonth(childValue);
+        if (childValue && typeof childValue === 'object') collectMonths(childValue);
+      });
+    };
+    collectMonths(parsed);
+    return Array.from(months).sort();
+  } catch {
+    return [];
+  }
+};
+
 const readUsageWorkflowStatus = (projectId: string): UsageWorkflowStatus | undefined => {
   if (typeof window === 'undefined') return undefined;
   try {
@@ -142,10 +146,10 @@ const fieldStyle: CSSProperties = {
   border: `1px solid ${C.g200}`,
   fontFamily: 'inherit',
   fontSize: 13,
-  fontWeight: 800,
+  fontWeight: 700,
   lineHeight: '20px',
   color: C.g800,
-  background: '#FBFDFC',
+  background: C.white,
 };
 
 const compactFieldStyle: CSSProperties = {
@@ -157,121 +161,46 @@ const compactFieldStyle: CSSProperties = {
   lineHeight: '16px',
 };
 
-const sortBarStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-  flexWrap: 'wrap',
-  marginBottom: 14,
-};
-
-const widgetTitleStyle: CSSProperties = {
-  fontSize: 14,
-  fontWeight: 900,
-  color: C.g800,
-  marginBottom: 0,
-};
-
-const widgetLabelStyle: CSSProperties = {
-  fontSize: 13,
-  fontWeight: 800,
-  color: C.g400,
-};
-
-const widgetValueStyle: CSSProperties = {
-  fontSize: 24,
-  fontWeight: 900,
-  color: C.g800,
-  lineHeight: 1.15,
-};
-
-const workflowBadgeStyle = (color: string, bg: string, border = color): CSSProperties => ({
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  height: 24,
-  padding: '0 8px',
-  borderRadius: 999,
-  border: `1px solid ${border}`,
-  background: bg,
-  color,
-  fontSize: 10,
-  fontWeight: 900,
-  whiteSpace: 'nowrap',
-});
-
-const tooltipStyle: CSSProperties = {
-  position: 'absolute',
-  left: 0,
-  top: 'calc(100% + 8px)',
-  zIndex: 1000,
-  width: 'max-content',
-  minWidth: 180,
-  padding: '12px 13px',
-  borderRadius: 12,
-  background: C.white,
-  border: `1px solid ${C.g200}`,
-  boxShadow: '0 12px 28px rgba(27,94,59,.16)',
-  whiteSpace: 'normal',
-  overflowWrap: 'anywhere',
-  wordBreak: 'break-word',
-};
-
-const tooltipListStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
-};
-
-const tooltipItemStyle: CSSProperties = {
-  fontSize: 13,
-  color: C.g600,
-  lineHeight: 1.45,
-  minWidth: 0,
-  whiteSpace: 'normal',
-  overflowWrap: 'anywhere',
-  wordBreak: 'break-word',
-};
-
-const titleTooltipStyle: CSSProperties = {
-  ...tooltipStyle,
-  width: 'max-content',
-  minWidth: 160,
-  top: 'calc(100% + 6px)',
-};
-
 const dashboardPageStyle: CSSProperties = {
   position: 'relative',
   display: 'flex',
   flexDirection: 'column',
-  gap: 14,
-  padding: '0 40px 56px',
+  gap: 16,
+  padding: '24px clamp(76px, 7vw, 108px) 56px',
   minHeight: 'calc(100vh - 64px)',
   overflow: 'hidden',
-  background: 'linear-gradient(135deg, rgba(237, 250, 242, .28) 0%, rgba(223, 244, 232, .22) 46%, rgba(250, 254, 252, .35) 100%)',
+  background:
+    'radial-gradient(circle at 12% 4%, color-mix(in srgb, var(--c-bg) 78%, transparent) 0, transparent 34%), linear-gradient(135deg, var(--c-soft) 0%, color-mix(in srgb, var(--c-bg) 64%, #fff) 100%)',
 };
 
 const dashboardPhotoBackdropStyle: CSSProperties = {
-  position: 'absolute',
+  position: 'relative',
   top: 0,
-  left: -40,
-  right: -40,
-  height: 430,
-  pointerEvents: 'none',
-  background: 'linear-gradient(180deg, rgba(237, 250, 242, .08) 0%, rgba(232, 247, 238, .34) 42%, rgba(232, 247, 238, .82) 76%, rgba(237, 250, 242, 1) 100%), linear-gradient(135deg, rgba(232, 247, 238, .72) 0%, rgba(205, 234, 218, .58) 48%, rgba(246, 252, 248, .54) 100%), linear-gradient(90deg, rgba(33, 111, 76, .28), rgba(33, 111, 76, .16)), url("https://images.pexels.com/photos/32858871/pexels-photo-32858871.jpeg?auto=compress&cs=tinysrgb&w=1800") center 52% / cover no-repeat',
-  zIndex: 0,
+  left: 0,
+  right: 0,
+  height: '100%',
+  minHeight: 170,
+  pointerEvents: 'auto',
+  background: 'linear-gradient(180deg, rgba(255,255,255,.02) 0%, color-mix(in srgb, var(--c-soft) 38%, transparent) 46%, color-mix(in srgb, var(--c-soft) 84%, transparent) 82%, var(--c-soft) 100%), linear-gradient(135deg, color-mix(in srgb, var(--c-primary) 46%, transparent) 0%, color-mix(in srgb, var(--c-primary) 22%, transparent) 54%, rgba(255,255,255,.72) 100%), url("https://images.pexels.com/photos/32858871/pexels-photo-32858871.jpeg?auto=compress&cs=tinysrgb&w=1800") center 52% / cover no-repeat',
+  zIndex: 1,
+  borderRadius: 12,
+  overflow: 'hidden',
+  border: '1px solid color-mix(in srgb, var(--c-primary) 22%, #fff)',
+  backgroundClip: 'padding-box',
+  boxShadow: '0 18px 42px var(--c-primary-shadow)',
 };
 
 const dashboardTopStyle: CSSProperties = {
   position: 'relative',
   zIndex: 1,
   minWidth: 0,
-  padding: '26px 40px 18px',
-  margin: '0 -40px',
+  padding: 0,
+  margin: '0 auto',
   borderRadius: 0,
-  overflow: 'hidden',
+  overflow: 'visible',
   background: 'transparent',
   boxShadow: 'none',
+  width: 'min(100%, 1240px)',
 };
 
 const dashboardContentLayerStyle: CSSProperties = {
@@ -281,28 +210,30 @@ const dashboardContentLayerStyle: CSSProperties = {
 
 const dashboardTopInnerStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'minmax(0, 560px) minmax(260px, 320px)',
-  gap: 32,
-  justifyContent: 'space-between',
-  alignItems: 'start',
-  width: 'min(100%, 1280px)',
+  gridTemplateColumns: 'minmax(0, 1fr) 300px',
+  gap: 20,
+  alignItems: 'stretch',
+  width: '100%',
+  maxWidth: '100%',
   margin: '0 auto',
   minWidth: 0,
 };
 
 const dashboardStatusGridStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: 12,
+  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+  gap: 16,
   minWidth: 0,
 };
 
 const dashboardPanelStyle: CSSProperties = {
-  borderRadius: 14,
+  borderRadius: 12,
   border: `1px solid ${C.g200}`,
-  boxShadow: '0 8px 18px rgba(31,55,43,.05)',
+  boxShadow: '0 1px 2px rgba(31,47,39,.05), 0 14px 34px rgba(31,47,39,.05)',
   background: C.white,
 };
+
+const dashboardAnalysisCardHeight = 258;
 
 const dashboardPanelHeaderStyle: CSSProperties = {
   height: 28,
@@ -315,27 +246,39 @@ const dashboardPanelHeaderStyle: CSSProperties = {
   justifyContent: 'space-between',
   gap: 12,
   borderBottom: 'none',
-  borderTopLeftRadius: 14,
-  borderTopRightRadius: 14,
+  borderTopLeftRadius: 12,
+  borderTopRightRadius: 12,
   background: 'transparent',
 };
 
-const statusCardTone = (status: UsageWorkflowStatus) => {
-  if (status === 'supplement_required') {
-    return { border: '#F4CBCB', background: C.white };
-  }
-  if (status === 'upload_completed' || status === 'review_completed') {
-    return { border: '#CFE7D8', background: C.white };
-  }
-  return { border: C.g200, background: C.white };
+const toDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
-const widgetHelpText: Record<WidgetHelpId, string> = {
-  supplementReasons: '유효성 검증 후 보완 요청으로 이어진 주요 사유를 목적, 계상률, 인건비, 증빙 정합성 기준으로 집계합니다.',
-  supplementReasonTrend: '프로젝트별로 월 단위 보완 요청 사유 분포를 막대 그래프로 보여줍니다.',
-  projectProgress: '프로젝트별 실제 공정률을 막대로 비교해 보여줍니다.',
-  workload: '담당자별 전체 프로젝트 수와 보완 요청 부담을 보여줍니다.',
-  myProjects: '내가 볼 수 있는 모든 프로젝트를 검색, 필터, 정렬해 보여줍니다.',
+const formatKoreanDateRangePart = (value: string) => {
+  if (!value) return '';
+  const [year, month, day] = value.split('-');
+  if (!year || !month || !day) return value;
+  return `${Number(year)} . ${Number(month)} . ${Number(day)} .`;
+};
+
+const buildCalendarCells = (monthDate: Date) => {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startDate = new Date(year, month, 1 - firstDay.getDay());
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + index);
+    return {
+      date,
+      value: toDateInputValue(date),
+      currentMonth: date.getMonth() === month,
+    };
+  });
 };
 
 export default function DashboardPage() {
@@ -347,25 +290,17 @@ export default function DashboardPage() {
   const [contractNumber, setContractNumber] = useState('');
   const [period, setPeriod] = useState('');
   const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
+  const [dateRangeOpen, setDateRangeOpen] = useState(false);
+  const [datePickerMonth, setDatePickerMonth] = useState(() => new Date());
   const [manager, setManager] = useState(filterOptions.managers[0] || '전체');
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
   const [sortBy, setSortBy] = useState<ProjectSortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [titleTooltip, setTitleTooltip] = useState<WidgetHelpId | null>(null);
-  const [editMode, setEditMode] = useState(false);
-  const [visibleWidgetIds, setVisibleWidgetIds] = useState<DashboardWidgetId[]>(DEFAULT_WIDGET_IDS);
-  const [draggedWidgetId, setDraggedWidgetId] = useState<DashboardWidgetId | null>(null);
-  const [widgetLayout, setWidgetLayout] = useState<Record<DashboardWidgetId, WidgetPosition>>(DEFAULT_WIDGET_LAYOUT);
-  const [widgetSizes, setWidgetSizes] = useState<Record<DashboardWidgetId, WidgetSize>>(WIDGET_SIZES);
   const [selectedReasonProjectId, setSelectedReasonProjectId] = useState('');
+  const [selectedSupplementReasonProjectId, setSelectedSupplementReasonProjectId] = useState('');
   const [logoutPending, setLogoutPending] = useState(false);
-  const [resizeState, setResizeState] = useState<{
-    id: DashboardWidgetId;
-    startX: number;
-    startY: number;
-    startSize: WidgetSize;
-  } | null>(null);
-  const dashboardGridRef = useRef<HTMLDivElement | null>(null);
+  const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
+  const dateRangeRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (user.role === 'project_manager') {
@@ -373,118 +308,53 @@ export default function DashboardPage() {
     }
   }, [router, user.role]);
 
+  const refreshDashboardProjects = useCallback(async () => {
+    setDashboardRefreshing(true);
+    try {
+      const items = await listProjects({ size: 10 });
+      setProjects(items.map(mergeWorkflowStatus));
+    } catch {
+      setProjects([]);
+    } finally {
+      setDashboardRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!dateRangeOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (dateRangeRef.current?.contains(event.target as Node)) return;
+      setDateRangeOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDateRangeOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [dateRangeOpen]);
+
   useEffect(() => {
     let alive = true;
+    setDashboardRefreshing(true);
     listProjects({ size: 10 })
       .then((items) => {
         if (alive) setProjects(items.map(mergeWorkflowStatus));
       })
       .catch(() => {
         if (alive) setProjects([]);
+      })
+      .finally(() => {
+        if (alive) setDashboardRefreshing(false);
       });
     return () => {
       alive = false;
     };
   }, []);
 
-  useEffect(() => {
-    const stored = window.localStorage.getItem(DASHBOARD_WIDGET_STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as string[];
-        const validIds = parsed.filter((id): id is DashboardWidgetId => DEFAULT_WIDGET_IDS.includes(id as DashboardWidgetId));
-        setVisibleWidgetIds(validIds);
-      } catch {
-        window.localStorage.removeItem(DASHBOARD_WIDGET_STORAGE_KEY);
-      }
-    }
-
-    const storedLayout = window.localStorage.getItem(DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY);
-    if (storedLayout) {
-      try {
-        const parsed = JSON.parse(storedLayout) as Partial<Record<DashboardWidgetId, WidgetPosition>>;
-        const validLayout = Object.fromEntries(
-          Object.entries(parsed).filter(([id]) => DEFAULT_WIDGET_IDS.includes(id as DashboardWidgetId)),
-        ) as Partial<Record<DashboardWidgetId, WidgetPosition>>;
-        setWidgetLayout({ ...DEFAULT_WIDGET_LAYOUT, ...validLayout });
-      } catch {
-        window.localStorage.removeItem(DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY);
-      }
-    }
-
-    const storedSizes = window.localStorage.getItem(DASHBOARD_WIDGET_SIZE_STORAGE_KEY);
-    if (storedSizes) {
-      try {
-        const parsed = JSON.parse(storedSizes) as Partial<Record<DashboardWidgetId, WidgetSize>>;
-        const nextSizes = { ...WIDGET_SIZES };
-        DEFAULT_WIDGET_IDS.forEach((id) => {
-          const rawSize = parsed[id];
-          if (!rawSize) return;
-          const limit = WIDGET_SIZE_LIMITS[id];
-          nextSizes[id] = {
-            colSpan: Math.min(limit.maxColSpan, Math.max(limit.minColSpan, rawSize.colSpan || WIDGET_SIZES[id].colSpan)),
-            rowSpan: Math.min(limit.maxRowSpan, Math.max(limit.minRowSpan, rawSize.rowSpan || WIDGET_SIZES[id].rowSpan)),
-          };
-        });
-        setWidgetSizes(nextSizes);
-      } catch {
-        window.localStorage.removeItem(DASHBOARD_WIDGET_SIZE_STORAGE_KEY);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(DASHBOARD_WIDGET_STORAGE_KEY, JSON.stringify(visibleWidgetIds));
-  }, [visibleWidgetIds]);
-  useEffect(() => {
-    window.localStorage.setItem(DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY, JSON.stringify(widgetLayout));
-  }, [widgetLayout]);
-  useEffect(() => {
-    window.localStorage.setItem(DASHBOARD_WIDGET_SIZE_STORAGE_KEY, JSON.stringify(widgetSizes));
-  }, [widgetSizes]);
-  useEffect(() => {
-    if (!resizeState || !dashboardGridRef.current) return;
-    const grid = dashboardGridRef.current;
-    const { columnPitch } = getGridCellMetrics(grid);
-    const rowPitch = GRID_ROW_GUIDE_HEIGHT + GRID_GAP;
-    const handlePointerMove = (event: PointerEvent) => {
-      const deltaCols = Math.round((event.clientX - resizeState.startX) / columnPitch);
-      const deltaRows = Math.round((event.clientY - resizeState.startY) / rowPitch);
-      const limit = WIDGET_SIZE_LIMITS[resizeState.id];
-      const nextSize: WidgetSize = {
-        colSpan: Math.min(limit.maxColSpan, Math.max(limit.minColSpan, resizeState.startSize.colSpan + deltaCols)),
-        rowSpan: Math.min(limit.maxRowSpan, Math.max(limit.minRowSpan, resizeState.startSize.rowSpan + deltaRows)),
-      };
-      setWidgetSizes((current) => {
-        const prev = current[resizeState.id];
-        if (prev.colSpan === nextSize.colSpan && prev.rowSpan === nextSize.rowSpan) return current;
-        const nextSizes = { ...current, [resizeState.id]: nextSize };
-        setWidgetLayout((layout) => resolveLayoutWithPushDown(layout, visibleWidgetIds, resizeState.id, layout[resizeState.id] || DEFAULT_WIDGET_LAYOUT[resizeState.id], nextSizes));
-        return nextSizes;
-      });
-    };
-    const handlePointerUp = () => setResizeState(null);
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-  }, [resizeState, visibleWidgetIds]);
-
-  const visibleWidgetSet = useMemo(() => new Set(visibleWidgetIds), [visibleWidgetIds]);
-  const toggleWidget = (id: DashboardWidgetId) => {
-    setVisibleWidgetIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-  };
-  const resetWidgets = () => {
-    window.localStorage.removeItem(DASHBOARD_WIDGET_STORAGE_KEY);
-    window.localStorage.removeItem(DASHBOARD_WIDGET_LAYOUT_STORAGE_KEY);
-    window.localStorage.removeItem(DASHBOARD_WIDGET_SIZE_STORAGE_KEY);
-    setVisibleWidgetIds(DEFAULT_WIDGET_IDS);
-    setWidgetLayout(DEFAULT_WIDGET_LAYOUT);
-    setWidgetSizes(WIDGET_SIZES);
-  };
-  const hideWidget = (id: DashboardWidgetId) => setVisibleWidgetIds((current) => current.filter((item) => item !== id));
   const handleDashboardLogout = async () => {
     if (logoutPending) return;
     setLogoutPending(true);
@@ -497,26 +367,6 @@ export default function DashboardPage() {
       setLogoutPending(false);
       router.replace('/');
     }
-  };
-  const moveWidgetToGridCell = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!draggedWidgetId || !dashboardGridRef.current) return;
-    const grid = dashboardGridRef.current;
-    const rect = grid.getBoundingClientRect();
-    const { columnPitch } = getGridCellMetrics(grid);
-    const x = Math.max(0, event.clientX - rect.left + grid.scrollLeft - GRID_EDIT_PADDING);
-    const y = Math.max(0, event.clientY - rect.top + grid.scrollTop - GRID_EDIT_PADDING);
-    const size = widgetSizes[draggedWidgetId];
-    const maxColumn = Math.max(1, GRID_COLUMN_COUNT - size.colSpan + 1);
-    const col = Math.min(maxColumn, Math.floor(x / columnPitch) + 1);
-    const row = Math.min(Math.max(1, Math.floor(y / (GRID_ROW_GUIDE_HEIGHT + GRID_GAP)) + 1), 24);
-    const activeWidgetIds = visibleWidgetIds.includes(draggedWidgetId) ? visibleWidgetIds : [...visibleWidgetIds, draggedWidgetId];
-    setWidgetLayout((current) => {
-      return resolveLayoutWithPushDown(current, activeWidgetIds, draggedWidgetId, { col, row }, widgetSizes);
-    });
-    setVisibleWidgetIds((current) => {
-      if (current.includes(draggedWidgetId)) return current;
-      return [...current, draggedWidgetId];
-    });
   };
 
   const visibleProjects = useMemo(() => {
@@ -531,6 +381,25 @@ export default function DashboardPage() {
       allStatusLabel: filterOptions.statuses[0],
     }, sortBy, sortDirection);
   }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, sortDirection, status]);
+  const [rangeStart = '', rangeEnd = ''] = period.split('~');
+  const dateRangeLabel = rangeStart && rangeEnd
+    ? `${formatKoreanDateRangePart(rangeStart)} - ${formatKoreanDateRangePart(rangeEnd)}`
+    : rangeStart
+      ? `${formatKoreanDateRangePart(rangeStart)} -`
+      : '기간 선택';
+  const calendarCells = buildCalendarCells(datePickerMonth);
+  const selectDateRangeDay = (value: string) => {
+    if (!rangeStart || rangeEnd || new Date(value).getTime() < new Date(rangeStart).getTime()) {
+      setPeriod(`${value}~`);
+      setPeriodMode('custom');
+      return;
+    }
+    setPeriod(`${rangeStart}~${value}`);
+    setPeriodMode('custom');
+  };
+  const moveDatePickerMonth = (amount: number) => {
+    setDatePickerMonth((current) => new Date(current.getFullYear(), current.getMonth() + amount, 1));
+  };
 
   const workflowProjects = {
     draft: projects.filter((project) => getProjectMonthWorkflowStatus(project) === 'draft'),
@@ -551,10 +420,53 @@ export default function DashboardPage() {
   const reviewCompletedCount = projects.filter((project) => getProjectMonthWorkflowStatus(project) === 'review_completed').length;
   const supplementRequiredCount = workflowProjects.supplement_required.length;
   const statusSummaryCards = [
-    { label: '월별 검토 현황', value: monthlyReviewedCount, total: projects.length, meta: `${currentMonthKey.replace('-', '년 ')}월 기준`, color: '#255B73', border: '#C9DFEA', soft: '#F6FBFD', icon: '◌' },
-    { label: '유효성 검증 완료', value: validationCompletedCount, total: validationTargetCount, meta: '유효성 검증', color: '#2F73B7', border: '#C6D9EE', soft: '#F5F9FF', icon: '✓' },
-    { label: '보완 요청', value: supplementRequiredCount, total: null, meta: '증빙자료 보완 필요', color: '#D9485F', border: '#F0CDD4', soft: '#FFF8F9', icon: '!' },
-    { label: '검토 완료', value: reviewCompletedCount, total: projects.length, meta: '전체 프로젝트 대비', color: '#258A5E', border: '#CDE5D7', soft: '#F5FBF7', icon: '◎' },
+    {
+      eyebrow: `${currentMonthKey.replace('-', '년 ')}월 기준`,
+      title: '월별 검토 현황',
+      icon: '◌',
+      color: '#255B73',
+      border: '#C9DFEA',
+      soft: '#F6FBFD',
+      metrics: [
+        { label: '완료', value: monthlyReviewedCount, color: '#255B73', border: '#C9DFEA', bg: '#F6FBFD' },
+        { label: '전체', value: projects.length, color: C.g800, border: '#CDE8D8', bg: C.white },
+      ],
+    },
+    {
+      eyebrow: '유효성 검증',
+      title: '유효성 검증 완료',
+      icon: '✓',
+      color: '#2F73B7',
+      border: '#C6D9EE',
+      soft: '#F5F9FF',
+      metrics: [
+        { label: '완료', value: validationCompletedCount, color: '#2F73B7', border: '#C6D9EE', bg: '#F5F9FF' },
+        { label: '전체', value: validationTargetCount, color: C.g800, border: '#CDE8D8', bg: C.white },
+      ],
+    },
+    {
+      eyebrow: '증빙자료 보완 필요',
+      title: '보완 요청',
+      icon: '!',
+      color: '#D9485F',
+      border: '#F0CDD4',
+      soft: '#FFF8F9',
+      metrics: [
+        { label: '건수', value: supplementRequiredCount, color: '#D9485F', border: '#F0CDD4', bg: '#FFF8F9', full: true },
+      ],
+    },
+    {
+      eyebrow: '전체 프로젝트 대비',
+      title: '검토 완료',
+      icon: '◎',
+      color: C.primary,
+      border: C.g200,
+      soft: C.bg,
+      metrics: [
+        { label: '완료', value: reviewCompletedCount, color: C.primary, border: C.g200, bg: C.bg },
+        { label: '전체', value: projects.length, color: C.g800, border: '#CDE8D8', bg: C.white },
+      ],
+    },
   ] as const;
   const userInitials = useMemo(() => {
     const trimmed = user.name.trim();
@@ -598,7 +510,13 @@ export default function DashboardPage() {
     const sourceText = `${project.actionRequestDetails?.title || ''} ${project.actionRequestDetails?.reason || ''}`;
     return getSupplementReasonMatchIds(sourceText);
   });
-  const combinedReasonMatchIds = [...validationReasonMatchIds, ...projectReasonMatchIds];
+  const selectedSupplementReasonProject = projects.find((project) => project.id === selectedSupplementReasonProjectId);
+  const selectedSupplementProjectReasonMatchIds = selectedSupplementReasonProject && getProjectMonthWorkflowStatus(selectedSupplementReasonProject) === 'supplement_required'
+    ? getSupplementReasonMatchIds(`${selectedSupplementReasonProject.actionRequestDetails?.title || ''} ${selectedSupplementReasonProject.actionRequestDetails?.reason || ''}`)
+    : [];
+  const combinedReasonMatchIds = selectedSupplementReasonProjectId
+    ? selectedSupplementProjectReasonMatchIds
+    : [...validationReasonMatchIds, ...projectReasonMatchIds];
   const supplementReasonRows = SUPPLEMENT_REASON_TYPES.map((reasonType) => ({
     ...reasonType,
     count: combinedReasonMatchIds.filter((id) => id === reasonType.id).length,
@@ -607,7 +525,7 @@ export default function DashboardPage() {
   const supplementReasonChartRows = supplementReasonTotal > 0
     ? supplementReasonRows
     : supplementReasonRows.map((row) => ({ ...row, count: 0 }));
-  const supplementReasonRadius = 52;
+  const supplementReasonRadius = 48;
   const supplementReasonCircumference = 2 * Math.PI * supplementReasonRadius;
   let supplementReasonOffset = 0;
   const supplementReasonSegments = supplementReasonRows.map((row) => {
@@ -618,34 +536,60 @@ export default function DashboardPage() {
   });
   const selectedReasonProject = projects.find((project) => project.id === selectedReasonProjectId) || projects[0];
   const reasonProjectId = selectedReasonProject?.id || '';
-  const reasonTrendMonths = useMemo(() => {
-    const now = new Date();
-    return Array.from({ length: 6 }, (_, index) => {
-      const month = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
-      const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
-      return { key, label: `${month.getMonth() + 1}월` };
-    });
-  }, []);
-  const selectedReasonProjectMonth = selectedReasonProject ? readUsageStatementMonth(selectedReasonProject.id) : '';
+  const projectTableHeaders: Array<{ label: string; field: ProjectSortField; width: number }> = [
+    { label: '프로젝트명', field: 'name', width: 120 },
+    { label: '프로젝트 번호', field: 'contractNumber', width: 70 },
+    { label: '공정률', field: 'progress', width: 140 },
+    { label: '안전관리비 사용률', field: 'usageRate', width: 140 },
+    { label: '공사 기간', field: 'startDate', width: 120 },
+    { label: '담당자', field: 'manager', width: 50 },
+  ];
+  const toggleProjectTableSort = (field: ProjectSortField) => {
+    if (sortBy === field) {
+      setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+      return;
+    }
+    setSortBy(field);
+    setSortDirection('asc');
+  };
+  const selectedReasonProjectMonths = selectedReasonProject ? readUsageStatementMonths(selectedReasonProject.id) : [];
+  const selectedReasonProjectMonth = selectedReasonProject?.actionRequestDetails?.month || selectedReasonProjectMonths.at(-1) || '';
   const selectedReasonSourceText = `${selectedReasonProject?.actionRequestDetails?.title || ''} ${selectedReasonProject?.actionRequestDetails?.reason || ''}`.toLowerCase();
-  const reasonTrendRows = reasonTrendMonths.map((month) => {
-    const activeMonth = month.key === (selectedReasonProjectMonth || currentMonthKey);
+  const reasonTrendMonthKeys = Array.from(new Set([
+    ...selectedReasonProjectMonths,
+    ...(selectedReasonProjectMonth ? [selectedReasonProjectMonth] : []),
+  ])).sort();
+  const reasonTrendRows = reasonTrendMonthKeys.map((monthKey) => {
+    const activeMonth = monthKey === selectedReasonProjectMonth;
     const reasons = SUPPLEMENT_REASON_TYPES.map((reasonType) => {
       const projectCount = activeMonth && Boolean(selectedReasonProject) && getProjectMonthWorkflowStatus(selectedReasonProject) === 'supplement_required'
         ? getSupplementReasonMatchIds(selectedReasonSourceText).filter((id) => id === reasonType.id).length
         : 0;
-      const validationCount = month.key === currentMonthKey
-        ? validationReasonMatchIds.filter((id) => id === reasonType.id).length
-        : 0;
-      return { ...reasonType, count: projectCount + validationCount };
+      return { ...reasonType, count: projectCount };
     });
     return {
-      ...month,
+      key: monthKey,
+      label: `${Number(monthKey.slice(5, 7))}월`,
       reasons,
       total: reasons.reduce((sum, reason) => sum + reason.count, 0),
     };
-  }).filter((row) => row.total > 0);
-  const maxReasonTrendValue = Math.max(1, ...reasonTrendRows.flatMap((row) => [row.total, ...row.reasons.map((reason) => reason.count)]));
+  });
+  const hasReasonTrendData = reasonTrendRows.some((row) => row.total > 0);
+  const displayedReasonTrendRows = hasReasonTrendData
+    ? reasonTrendRows
+    : EXAMPLE_SUPPLEMENT_REASON_TRENDS.map((row) => {
+      const reasons = SUPPLEMENT_REASON_TYPES.map((reasonType) => ({
+        ...reasonType,
+        count: row.counts[reasonType.id],
+      }));
+      return {
+        key: row.key,
+        label: row.label,
+        reasons,
+        total: reasons.reduce((sum, reason) => sum + reason.count, 0),
+      };
+    });
+  const maxReasonTrendValue = Math.max(1, ...displayedReasonTrendRows.flatMap((row) => [row.total, ...row.reasons.map((reason) => reason.count)]));
   const managerWorkloads = Array.from(
     projects.reduce((map, project) => {
       const projectManagers = project.participants.length > 0 ? project.participants : getProjectManagers(project);
@@ -672,160 +616,10 @@ export default function DashboardPage() {
       return map;
     }, new Map<string, { actionRequired: number; projectCount: number }>()),
   ).sort((a, b) => (b[1].actionRequired + b[1].projectCount) - (a[1].actionRequired + a[1].projectCount) || a[0].localeCompare(b[0], 'ko'));
-  const widgetTooltipStyle = (id: DashboardWidgetId, minWidth = 200): CSSProperties => {
-    const position = widgetLayout[id] || DEFAULT_WIDGET_LAYOUT[id];
-    const size = widgetSizes[id];
-    const colEnd = position.col + size.colSpan - 1;
-    const alignRight = colEnd >= GRID_COLUMN_COUNT - 1;
-    const alignLeft = position.col <= 2;
-    return {
-      ...tooltipStyle,
-      minWidth,
-      maxWidth: 'min(460px, calc(100vw - 32px))',
-      left: alignRight ? 'auto' : alignLeft ? 0 : '50%',
-      right: alignRight ? 0 : 'auto',
-      transform: alignRight || alignLeft ? undefined : 'translateX(-50%)',
-    };
-  };
-  const widgetTitleTooltipStyle = (id: DashboardWidgetId, minWidth = 160): CSSProperties => {
-    const position = widgetLayout[id] || DEFAULT_WIDGET_LAYOUT[id];
-    const size = widgetSizes[id];
-    const colEnd = position.col + size.colSpan - 1;
-    const openToRight = position.col <= 2;
-    const openToLeft = colEnd >= GRID_COLUMN_COUNT - 1;
-    return {
-      ...tooltipStyle,
-      ...titleTooltipStyle,
-      minWidth,
-      maxWidth: 'min(520px, calc(100vw - 32px))',
-      top: openToRight ? 0 : titleTooltipStyle.top,
-      left: openToRight ? 'calc(100% + 8px)' : openToLeft ? 'auto' : '50%',
-      right: openToLeft ? 0 : 'auto',
-      transform: openToRight || openToLeft ? undefined : 'translateX(-50%)',
-    };
-  };
-  const renderWidgetTitle = (label: string, id: WidgetHelpId, style: CSSProperties = widgetTitleStyle, align: 'left' | 'right' = 'left') => (
-    <div
-      style={{ position: 'relative', zIndex: titleTooltip === id ? 1001 : 1, display: 'block', width: 'fit-content', whiteSpace: 'nowrap', ...style }}
-      onMouseEnter={() => setTitleTooltip(id)}
-      onMouseLeave={() => setTitleTooltip(null)}
-    >
-      {label}
-      {titleTooltip === id && (
-        <div style={{ ...widgetTitleTooltipStyle(id), left: align === 'right' ? 'auto' : widgetTitleTooltipStyle(id).left, right: align === 'right' ? 0 : widgetTitleTooltipStyle(id).right, transform: align === 'right' ? undefined : widgetTitleTooltipStyle(id).transform }}>
-          <div style={tooltipListStyle}>
-            <div style={tooltipItemStyle}>{widgetHelpText[id]}</div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-  const renderPanelHeader = (label: string, id: WidgetHelpId, meta?: ReactNode) => {
-    const accent = DASHBOARD_WIDGET_ACCENTS[id];
-    return (
-    <div style={{ ...dashboardPanelHeaderStyle, background: 'transparent', borderBottom: 'none' }}>
-      {renderWidgetTitle(label, id, { fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 0 })}
-      {meta && <span style={{ color: accent.meta, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }}>{meta}</span>}
-    </div>
-  );
-  };
-  const widgetFrameProps = (id: DashboardWidgetId, style: CSSProperties = {}) => {
-    const size = widgetSizes[id];
-    const position = widgetLayout[id] || DEFAULT_WIDGET_LAYOUT[id];
-    const accent = DASHBOARD_WIDGET_ACCENTS[id];
-    return {
-    draggable: editMode,
-    onDragStart: () => setDraggedWidgetId(id),
-    onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
-      if (!editMode) return;
-      event.preventDefault();
-    },
-    onDrop: (event: React.DragEvent<HTMLDivElement>) => {
-      if (!editMode) return;
-      event.preventDefault();
-      event.stopPropagation();
-      moveWidgetToGridCell(event);
-    },
-    onDragEnd: () => setDraggedWidgetId(null),
-    style: {
-      ...dashboardPanelStyle,
-      border: `1px solid ${accent.border}`,
-      boxShadow: '0 8px 18px rgba(31,55,43,.05)',
-      ...widgetPlacementStyle(size),
-      position: 'relative',
-      overflow: 'visible',
-      gridColumn: `${position.col} / span ${size.colSpan}`,
-      gridRow: `${position.row} / span ${size.rowSpan}`,
-      outline: editMode ? `1px dashed ${C.g200}` : undefined,
-      cursor: editMode ? 'grab' : undefined,
-      opacity: draggedWidgetId === id ? 0.55 : 1,
-      ...style,
-    } as CSSProperties,
-    };
-  };
-  const renderWidgetRemoveButton = (id: DashboardWidgetId) => editMode ? (
-    <button
-      type="button"
-      aria-label="위젯 숨기기"
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        hideWidget(id);
-      }}
-      style={{ position: 'absolute', top: 10, right: 10, zIndex: 20, width: 22, height: 22, borderRadius: 999, border: `1px solid ${C.g200}`, background: C.white, color: C.g600, cursor: 'pointer', fontSize: 15, fontWeight: 900, lineHeight: '18px', padding: 0 }}
-    >
-      -
-    </button>
-  ) : null;
-  const renderWidgetResizeHandle = (id: DashboardWidgetId) => {
-    if (!editMode) return null;
-    return (
-      <button
-        type="button"
-        aria-label="위젯 크기 조절"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          (event.currentTarget as HTMLButtonElement).setPointerCapture?.(event.pointerId);
-          setResizeState({
-            id,
-            startX: event.clientX,
-            startY: event.clientY,
-            startSize: widgetSizes[id],
-          });
-        }}
-        style={{
-          position: 'absolute',
-          right: 10,
-          bottom: 10,
-          zIndex: 20,
-          width: 24,
-          height: 24,
-          borderRadius: 8,
-          border: `1px solid ${C.g200}`,
-          background: 'rgba(255,255,255,.96)',
-          boxShadow: '0 8px 18px rgba(31,55,43,.08)',
-          cursor: 'nwse-resize',
-          padding: 0,
-        }}
-      >
-        <span
-          aria-hidden="true"
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'block',
-            background: 'linear-gradient(135deg, transparent 0 52%, #89A39A 52% 60%, transparent 60% 68%, #89A39A 68% 76%, transparent 76% 84%, #89A39A 84% 92%, transparent 92%)',
-            borderRadius: 8,
-          }}
-        />
-      </button>
-    );
-  };
   if (user.role === 'project_manager') {
     return (
       <AppFrame title="프로젝트 대시보드" mainClassName="dashboard-main">
-        <Card style={{ padding: 28, color: C.danger, fontSize: 14, fontWeight: 900 }}>접근 권한이 없습니다.</Card>
+        <Card style={{ padding: 28, color: C.danger, fontSize: 14, fontWeight: 700 }}>접근 권한이 없습니다.</Card>
       </AppFrame>
     );
   }
@@ -833,81 +627,73 @@ export default function DashboardPage() {
   return (
     <AppFrame title="프로젝트 대시보드" mainClassName="dashboard-main">
       <div style={dashboardPageStyle}>
-      <div aria-hidden="true" style={dashboardPhotoBackdropStyle} />
       <section style={dashboardTopStyle}>
         <div style={dashboardTopInnerStyle}>
-        <div style={dashboardStatusGridStyle}>
-            {statusSummaryCards.map((item) => (
-              <div key={item.label} style={{ border: `1px solid ${item.border}`, borderRadius: 14, background: C.white, padding: '14px 14px 12px', minWidth: 0, boxShadow: '0 8px 18px rgba(31,55,43,.05)' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, minWidth: 0 }}>
+          <div style={{ display: 'grid', minWidth: 0 }}>
+            <section style={dashboardPhotoBackdropStyle}>
+              <div style={{ position: 'absolute', inset: -1, borderRadius: 'inherit', background: 'linear-gradient(90deg, rgba(10,28,22,.48) 0%, rgba(10,28,22,.28) 48%, rgba(10,28,22,.08) 100%)' }} />
+              <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'stretch', gap: 24, padding: '24px 28px' }}>
+                <div style={{ minWidth: 0, alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 18 }}>
+                  <img src="/uploads/character.png" alt="" aria-hidden="true" style={{ width: 108, height: 108, objectFit: 'contain', flex: '0 0 auto', filter: 'drop-shadow(0 10px 22px rgba(0,0,0,.30))' }} />
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 900, color: item.color, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.meta}</div>
-                    <div style={{ marginTop: 6, fontSize: 14, fontWeight: 900, color: C.g800, lineHeight: 1.35, wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{item.label}</div>
-                  </div>
-                  <div aria-hidden="true" style={{ width: 28, height: 28, borderRadius: 10, border: `1px solid ${item.border}`, background: item.soft, color: item.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 900, flexShrink: 0 }}>
-                    {item.icon}
+                    <div style={{ fontSize: 24, lineHeight: 1.35, fontWeight: 700, color: C.white, letterSpacing: 0 }}>
+                      i-veri가 안전한 현장 운영을 지원합니다.
+                    </div>
+                    <div style={{ marginTop: 12, color: 'rgba(255,255,255,.86)', fontSize: 13, fontWeight: 700 }}>
+                      프로젝트 검증 현황과 보완 요청을 한 화면에서 확인하고 관리하세요.
+                    </div>
                   </div>
                 </div>
-                {item.total === null ? (
-                  <div style={{ marginTop: 14, border: `1px solid ${item.border}`, borderRadius: 10, background: item.soft, padding: '10px 12px', minWidth: 0 }}>
-                    <div style={{ fontSize: 10, fontWeight: 900, color: item.color }}>건수</div>
-                    <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: item.color, lineHeight: 1 }}>{item.value}</div>
+                <div style={{ minWidth: 220, color: C.white, textAlign: 'right', alignSelf: 'end', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.72)' }}>마지막 업데이트</div>
+                    <div style={{ marginTop: 6, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>2026. 5. 15. 15:20</div>
                   </div>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 14 }}>
-                    <div style={{ border: `1px solid ${item.border}`, borderRadius: 10, background: item.soft, padding: '8px 10px', minWidth: 0 }}>
-                      <div style={{ fontSize: 10, fontWeight: 900, color: item.color }}>완료</div>
-                      <div style={{ marginTop: 5, fontSize: 18, fontWeight: 900, color: item.color, lineHeight: 1 }}>{item.value}</div>
-                    </div>
-                    <div style={{ border: `1px solid ${C.g200}`, borderRadius: 10, background: C.white, padding: '8px 10px', minWidth: 0 }}>
-                      <div style={{ fontSize: 10, fontWeight: 900, color: C.g400 }}>전체</div>
-                      <div style={{ marginTop: 5, fontSize: 18, fontWeight: 900, color: C.g800, lineHeight: 1 }}>{item.total}</div>
-                    </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    <button type="button" aria-label="대시보드 새로고침" onClick={() => void refreshDashboardProjects()} disabled={dashboardRefreshing} style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid rgba(255,255,255,.42)', background: 'rgba(255,255,255,.08)', color: C.white, cursor: dashboardRefreshing ? 'wait' : 'pointer', fontSize: 17, fontWeight: 700, flex: '0 0 auto', opacity: dashboardRefreshing ? .75 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span className={dashboardRefreshing ? 'dashboard-refresh-icon--spinning' : undefined} aria-hidden="true">↻</span>
+                    </button>
                   </div>
-                )}
+                </div>
               </div>
-            ))}
-        </div>
-        <aside style={{ alignSelf: 'center', border: `1px solid ${C.g200}`, borderRadius: 14, background: C.white, padding: 12, boxShadow: '0 8px 18px rgba(31,55,43,.05)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 999, background: 'linear-gradient(135deg, #23794F, #86C89F)', color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 900, flexShrink: 0 }}>
+            </section>
+          </div>
+        <aside style={{ alignSelf: 'start', position: 'relative', border: `1px solid ${C.g200}`, borderRadius: 10, background: C.white, padding: 14, boxShadow: '0 1px 2px rgba(31,47,39,.04), 0 14px 34px rgba(31,47,39,.05)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
+          <button type="button" onClick={handleDashboardLogout} disabled={logoutPending} style={{ position: 'absolute', top: 13, right: 13, height: 24, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1 }}>
+            {logoutPending ? '로그아웃 중' : '로그아웃'}
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, paddingRight: 70 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 999, background: '#F4C20D', color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, fontWeight: 700, flexShrink: 0 }}>
               {userInitials}
             </div>
 	            <div style={{ minWidth: 0, flex: 1 }}>
-		              <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name || '사용자'}</div>
-		              <div style={{ marginTop: 3, fontSize: 11, fontWeight: 900, color: C.g600 }}>{ROLE_LABELS[user.role]}</div>
+		              <div style={{ fontSize: 15, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name || '사용자'}</div>
+		              <div style={{ marginTop: 3, fontSize: 11, fontWeight: 700, color: C.g600 }}>{ROLE_LABELS[user.role]}</div>
+                  <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>평택 제조시설 증설 외 2건 담당</div>
 	            </div>
-	            <button
-	              type="button"
-	              onClick={handleDashboardLogout}
-	              disabled={logoutPending}
-	              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1, padding: '0 10px', flexShrink: 0 }}
-	            >
-	              {logoutPending ? '처리 중' : '로그아웃'}
-	            </button>
 	          </div>
 	          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-		            <div style={{ border: `1px solid ${C.g200}`, borderRadius: 10, padding: '8px 10px', minWidth: 0 }}>
-	              <div style={{ fontSize: 10, fontWeight: 900, color: C.g400 }}>전체 프로젝트</div>
-		              <div style={{ marginTop: 4, fontSize: 18, lineHeight: 1, fontWeight: 900, color: C.g800 }}>{projects.length}</div>
+		            <div style={{ border: `1px solid ${C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0 }}>
+	              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>전체 프로젝트</div>
+		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.g800 }}>{projects.length}</div>
 	            </div>
-            <div style={{ border: `1px solid ${C.g200}`, borderRadius: 10, padding: '8px 10px', minWidth: 0 }}>
-              <div style={{ fontSize: 10, fontWeight: 900, color: C.g400 }}>확인 필요</div>
-		              <div style={{ marginTop: 4, fontSize: 18, lineHeight: 1, fontWeight: 900, color: C.primary }}>{queueProjects.length}</div>
+            <div style={{ border: `1px solid ${C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>확인 필요</div>
+		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{queueProjects.length}</div>
 	            </div>
 	          </div>
 	          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
 		            <button
 		              type="button"
 		              disabled
-			              style={{ height: 30, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.g100, color: C.g400, fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: 'not-allowed', opacity: .72 }}
+			              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FAFBFA', color: C.g600, fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'not-allowed', opacity: .72 }}
 		            >
 		              내 프로필
 		            </button>
 		            <button
 		              type="button"
 		              disabled
-			              style={{ height: 30, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.g100, color: C.g400, fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: 'not-allowed', opacity: .72 }}
+			              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FAFBFA', color: C.g600, fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'not-allowed', opacity: .72 }}
 		            >
 		              담당자 관리
 		            </button>
@@ -916,295 +702,291 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <div style={{ ...dashboardContentLayerStyle, display: 'flex', justifyContent: 'flex-end', padding: '0 2px' }}>
-        <button type="button" onClick={() => setEditMode((mode) => !mode)} style={{ border: 'none', background: 'transparent', padding: 0, color: C.g600, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          {editMode ? '편집 완료' : '대시보드 편집'}
-        </button>
-      </div>
-
-      {editMode && (
-        <Card style={{ ...dashboardContentLayerStyle, ...dashboardPanelStyle, padding: '16px 18px', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-            <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>표시할 위젯 선택</div>
-            <Button size="xs" variant="outline" onClick={resetWidgets}>전체 표시</Button>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            {DASHBOARD_WIDGETS.map((widget) => {
-              const checked = visibleWidgetSet.has(widget.id);
-              return (
-                <label key={widget.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 10px', borderRadius: 999, border: `1px solid ${checked ? C.light : C.g200}`, background: checked ? C.bg : C.white, color: checked ? C.primary : C.g600, fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={checked} onChange={() => toggleWidget(widget.id)} />
-                  {widget.label}
-                </label>
-              );
-            })}
-          </div>
-        </Card>
-      )}
-
-      <div
-        ref={dashboardGridRef}
-        data-ui="dashboard-widgets"
-        onDragOver={(event) => {
-          if (!editMode || !draggedWidgetId) return;
-          event.preventDefault();
-        }}
-        onDrop={(event) => {
-          if (!editMode || !draggedWidgetId) return;
-          event.preventDefault();
-          moveWidgetToGridCell(event);
-          setDraggedWidgetId(null);
-        }}
-        style={{ ...dashboardContentLayerStyle, ...dashboardGridStyle, ...(editMode ? dashboardEditGridStyle : {}) }}
-      >
-        {visibleWidgetSet.size === 0 && (
-          <Card style={{ ...widgetPlacementStyle({ colSpan: 2, rowSpan: 1 }), padding: '28px 30px' }}>
-            <div style={{ fontSize: 16, fontWeight: 900, color: C.g800, marginBottom: 6 }}>표시 중인 위젯이 없습니다.</div>
-            <div style={{ fontSize: 14, color: C.g400 }}>대시보드 편집에서 필요한 위젯을 선택해 주세요.</div>
-          </Card>
-        )}
-        {visibleWidgetSet.has('supplementReasons') && (
-        <Card {...widgetFrameProps('supplementReasons', { padding: '20px 20px 18px', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'visible' })}>
-          {renderWidgetRemoveButton('supplementReasons')}
-          {renderWidgetResizeHandle('supplementReasons')}
-          {renderPanelHeader('보완 요청 사유 분석', 'supplementReasons', `${supplementReasonTotal}건`)}
-          <div style={{ display: 'grid', gridTemplateColumns: '156px minmax(0, 1fr)', gap: 22, alignItems: 'center', minHeight: 0, flex: 1, padding: '2px 0 0' }}>
-            <div style={{ position: 'relative', width: 156, height: 156, display: 'grid', placeItems: 'center' }}>
-              <svg width="156" height="156" viewBox="0 0 156 156" aria-label="보완 요청 사유 원 그래프">
-                <circle cx="78" cy="78" r={supplementReasonRadius} fill="none" stroke="#F1F6F8" strokeWidth="22" />
-                {supplementReasonSegments.map((segment) => segment.length > 0 && (
-                  <circle
-                    key={segment.id}
-                    cx="78"
-                    cy="78"
-                    r={supplementReasonRadius}
-                    fill="none"
-                    stroke={segment.color}
-                    strokeWidth="22"
-                    strokeLinecap="butt"
-                    strokeDasharray={`${segment.length} ${supplementReasonCircumference}`}
-                    strokeDashoffset={-segment.offset}
-                    transform="rotate(-90 78 78)"
-                  />
-                ))}
-              </svg>
-              <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', pointerEvents: 'none' }}>
-                <div>
-                  <div style={{ fontSize: 32, fontWeight: 900, color: supplementReasonTotal > 0 ? C.g800 : C.g400, lineHeight: 1 }}>{supplementReasonTotal}</div>
-                  <div style={{ marginTop: 7, fontSize: 11, fontWeight: 900, color: supplementReasonTotal > 0 ? C.primary : C.g400 }}>보완 사유</div>
+      <div style={{ ...dashboardContentLayerStyle, width: 'min(100%, 1240px)', margin: '0 auto' }}>
+        <div style={dashboardStatusGridStyle}>
+          {statusSummaryCards.map((item) => (
+            <div key={item.title} style={{ border: `1px solid ${item.border}`, borderRadius: 12, background: C.white, padding: '14px 16px', minWidth: 0, minHeight: 116, boxShadow: '0 1px 2px rgba(31,47,39,.04), 0 10px 20px rgba(31,47,39,.04)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, minWidth: 0 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: item.color, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.eyebrow}</div>
+                  <div style={{ marginTop: 6, fontSize: 17, fontWeight: 700, color: C.g800, lineHeight: 1.25, wordBreak: 'keep-all' }}>{item.title}</div>
+                </div>
+                <div aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 9, border: `1px solid ${item.border}`, background: item.soft, color: item.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
+                  {item.icon}
                 </div>
               </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-              {supplementReasonChartRows.map((row) => (
-                <div key={row.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 22px', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                    <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: row.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: 0 }}>{row.label}</span>
+              <div style={{ display: 'grid', gridTemplateColumns: item.metrics.length === 1 ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 14 }}>
+                {item.metrics.map((metric) => (
+                  <div key={metric.label} style={{ border: `1px solid ${metric.border}`, borderRadius: 9, background: metric.bg, padding: '9px 10px', minWidth: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: metric.color, lineHeight: 1 }}>{metric.label}</div>
+                    <div style={{ marginTop: 5, fontSize: 21, fontWeight: 700, color: metric.color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{metric.value}</div>
                   </div>
-                  <span style={{ fontSize: 13, fontWeight: 900, color: row.count ? row.color : C.g400, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{row.count}</span>
-                </div>
-              ))}
-              {supplementReasonTotal === 0 && (
-                <div style={{ marginTop: 3, fontSize: 11, fontWeight: 800, color: C.g400, lineHeight: 1.45 }}>
-                  유효성 검증 후 등록된 보완 요청 사유가 없습니다.
-                </div>
-              )}
+                ))}
+              </div>
             </div>
-          </div>
-        </Card>
-        )}
-
-        {visibleWidgetSet.has('supplementReasonTrend') && (
-        <Card {...widgetFrameProps('supplementReasonTrend', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' })}>
-          {renderWidgetRemoveButton('supplementReasonTrend')}
-          {renderWidgetResizeHandle('supplementReasonTrend')}
-          {renderPanelHeader('월별 보완 요청 사유', 'supplementReasonTrend', (
-            <select
-              aria-label="보완 요청 사유 분석 프로젝트"
-              value={reasonProjectId}
-              onChange={(event) => setSelectedReasonProjectId(event.target.value)}
-	              style={{ height: 28, maxWidth: 190, border: `1px solid ${DASHBOARD_WIDGET_ACCENTS.supplementReasonTrend.border}`, borderRadius: 999, padding: '0 24px 0 10px', background: C.white, color: C.g800, fontSize: 11, fontWeight: 900, fontFamily: 'inherit' }}
-            >
-              {projects.length === 0 && <option value="">프로젝트 없음</option>}
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>{project.constructionName}</option>
-              ))}
-            </select>
           ))}
-          <div style={{ display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto', gap: 10, flex: 1, minHeight: 0 }}>
-            <div style={{ position: 'relative', minHeight: 126, borderRadius: 12, background: 'repeating-linear-gradient(to top, transparent 0, transparent 23px, rgba(137,163,154,.28) 24px)', border: `1px solid ${C.g100}`, padding: '12px 12px 24px', overflow: 'hidden' }}>
-              {reasonTrendRows.length === 0 ? (
-                <div style={{ height: '100%', minHeight: 90, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 12, fontWeight: 900 }}>
-                  표시할 월별 검증 결과가 없습니다.
+        </div>
+      </div>
+
+      <div style={{ ...dashboardContentLayerStyle, width: 'min(100%, 1240px)', margin: '0 auto', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+          <Card style={{ ...dashboardPanelStyle, padding: '18px 20px', overflow: 'visible' }}>
+            <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>최근 프로젝트 현황</div>
+              <Link href="/projects" style={{ fontSize: 12, fontWeight: 700, color: C.primary, textDecoration: 'none' }}>전체 프로젝트 보기 〉</Link>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(138px, 1.1fr) minmax(100px, .8fr) minmax(92px, .66fr) minmax(92px, .66fr) minmax(118px, .72fr)', gap: 8, marginBottom: 12 }}>
+              <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
+              <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={compactFieldStyle} />
+              <select aria-label="관리자" value={manager} onChange={(event) => setManager(event.target.value)} style={compactFieldStyle}>
+                {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '관리자' : item}</option>)}
+              </select>
+              <select aria-label="상태" value={status} onChange={(event) => setStatus(event.target.value)} style={compactFieldStyle}>
+                {filterOptions.statuses.map((item) => <option key={item} value={item}>{item === filterOptions.statuses[0] ? '상태' : item}</option>)}
+              </select>
+              <div ref={dateRangeRef} style={{ position: 'relative', minWidth: 0 }}>
+                <button
+                  type="button"
+                  aria-label="기간 설정"
+                  onClick={() => {
+                    setDateRangeOpen((open) => !open);
+                    if (rangeStart) setDatePickerMonth(new Date(`${rangeStart}T00:00:00`));
+                  }}
+                  style={{ ...compactFieldStyle, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, cursor: 'pointer', textAlign: 'left', color: rangeStart ? C.g800 : C.g400 }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dateRangeLabel}</span>
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.g600} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <path d="M16 2v4M8 2v4M3 10h18" />
+                  </svg>
+                </button>
+                {dateRangeOpen && (
+                  <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 120, width: 252, borderRadius: 14, border: `1px solid ${C.g100}`, background: C.white, boxShadow: '0 18px 38px rgba(31,47,39,.14)', padding: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                      <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, padding: '7px 9px', color: C.g800, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{dateRangeLabel}</div>
+                      <button type="button" onClick={() => { setPeriod(''); setPeriodMode('all'); setDateRangeOpen(false); }} style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 8px', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>초기화</button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 10 }}>
+                      <input aria-label="시작일" type="date" value={rangeStart} onChange={(event) => { setPeriodMode('custom'); setPeriod(`${event.target.value}~${rangeEnd}`); if (event.target.value) setDatePickerMonth(new Date(`${event.target.value}T00:00:00`)); }} style={{ ...compactFieldStyle, height: 30, fontSize: 10 }} />
+                      <input aria-label="종료일" type="date" value={rangeEnd} onChange={(event) => { setPeriodMode('custom'); setPeriod(`${rangeStart}~${event.target.value}`); if (event.target.value) setDatePickerMonth(new Date(`${event.target.value}T00:00:00`)); }} style={{ ...compactFieldStyle, height: 30, fontSize: 10 }} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <button type="button" onClick={() => moveDatePickerMonth(-1)} aria-label="이전 달" style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: '#1683F2', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>‹</button>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>{datePickerMonth.getFullYear()}년 {datePickerMonth.getMonth() + 1}월</div>
+                      <button type="button" onClick={() => moveDatePickerMonth(1)} aria-label="다음 달" style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: '#1683F2', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>›</button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 4 }}>
+                      {['일', '월', '화', '수', '목', '금', '토'].map((day) => <div key={day} style={{ height: 20, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 10, fontWeight: 700 }}>{day}</div>)}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+                      {calendarCells.map((cell) => {
+                        const startTime = rangeStart ? new Date(`${rangeStart}T00:00:00`).getTime() : 0;
+                        const endTime = rangeEnd ? new Date(`${rangeEnd}T00:00:00`).getTime() : 0;
+                        const cellTime = cell.date.getTime();
+                        const selectedStart = cell.value === rangeStart;
+                        const selectedEnd = cell.value === rangeEnd;
+                        const inRange = startTime && endTime && cellTime >= startTime && cellTime <= endTime;
+                        return (
+                          <button
+                            key={cell.value}
+                            type="button"
+                            onClick={() => selectDateRangeDay(cell.value)}
+                            style={{ height: 27, border: 'none', borderRadius: selectedStart || selectedEnd ? 999 : 8, background: selectedStart || selectedEnd ? '#1683F2' : inRange ? '#DCEBFF' : 'transparent', color: selectedStart || selectedEnd ? C.white : cell.currentMonth ? C.g800 : '#9AA19D', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: selectedStart || selectedEnd ? 900 : 800 }}
+                          >
+                            {cell.date.getDate()}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div style={{ overflow: 'auto', maxHeight: 278, minHeight: 0, border: `1px solid ${C.g100}`, borderRadius: 8 }}>
+              <table style={{ minWidth: 720, tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              <colgroup>
+                {projectTableHeaders.map((header) => (
+                  <col key={header.field} style={{ width: header.width }} />
+                ))}
+              </colgroup>
+              <thead>
+                <tr>
+                  {projectTableHeaders.map((header) => {
+                    const active = sortBy === header.field;
+                    return (
+                      <th key={header.label} style={{ position: 'sticky', top: 0, zIndex: 1, width: header.width, height: 38, padding: 0, borderBottom: `1px solid ${C.g200}`, background: 'color-mix(in srgb, var(--c-bg) 28%, #F8F9F8)', color: C.g600, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', textAlign: 'left' }}>
+                        <button
+                          type="button"
+                          onClick={() => toggleProjectTableSort(header.field)}
+                          aria-sort={active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                          style={{ width: '100%', height: 38, border: 'none', background: 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, padding: header.field === 'startDate' ? '0 8px' : '0 12px', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}
+                        >
+                          <span>{header.label}</span>
+                          <span aria-hidden="true" style={{ opacity: active ? 1 : .25, fontSize: 10, lineHeight: 1 }}>{active ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
+                        </button>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {visibleProjects.map((project) => {
+                  const progress = Math.min(100, Math.max(0, Number.parseInt(project.progressRate, 10) || 0));
+                  const safetyBudgetUsage = 0.1;
+                  const workflow = getProjectMonthWorkflowStatus(project);
+                  const hasSupplementDot = workflow === 'supplement_required';
+                  return (
+                    <tr key={project.id} onClick={() => router.push(`/projects/${project.id}`)} style={{ cursor: 'pointer' }}>
+                      <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g800, fontSize: 13, fontWeight: 700 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                          {hasSupplementDot && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: C.danger, boxShadow: '0 0 0 3px rgba(194,65,63,.12)', flexShrink: 0 }} />}
+                          <span style={{ whiteSpace: 'nowrap' }}>{project.constructionName}</span>
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g600, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{project.contractNumber}</td>
+                      <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, minWidth: 150 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 34px', gap: 8, alignItems: 'center' }}>
+                          <div style={{ height: 8, background: C.g100, borderRadius: 999, overflow: 'hidden' }}>
+                            <div style={{ width: `${progress}%`, height: '100%', background: progress >= 70 ? C.primary : progress >= 30 ? '#2F73B7' : '#C9545E' }} />
+                          </div>
+                          <span style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.g800 }}>{progress}%</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, minWidth: 150 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 42px', gap: 8, alignItems: 'center' }}>
+                          <div style={{ height: 8, background: C.g100, borderRadius: 999, overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.max(2, Math.min(100, safetyBudgetUsage))}%`, height: '100%', background: safetyBudgetUsage >= 80 ? '#C9545E' : safetyBudgetUsage >= 50 ? '#F0A22E' : C.primary }} />
+                          </div>
+                          <span style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.g800 }}>{safetyBudgetUsage}%</span>
+                        </div>
+                      </td>
+                      <td title={project.period || '-'} style={{ width: 94, maxWidth: 94, padding: '12px 8px', borderTop: `1px solid ${C.g100}`, color: C.g600, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</td>
+                      <td title={project.manager} style={{ width: 76, maxWidth: 76, padding: '12px 12px', borderTop: `1px solid ${C.g100}`, color: C.g800, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, color: C.g600, fontSize: 12, fontWeight: 700 }}>
+              <span>전체 {projects.length}건</span>
+            </div>
+          </Card>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16 }}>
+            <Card style={{ ...dashboardPanelStyle, padding: '18px 20px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box' }}>
+              <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 8 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>월별 보완 요청 사유</div>
+                  {!hasReasonTrendData && <span style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.g100, color: C.g600, padding: '3px 7px', fontSize: 10, fontWeight: 900 }}>예시</span>}
                 </div>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${reasonTrendRows.length}, 76px)`, gap: 14, alignItems: 'end', justifyContent: 'start', height: '100%', minHeight: 90, overflowX: 'auto', overflowY: 'hidden' }}>
-                  {reasonTrendRows.map((month) => (
-                    <div key={month.key} style={{ display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto', gap: 7, minHeight: 0 }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${SUPPLEMENT_REASON_TYPES.length + 1}, minmax(5px, 1fr))`, gap: 3, alignItems: 'end', minHeight: 86 }}>
-                        {[{ id: 'total', label: '전체', count: month.total, color: '#7A5CF6' }, ...month.reasons].map((reason) => {
-                          const height = reason.count ? Math.max(8, (reason.count / maxReasonTrendValue) * 86) : 0;
-                          return (
-                            <div
-                              key={reason.id}
-                              title={`${month.label} ${reason.label}: ${reason.count}건`}
-                              style={{ height, borderRadius: '999px 999px 2px 2px', background: reason.color, opacity: reason.count ? .92 : 0 }}
-                            />
-                          );
-                        })}
-                      </div>
-                      <div style={{ textAlign: 'center', fontSize: 11, fontWeight: 900, color: C.g600 }}>{month.label}</div>
+                <select
+                  aria-label="프로젝트"
+                  value={selectedReasonProjectId || reasonProjectId}
+                  onChange={(event) => setSelectedReasonProjectId(event.target.value)}
+                  style={{ width: 190, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 12, fontWeight: 700, padding: '0 10px' }}
+                >
+                  {projects.length === 0 && <option value="">프로젝트 없음</option>}
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>{project.constructionName}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ height: 132, display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, displayedReasonTrendRows.length)}, minmax(0, 1fr))`, gap: 10, alignItems: 'stretch', borderBottom: `1px solid ${C.g100}`, padding: '10px 2px 0' }}>
+                {displayedReasonTrendRows.length === 0 ? (
+                  <div style={{ gridColumn: '1 / -1', minHeight: 112, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 12, fontWeight: 700 }}>
+                    표시할 보완 요청 사유가 없습니다.
+                  </div>
+                ) : displayedReasonTrendRows.map((row) => (
+                  <div key={row.key} style={{ display: 'grid', gridTemplateRows: '1fr 18px', gap: 4, height: '100%' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${SUPPLEMENT_REASON_TYPES.length}, minmax(0, 1fr))`, gap: 2, alignItems: 'end', alignSelf: 'end', height: 94 }}>
+                      {row.reasons.map((reason) => (
+                        <span key={reason.id} title={`${row.label} ${reason.label} ${reason.count}건`} style={{ height: reason.count > 0 ? `${Math.max(8, (reason.count / maxReasonTrendValue) * 88)}px` : 0, background: reason.color, borderRadius: '4px 4px 0 0' }} />
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.g400, textAlign: 'center' }}>{row.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12, fontSize: 10, fontWeight: 700, color: C.g600 }}>
+                {SUPPLEMENT_REASON_TYPES.map((reason) => (
+                  <span key={reason.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: reason.color }} />
+                    {reason.label}
+                  </span>
+                ))}
+              </div>
+            </Card>
+
+            <Card style={{ ...dashboardPanelStyle, padding: '18px 20px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box' }}>
+              <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>보완 요청 사유 분석</div>
+                <select
+                  aria-label="프로젝트"
+                  value={selectedSupplementReasonProjectId}
+                  onChange={(event) => setSelectedSupplementReasonProjectId(event.target.value)}
+                  style={{ width: 160, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 12, fontWeight: 700, padding: '0 10px' }}
+                >
+                  <option value="">전체</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>{project.constructionName}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '136px minmax(0, 1fr)', gap: 18, alignItems: 'center', minHeight: 150 }}>
+                <div style={{ position: 'relative', width: 136, height: 136 }}>
+                  <svg width="136" height="136" viewBox="0 0 136 136">
+                    <circle cx="68" cy="68" r={supplementReasonRadius} fill="none" stroke="var(--c-g100)" strokeWidth="18" />
+                    {supplementReasonSegments.map((segment) => segment.length > 0 && (
+                      <circle key={segment.id} cx="68" cy="68" r={supplementReasonRadius} fill="none" stroke={segment.color} strokeWidth="18" strokeDasharray={`${segment.length} ${supplementReasonCircumference}`} strokeDashoffset={-segment.offset} transform="rotate(-90 68 68)" />
+                    ))}
+                  </svg>
+                  <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 28, fontWeight: 700, color: C.g800, lineHeight: 1 }}>{supplementReasonTotal}</div>
+                      <div style={{ marginTop: 4, fontSize: 10, fontWeight: 700, color: C.g600 }}>총 요청</div>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
+                  {supplementReasonChartRows.map((row) => (
+                    <div key={row.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 20px', gap: 9, alignItems: 'center', fontSize: 11, fontWeight: 700, lineHeight: 1.35 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0, color: C.g800 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 999, background: row.color, flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
+                      </span>
+                      <span style={{ color: row.color, textAlign: 'right' }}>{row.count}</span>
                     </div>
                   ))}
                 </div>
-              )}
+              </div>
+            </Card>
+
+            <Card style={{ ...dashboardPanelStyle, padding: '18px 20px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>담당자별 검증 요청 현황</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.primary }}>이번 달</div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 900, color: C.g600, whiteSpace: 'nowrap' }}>
-                <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: '#7A5CF6' }} />
-                전체
-              </span>
-              {SUPPLEMENT_REASON_TYPES.map((reasonType) => (
-                <span key={reasonType.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 900, color: C.g600, whiteSpace: 'nowrap' }}>
-                  <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: reasonType.color }} />
-                  {reasonType.label}
-                </span>
+            <div style={{ display: 'grid', gap: 10, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', paddingRight: 6, scrollbarGutter: 'stable', overscrollBehavior: 'contain' }}>
+              {managerWorkloads.length === 0 && (
+                <div style={{ minHeight: 128, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 12, fontWeight: 700 }}>
+                  표시할 담당자 현황이 없습니다.
+                </div>
+              )}
+              {managerWorkloads.map(([managerName, workload]) => (
+                <div key={managerName} style={{ display: 'grid', gridTemplateColumns: '34px minmax(0,1fr) auto', gap: 10, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${C.g100}` }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 999, background: C.primary, color: C.white, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 700 }}>{managerName.slice(0, 1)}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{managerName}</div>
+                    <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>완료 {Math.max(0, workload.projectCount - workload.actionRequired)}건 · 진행 {workload.actionRequired}건</div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.g800 }}>{workload.projectCount + workload.actionRequired}건</div>
+                </div>
               ))}
             </div>
+          </Card>
           </div>
-        </Card>
-        )}
-
-        {visibleWidgetSet.has('projectProgress') && (
-        <Card {...widgetFrameProps('projectProgress', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
-          {renderWidgetRemoveButton('projectProgress')}
-          {renderWidgetResizeHandle('projectProgress')}
-          {renderPanelHeader('프로젝트 진행 상태', 'projectProgress', '공정률')}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 13, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
-            {projects.slice(0, 4).map((project) => {
-              const progress = Math.min(100, Math.max(0, Number.parseInt(project.progressRate, 10) || 0));
-              const color = progress >= 80 ? '#2B8B5D' : progress >= 50 ? '#2F73B7' : progress >= 25 ? '#EE8A21' : '#C9545E';
-              return (
-                <Link key={project.id} href={`/projects/${project.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 42px', gap: 10, alignItems: 'center' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.constructionName}</span>
-                        <span style={{ fontSize: 10, fontWeight: 900, color: C.g400, whiteSpace: 'nowrap' }}>{project.contractNumber}</span>
-                      </div>
-                      <div style={{ height: 12, background: '#E8EEEB', overflow: 'hidden', border: 'none', borderRadius: 999 }}>
-                        <div style={{ width: `${progress}%`, height: '100%', background: color }} />
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 900, color, textAlign: 'right' }}>{progress}%</div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </Card>
-        )}
-
-        {visibleWidgetSet.has('workload') && (
-        <Card {...widgetFrameProps('workload', { padding: '18px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 })}>
-          {renderWidgetRemoveButton('workload')}
-          {renderWidgetResizeHandle('workload')}
-          {renderPanelHeader('담당자별 프로젝트 현황', 'workload', '보완 요청・프로젝트')}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
-            {managerWorkloads.map(([managerName, workload]) => (
-              <div key={managerName} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 8, border: `1px solid ${workload.actionRequired ? '#F4CBCB' : C.g200}`, borderRadius: 10, background: C.white, padding: '8px 9px', boxShadow: '0 6px 14px rgba(31,55,43,.04)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '28px minmax(0,1fr)', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                  <div aria-hidden="true" style={{ width: 28, height: 28, borderRadius: 999, background: workload.actionRequired ? '#FFECEC' : C.bg, color: workload.actionRequired ? C.danger : C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>
-                    {managerName.slice(0, 1)}
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 900, color: C.g800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{managerName}</div>
-                    <div style={{ marginTop: 2, fontSize: 10, fontWeight: 800, color: workload.actionRequired ? C.danger : C.g400, whiteSpace: 'nowrap' }}>
-                      {workload.actionRequired ? '확인 필요' : '보완 요청 없음'}
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                  <div title="보완 요청" style={{ minWidth: 48, border: `1px solid ${workload.actionRequired ? '#F4CBCB' : '#C8DAF8'}`, borderRadius: 999, background: workload.actionRequired ? '#FFF8F8' : '#EEF4FF', padding: '5px 8px', textAlign: 'center' }}>
-                    <div style={{ fontSize: 9, fontWeight: 900, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>요청</div>
-                    <div style={{ marginTop: 3, fontSize: 13, fontWeight: 900, color: workload.actionRequired ? C.danger : '#2F5FB8', lineHeight: 1 }}>{workload.actionRequired}건</div>
-                  </div>
-                  <div title="담당 프로젝트" style={{ minWidth: 48, border: `1px solid ${workload.projectCount ? C.g200 : '#F5D990'}`, borderRadius: 999, background: workload.projectCount ? '#F4FBF6' : '#FFF9EA', padding: '5px 8px', textAlign: 'center' }}>
-                    <div style={{ fontSize: 9, fontWeight: 900, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>프로젝트</div>
-                    <div style={{ marginTop: 3, fontSize: 13, fontWeight: 900, color: workload.projectCount ? C.ok : '#8A5A00', lineHeight: 1 }}>{workload.projectCount}건</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-        )}
-
-        {visibleWidgetSet.has('myProjects') && (
-        <Card {...widgetFrameProps('myProjects', { padding: '16px 16px', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' })}>
-          {renderWidgetRemoveButton('myProjects')}
-          {renderWidgetResizeHandle('myProjects')}
-          {renderPanelHeader('내 프로젝트 리스트', 'myProjects', <Link href="/projects" style={{ fontSize: 12, fontWeight: 900, color: C.primary, textDecoration: 'none' }}>전체 목록</Link>)}
-
-          <div style={{ border: 'none', borderRadius: 6, padding: '4px 6px', marginBottom: 5 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 5, alignItems: 'end' }}>
-                <div style={{ minWidth: 0 }}>
-                  <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={compactFieldStyle} />
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <select aria-label="관리자" value={manager} onChange={(event) => setManager(event.target.value)} style={compactFieldStyle}>
-                    {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '관리자' : item}</option>)}
-                  </select>
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <select aria-label="상태" value={status} onChange={(event) => setStatus(event.target.value)} style={compactFieldStyle}>
-                    {filterOptions.statuses.map((item) => <option key={item} value={item}>{item === filterOptions.statuses[0] ? '상태' : item}</option>)}
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div data-ui="dash-sort" style={{ ...sortBarStyle, gap: 4, marginBottom: 6 }}>
-            <ProjectSortControl field={sortBy} direction={sortDirection} onFieldChange={setSortBy} onDirectionChange={setSortDirection} compact />
-            <PeriodFilter mode={periodMode} value={period} onModeChange={setPeriodMode} onValueChange={setPeriod} inputStyle={compactFieldStyle} compact />
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, overflowY: 'auto', paddingRight: 4, minHeight: 0 }}>
-            {visibleProjects.map((project) => (
-              <Link key={project.id} href={`/projects/${project.id}`} style={{ textDecoration: 'none' }}>
-                <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, padding: '8px 10px', background: C.white }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, flexWrap: 'wrap' }}>
-                      <div style={{ color: C.g800, fontSize: 15, fontWeight: 900 }}>{project.constructionName}</div>
-                      {hasSupplementRequiredMonth(project) && <span style={{ width: 7, height: 7, borderRadius: 999, background: C.danger, boxShadow: '0 0 0 3px rgba(229,57,53,.14)', flex: '0 0 auto' }} />}
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '120px 110px 180px 74px', gap: 7, maxWidth: 510 }}>
-                      {[
-                        ['프로젝트 번호', project.contractNumber],
-                        ['관리자', project.manager],
-                        ['공사기간', project.period],
-                        ['공정률', project.progressRate],
-                      ].map(([label, value]) => (
-                        <div key={label} style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 11, color: C.g400, fontWeight: 800, marginBottom: 3 }}>{label}</div>
-                          <div style={{ fontSize: 12, color: C.g800, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </Card>
-        )}
+        </div>
       </div>
       </div>
     </AppFrame>

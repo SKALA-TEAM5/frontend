@@ -1,14 +1,17 @@
 import { getProjectManagers, PROJECT_STATUS_META, type ProjectSummary } from './project-data';
 
-export type ProjectSortField = 'name' | 'startDate' | 'endDate' | 'progress';
+export type ProjectSortField = 'name' | 'contractNumber' | 'startDate' | 'endDate' | 'progress' | 'usageRate' | 'manager';
 export type SortDirection = 'asc' | 'desc';
 export type PeriodMode = 'all' | '1m' | '3m' | '6m' | 'custom';
 
 export const PROJECT_SORT_FIELD_LABELS: Record<ProjectSortField, string> = {
   name: '가나다순',
+  contractNumber: '계약번호순',
   startDate: '공사시작일순',
   endDate: '공사마감일순',
   progress: '공정률순',
+  usageRate: '안전관리비 사용률순',
+  manager: '담당자순',
 };
 
 export const SORT_DIRECTION_LABELS: Record<SortDirection, string> = {
@@ -28,13 +31,6 @@ interface ProjectFilterOptions {
   allStatusLabel?: string;
   includeManagerStatus?: boolean;
 }
-
-const parsePeriodDate = (period: string) => {
-  const [, end = ''] = period.split('~').map((value) => value.trim());
-  const fallback = period.split('~')[0]?.trim() || '';
-  const time = new Date((end || fallback).replace(/\//g, '-')).getTime();
-  return Number.isNaN(time) ? 0 : time;
-};
 
 const parseProjectPeriodRange = (period: string) => {
   const [start = '', end = ''] = period.split('~').map((value) => value.trim().replace(/\//g, '-'));
@@ -90,6 +86,7 @@ const matchesCustomPeriod = (project: ProjectSummary, period: string) => {
 };
 
 const progressValue = (project: ProjectSummary) => Number.parseInt(project.progressRate, 10) || 0;
+const usageRateValue = (project: ProjectSummary) => Number.parseFloat(String(project.usageRate).replace(/[^\d.]/g, '')) || 0;
 
 export const sortProjects = (projects: ProjectSummary[], sortBy: ProjectSortField, sortDirection: SortDirection = 'asc') => {
   const nextProjects = [...projects];
@@ -99,11 +96,20 @@ export const sortProjects = (projects: ProjectSummary[], sortBy: ProjectSortFiel
     if (sortBy === 'name') {
       return a.constructionName.localeCompare(b.constructionName, 'ko-KR') * direction;
     }
+    if (sortBy === 'contractNumber') {
+      return a.contractNumber.localeCompare(b.contractNumber, 'ko-KR', { numeric: true }) * direction;
+    }
     if (sortBy === 'startDate') {
       return (parseProjectPeriodRange(a.period).startTime - parseProjectPeriodRange(b.period).startTime) * direction;
     }
     if (sortBy === 'endDate') {
       return (parseProjectPeriodRange(a.period).endTime - parseProjectPeriodRange(b.period).endTime) * direction;
+    }
+    if (sortBy === 'usageRate') {
+      return (usageRateValue(a) - usageRateValue(b)) * direction;
+    }
+    if (sortBy === 'manager') {
+      return a.manager.localeCompare(b.manager, 'ko-KR') * direction;
     }
     return (progressValue(a) - progressValue(b)) * direction;
   });

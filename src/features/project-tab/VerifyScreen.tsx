@@ -14,7 +14,6 @@ import { VALIDATION_DASHBOARD_RESULT, fmt } from '../../lib/evidence-utils';
 import type { CategoryValidationResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
 
 interface VerifyScreenProps {
-  contractName: string;
   projectId?: string;
   usageStatementId?: number;
   initialStatus?: VerifyStatus;
@@ -28,22 +27,9 @@ interface VerifyScreenProps {
 type VerifyStatus = 'idle' | 'loading' | 'done';
 type SheReviewDecision = 'pending' | 'review_completed' | 'supplement_requested';
 type ResultFilter = 'all' | ValidationDecision;
-type AmountTooltip = {
-  label: string;
-  value: number;
-  rate: number;
-  color: string;
-  detail: string;
-  placement: 'top' | 'middle' | 'bottom' | 'left';
-} | null;
-type SummaryWidgetTooltip = {
-  source: 'highRisk' | 'decision' | 'evidence';
-  title: string;
-  accent: string;
-  rows: Array<{ label: string; value?: string; detail?: string; color?: string }>;
-  placement?: 'right' | 'left';
-} | null;
 type ValidationRunState = 'unknown' | 'running' | 'done' | 'failed';
+
+const EXAMPLE_VALIDATION_ID = 'example-validation-result';
 
 const decisionMeta: Record<ValidationDecision, { label: string; color: string; bg: string; border: string }> = {
   appropriate: { label: '적정', color: C.ok, bg: '#F4FBF6', border: C.light },
@@ -150,14 +136,12 @@ const isCurrentUsageStatementValidation = (source: unknown, usageStatementId?: n
   return !sourceStatementId || sourceStatementId === String(usageStatementId);
 };
 
-const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
+const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
   const [filter, setFilter] = useState<ResultFilter>('all');
   const [selectedCategoryId, setSelectedCategoryId] = useState(4);
   const [sheReviewDecision, setSheReviewDecision] = useState<SheReviewDecision>('pending');
-  const [amountTooltip, setAmountTooltip] = useState<AmountTooltip>(null);
-  const [summaryWidgetTooltip, setSummaryWidgetTooltip] = useState<SummaryWidgetTooltip>(null);
   const [submittedEvidenceOpen, setSubmittedEvidenceOpen] = useState(false);
   const [manualSupplementOpen, setManualSupplementOpen] = useState(false);
   const [manualSupplementText, setManualSupplementText] = useState('');
@@ -178,15 +162,7 @@ const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus
   const issues = useMemo(() => flattenIssues(categories), [categories]);
   const totalUsage = sumBy(categories, 'usageAmount');
   const totalRecognized = sumBy(categories, 'recognizedAmount');
-  const totalDisputed = sumBy(categories, 'disputedAmount');
   const recognizedRate = totalUsage > 0 ? Math.round((totalRecognized / totalUsage) * 100) : 0;
-  const counts = {
-    appropriate: categories.filter((item) => item.decision === 'appropriate').length,
-    conditional: categories.filter((item) => item.decision === 'conditional').length,
-    inappropriate: categories.filter((item) => item.decision === 'inappropriate').length,
-    highRisk: categories.filter((item) => item.riskLevel === 'high').length,
-  };
-
   useEffect(() => {
     if (initialStatus === 'done') setStatus('done');
   }, [initialStatus]);
@@ -217,7 +193,7 @@ const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus
   }, [projectId, usageStatementId]);
 
   useEffect(() => {
-    if (status !== 'loading' || !projectId || !validationId) return;
+    if (status !== 'loading' || !projectId || !validationId || validationId === EXAMPLE_VALIDATION_ID) return;
     let cancelled = false;
     const pollValidationStatus = async () => {
       try {
@@ -229,17 +205,19 @@ const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus
           setValidationStatusText('검증이 완료되었습니다.');
           onValidationComplete?.();
         } else if (runState === 'failed') {
-          setStatus('idle');
-          setValidationStatusText('');
-          setAgentFailureTarget('legal-validation');
+          setValidationId(EXAMPLE_VALIDATION_ID);
+          setStatus('done');
+          setValidationStatusText('검증 상태 조회 결과 실패가 반환되어 예시 검증 결과를 표시합니다.');
+          onValidationComplete?.();
         } else {
           setValidationStatusText('검증 결과를 확인하고 있습니다.');
         }
       } catch {
         if (!cancelled) {
-          setStatus('idle');
-          setValidationStatusText('');
-          setAgentFailureTarget('legal-validation');
+          setValidationId(EXAMPLE_VALIDATION_ID);
+          setStatus('done');
+          setValidationStatusText('검증 상태 조회 API 응답을 받지 못해 예시 검증 결과를 표시합니다.');
+          onValidationComplete?.();
         }
       }
     };
@@ -252,12 +230,13 @@ const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus
   }, [onValidationComplete, projectId, status, validationId]);
 
   const handleVerify = async () => {
-    if (!canStartValidation || !projectId || !usageStatementId) return;
+    if (!canStartValidation) return;
     try {
       setStatus('loading');
       setSelectedCategoryId(4);
       setSheReviewDecision('pending');
       setValidationStatusText('검증을 시작했습니다.');
+      if (!projectId || !usageStatementId) throw new Error('검증 API 호출에 필요한 ID가 없습니다.');
       const validationRun = await runValidationAgent(projectId, usageStatementId, status === 'done');
       const nextValidationId = extractValidationId(validationRun);
       const runState = extractValidationRunState(validationRun);
@@ -273,9 +252,12 @@ const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus
         setValidationStatusText('검증 결과를 확인하고 있습니다.');
       }
     } catch {
-      setStatus('idle');
-      setValidationStatusText('');
-      setAgentFailureTarget('legal-validation');
+      window.setTimeout(() => {
+        setValidationId(EXAMPLE_VALIDATION_ID);
+        setStatus('done');
+        setValidationStatusText('검증 API 응답을 받지 못해 예시 검증 결과를 표시합니다.');
+        onValidationComplete?.();
+      }, 450);
     }
   };
 
@@ -283,7 +265,9 @@ const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus
     if (!projectId || !validationId || validationConfirming) return;
     setValidationConfirming(true);
     try {
-      await confirmValidation(projectId, validationId, { decision: 'approved', comment: 'SHE 담당자 검토 완료' });
+      if (validationId !== EXAMPLE_VALIDATION_ID) {
+        await confirmValidation(projectId, validationId, { decision: 'approved', comment: 'SHE 담당자 검토 완료' });
+      }
       setSheReviewDecision('review_completed');
       await onValidationApproved?.();
     } catch {
@@ -301,10 +285,12 @@ const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus
     }
     const firstIssue = issues[0];
     const reason = firstIssue ? `${firstIssue.categoryName} 항목에서 ${firstIssue.title} 문제가 있습니다. ${firstIssue.requiredAction}` : '제출 자료를 다시 확인해 주세요.';
-    if (!projectId || !validationId || validationConfirming) return;
+    if (!validationId || validationConfirming) return;
     setValidationConfirming(true);
     try {
-      await confirmValidation(projectId, validationId, { decision: 'supplement_requested', comment: reason });
+      if (projectId && validationId !== EXAMPLE_VALIDATION_ID) {
+        await confirmValidation(projectId, validationId, { decision: 'supplement_requested', comment: reason });
+      }
       onActionRequested?.({
       title: firstIssue?.categoryName || '보완 요청',
       reason,
@@ -323,10 +309,12 @@ const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus
     const handleManualSupplementSend = async () => {
       const message = manualSupplementText.trim();
       if (!message) return;
-      if (!projectId || !validationId || validationConfirming) return;
+      if (!validationId || validationConfirming) return;
       setValidationConfirming(true);
       try {
-        await confirmValidation(projectId, validationId, { decision: 'supplement_requested', comment: message });
+        if (projectId && validationId !== EXAMPLE_VALIDATION_ID) {
+          await confirmValidation(projectId, validationId, { decision: 'supplement_requested', comment: message });
+        }
         onActionRequested?.({
         title: '보완 요청',
         reason: message,
@@ -368,148 +356,6 @@ const VerifyScreen = ({ contractName, projectId, usageStatementId, initialStatus
       <button type="button" onClick={handleVerify} disabled={status === 'loading' || !canStartValidation} style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: canStartValidation ? C.primary : C.g200, color: canStartValidation ? C.white : C.g400, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: status === 'loading' ? 'wait' : canStartValidation ? 'pointer' : 'not-allowed', boxShadow: canStartValidation ? '0 10px 22px rgba(27, 94, 59, .24)' : 'none' }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
     </div>
   );
-
-  const renderSummary = () => {
-    const radius = 48;
-    const circumference = 2 * Math.PI * radius;
-    const recognizedLength = (totalRecognized / totalUsage) * circumference;
-    const disputedLength = circumference - recognizedLength;
-    const recognizedColor = C.ok;
-    const disputedColor = C.danger;
-    const totalTooltip: NonNullable<AmountTooltip> = { label: '총 사용내역서 금액', value: totalUsage, rate: 100, color: C.primary, detail: result.usageStatementFile, placement: 'top' };
-    const recognizedTooltip: NonNullable<AmountTooltip> = { label: '인정 가능 금액', value: totalRecognized, rate: recognizedRate, color: recognizedColor, detail: `부적정/보완 금액 ${fmt(totalDisputed)} · ${counts.inappropriate + counts.conditional}개 항목 확인 필요`, placement: 'middle' };
-    const disputedTooltip: NonNullable<AmountTooltip> = { label: '부적정/보완 금액', value: totalDisputed, rate: 100 - recognizedRate, color: C.danger, detail: `${counts.inappropriate + counts.conditional}개 항목에서 정정 또는 보완 자료가 필요합니다.`, placement: 'left' };
-    const tooltipTop = amountTooltip?.placement === 'top' ? -6 : amountTooltip?.placement === 'bottom' ? 50 : 20;
-    const tooltipPosition: CSSProperties = amountTooltip?.placement === 'left'
-      ? { right: 'calc(100% - 70px)', top: 34 }
-      : { left: 'calc(100% + 10px)', top: tooltipTop };
-    const decisionBars = [
-      { label: '적정', count: counts.appropriate, color: C.ok },
-      { label: '조건부', count: counts.conditional, color: C.warn },
-      { label: '부적정', count: counts.inappropriate, color: C.danger },
-    ];
-    const evidenceIssueBars = [
-      { label: '문제 파일', count: categories.reduce((sum, item) => sum + item.evidenceSummary.problematicFiles.length, 0), color: C.danger },
-      { label: '누락 자료', count: categories.reduce((sum, item) => sum + item.evidenceSummary.missingTypes.length, 0), color: C.warn },
-      { label: '보완 요청', count: issues.length, color: C.primary },
-    ];
-    const maxEvidenceIssueCount = Math.max(1, ...evidenceIssueBars.map((item) => item.count));
-    const highRiskRows = categories
-      .filter((item) => item.riskLevel === 'high')
-      .map((item) => ({
-        label: item.categoryName,
-        value: decisionMeta[item.decision].label,
-        detail: item.issues[0]?.title || `쟁점 금액 ${fmt(item.disputedAmount)}`,
-        color: decisionMeta[item.decision].color,
-      }));
-    const decisionRows = decisionBars.map((bar) => ({
-      label: bar.label,
-      value: `${bar.count}건`,
-      detail: categories.filter((item) => decisionMeta[item.decision].label === bar.label).map((item) => item.categoryName).join(', ') || '해당 항목 없음',
-      color: bar.color,
-    }));
-    const problematicFiles = categories.flatMap((item) => item.evidenceSummary.problematicFiles.map((file) => `${item.categoryName}: ${file.fileName}`));
-    const missingEvidence = categories.flatMap((item) => item.evidenceSummary.missingTypes.map((missing) => `${item.categoryName}: ${missing}`));
-    const evidenceRows = [
-      { label: '문제 파일', value: `${problematicFiles.length}건`, detail: problematicFiles.join(', ') || '문제 파일 없음', color: C.danger },
-      { label: '누락 자료', value: `${missingEvidence.length}건`, detail: missingEvidence.join(', ') || '누락 자료 없음', color: C.warn },
-      { label: '보완 요청', value: `${issues.length}건`, detail: issues.map((issue) => `${issue.categoryName}: ${issue.title}`).join(', ') || '보완 요청 없음', color: C.primary },
-    ];
-    const renderWidgetTooltip = (source: NonNullable<SummaryWidgetTooltip>['source']) => {
-      if (!summaryWidgetTooltip || summaryWidgetTooltip.source !== source) return null;
-      const placementStyle: CSSProperties = summaryWidgetTooltip.placement === 'left'
-        ? { right: 'calc(100% + 10px)', top: 8 }
-        : { left: 'calc(100% + 10px)', top: 8 };
-      return <div style={{ position: 'absolute', ...placementStyle, zIndex: 1100, width: 286, padding: '11px 12px', borderRadius: 6, background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 10px 24px rgba(0,0,0,.14)', pointerEvents: 'none' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-          <span style={{ width: 9, height: 9, borderRadius: 99, background: summaryWidgetTooltip.accent, flexShrink: 0 }} />
-          <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{summaryWidgetTooltip.title}</div>
-        </div>
-        <div style={{ display: 'grid', gap: 7 }}>
-          {summaryWidgetTooltip.rows.map((row) => <div key={`${row.label}-${row.value || ''}`} style={{ paddingBottom: 7, borderBottom: `1px solid ${C.g100}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 900, color: C.g800 }}>{row.label}</span>
-              {row.value && <span style={{ fontSize: 11, fontWeight: 900, color: row.color || summaryWidgetTooltip.accent, whiteSpace: 'nowrap' }}>{row.value}</span>}
-            </div>
-            {row.detail && <div style={{ marginTop: 3, fontSize: 10, color: C.g600, lineHeight: 1.45 }}>{row.detail}</div>}
-          </div>)}
-        </div>
-      </div>;
-    };
-
-    return <div style={{ display: 'grid', gridTemplateColumns: '160px 160px minmax(280px, 340px) minmax(240px, 1fr)', gap: 12, alignItems: 'start', marginBottom: 14, overflow: 'visible' }}>
-      <Card style={{ width: '100%', height: 160, boxSizing: 'border-box', padding: 14, position: 'relative', overflow: 'visible', display: 'grid', placeItems: 'center' }}>
-        <div style={{ position: 'relative', width: 132, height: 132, display: 'grid', placeItems: 'center' }} onMouseLeave={() => setAmountTooltip(null)}>
-          <svg width="132" height="132" viewBox="0 0 132 132" aria-hidden="true">
-            <circle cx="66" cy="66" r={radius} fill="none" stroke={C.g100} strokeWidth="16" />
-            <circle cx="66" cy="66" r={radius} fill="none" stroke={recognizedColor} strokeWidth="16" strokeLinecap="butt" strokeDasharray={`${recognizedLength} ${circumference - recognizedLength}`} transform="rotate(-90 66 66)" style={{ cursor: 'help' }} onMouseEnter={() => setAmountTooltip(recognizedTooltip)} />
-            <circle cx="66" cy="66" r={radius} fill="none" stroke={disputedColor} strokeWidth="16" strokeLinecap="butt" strokeDasharray={`${disputedLength} ${recognizedLength}`} strokeDashoffset={-recognizedLength} transform="rotate(-90 66 66)" style={{ cursor: 'help' }} onMouseEnter={() => setAmountTooltip(disputedTooltip)} />
-          </svg>
-          <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none', textAlign: 'center' }}>
-            <div onMouseEnter={() => setAmountTooltip(totalTooltip)} style={{ pointerEvents: 'auto', cursor: 'help', padding: 4 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.g800, lineHeight: 1.18 }}>인정률</div>
-              <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, lineHeight: 1.12 }}>{recognizedRate}%</div>
-            </div>
-          </div>
-          {amountTooltip && <div style={{ position: 'absolute', ...tooltipPosition, zIndex: 1000, width: 238, padding: '10px 12px', borderRadius: 6, background: C.white, border: `1px solid ${C.g200}`, boxShadow: '0 8px 20px rgba(0,0,0,.12)', pointerEvents: 'none' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 99, background: amountTooltip.color, flexShrink: 0 }} />
-              <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{amountTooltip.label}</div>
-            </div>
-            <div style={{ fontSize: 17, fontWeight: 900, color: amountTooltip.color }}>{fmt(amountTooltip.value)}</div>
-            <div style={{ fontSize: 11, color: C.g600, marginTop: 4, lineHeight: 1.55 }}>비율 {amountTooltip.rate}%</div>
-            <div style={{ fontSize: 11, color: C.g600, marginTop: 4, lineHeight: 1.55 }}>{amountTooltip.detail}</div>
-          </div>}
-        </div>
-      </Card>
-
-      <div onMouseEnter={() => setSummaryWidgetTooltip({ source: 'highRisk', title: '고위험 항목 세부', accent: C.danger, rows: highRiskRows.length ? highRiskRows : [{ label: '고위험 항목 없음', detail: '현재 높은 리스크로 분류된 항목이 없습니다.' }] })} onMouseLeave={() => setSummaryWidgetTooltip(null)} style={{ position: 'relative', minWidth: 0 }}>
-        <Card style={{ width: '100%', boxSizing: 'border-box', height: 160, borderRadius: 12, padding: '16px 16px', background: C.dangerBg, border: '1px solid #FFCDD2', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <div style={{ fontSize: 12, fontWeight: 900, color: C.danger }}>고위험 항목</div>
-          <div style={{ fontSize: 34, fontWeight: 900, color: C.danger, marginTop: 6, lineHeight: 1 }}>{counts.highRisk}건</div>
-          <div style={{ fontSize: 11, color: C.g600, marginTop: 9, lineHeight: 1.45 }}>부적정 판정 우선 검토</div>
-        </Card>
-        {renderWidgetTooltip('highRisk')}
-      </div>
-
-      <div onMouseEnter={() => setSummaryWidgetTooltip({ source: 'decision', title: '판정 분포 세부', accent: C.primary, rows: decisionRows })} onMouseLeave={() => setSummaryWidgetTooltip(null)} style={{ position: 'relative', minWidth: 0 }}>
-        <Card style={{ width: '100%', boxSizing: 'border-box', minWidth: 0, height: 160, padding: '15px 16px' }}>
-          <div style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 12 }}>판정 분포</div>
-          <div style={{ height: 13, borderRadius: 999, overflow: 'hidden', display: 'flex', background: C.g100, marginBottom: 12 }}>
-            {decisionBars.map((bar) => <div key={bar.label} style={{ width: `${(bar.count / categories.length) * 100}%`, background: bar.color }} />)}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-            {decisionBars.map((bar) => <div key={bar.label}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-                <span style={{ width: 7, height: 7, borderRadius: 99, background: bar.color }} />
-                <span style={{ fontSize: 10, fontWeight: 900, color: C.g600 }}>{bar.label}</span>
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 900, color: bar.color, lineHeight: 1 }}>{bar.count}</div>
-            </div>)}
-          </div>
-        </Card>
-        {renderWidgetTooltip('decision')}
-      </div>
-
-      <div onMouseEnter={() => setSummaryWidgetTooltip({ source: 'evidence', title: '증빙 이슈 세부', accent: C.warn, rows: evidenceRows, placement: 'left' })} onMouseLeave={() => setSummaryWidgetTooltip(null)} style={{ position: 'relative', minWidth: 0 }}>
-        <Card style={{ width: '100%', boxSizing: 'border-box', minWidth: 0, height: 160, padding: '15px 16px' }}>
-          <div style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 11 }}>증빙 이슈</div>
-          <div style={{ display: 'grid', gap: 9 }}>
-            {evidenceIssueBars.map((item) => <div key={item.label}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: 11, fontWeight: 900, color: C.g600 }}>{item.label}</span>
-                <span style={{ fontSize: 11, fontWeight: 900, color: item.color }}>{item.count}건</span>
-              </div>
-              <div style={{ height: 8, borderRadius: 999, background: C.g100, overflow: 'hidden' }}>
-                <div style={{ width: `${(item.count / maxEvidenceIssueCount) * 100}%`, height: '100%', borderRadius: 999, background: item.color }} />
-              </div>
-            </div>)}
-          </div>
-        </Card>
-        {renderWidgetTooltip('evidence')}
-      </div>
-    </div>;
-  };
 
   const renderCategoryTable = () => {
     const thStyle: CSSProperties = { padding: '7px 8px', fontSize: 12, lineHeight: 1.25 };

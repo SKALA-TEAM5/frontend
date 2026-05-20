@@ -8,9 +8,9 @@ import { C } from '../../lib/theme';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
-import ArchivePreview from './ArchivePreview';
 import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadProjectFile, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
 import { listSafeLeeEvidenceRequirements, parseAndMatchEvidenceWithOcr, runAgent, safeLeeRequirementsToMap } from '../../lib/agent-api';
+import { ApiClientError } from '../../lib/api-client';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 type ArchiveValidationStatus = 'idle' | 'running' | 'done';
 interface ArchiveScreenProps {
@@ -64,11 +64,6 @@ const EVIDENCE_SECTIONS: Array<{ id: FolderEvidenceCategory; label: string }> = 
     { id: 'tax_invoice', label: '세금계산서' },
     { id: 'other_document', label: '기타' },
 ];
-const TODO_SOURCE_LABELS: Record<ArchiveTodoSource, string> = {
-    matching: '매칭',
-    vision: '비전',
-    law: '법령',
-};
 const addUsageItemInputStyle = {
     height: 42,
     minWidth: 0,
@@ -148,6 +143,20 @@ const toNounPhraseDetail = (value?: string) => {
         .trim();
 };
 const getArchiveTodoStorageKey = (projectId: string, key?: string) => `iveri-mvp-archive-todos:${projectId}:${key || 'default'}`;
+const isApiStatus = (error: unknown, status: number) => error instanceof ApiClientError && error.status === status;
+const buildExampleRequiredEvidence = (items: UsageLineItem[]): SafetyDocAgentRequiredEvidenceMap => {
+    const candidates = items.slice(0, 3);
+    if (!candidates.length)
+        return {};
+    return candidates.reduce<SafetyDocAgentRequiredEvidenceMap>((result, item, index) => {
+        result[item.id] = index === 0
+            ? { receipt: ['영수증'], other_document: ['이체확인증'] }
+            : index === 1
+                ? { site_photo: ['현장사진'], other_document: ['지급대장'] }
+                : { tax_invoice: ['세금계산서'], other_document: ['계약서'] };
+        return result;
+    }, {});
+};
 const readStoredArchiveTodos = (projectId: string, key?: string) => {
     if (typeof window === 'undefined')
         return { requiredEvidenceByLine: {}, completedTodoIds: {} } as { requiredEvidenceByLine: SafetyDocAgentRequiredEvidenceMap; completedTodoIds: Record<string, boolean> };
@@ -187,11 +196,6 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
     const [todoSidebarOpen, setTodoSidebarOpen] = useState(false);
     const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(resolvedUsageItems[0]?.categoryId || 1);
     const [selectedUsageItemId, setSelectedUsageItemId] = useState(resolvedUsageItems[0]?.id || '');
-    const [hoverPreview, setHoverPreview] = useState<{
-        entry: EvidenceFile;
-        x: number;
-        y: number;
-    } | null>(null);
     const pendingArchiveSeedRef = useRef<ArchiveSeed | null>(null);
     const syncingArchiveSeedRef = useRef(false);
     const archiveSeedSnapshotRef = useRef('');
@@ -213,8 +217,6 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
         hydratingTodoRef.current = true;
         setRequiredEvidenceByLine(stored.requiredEvidenceByLine);
         setCompletedTodoIds(stored.completedTodoIds);
-        if (Object.keys(stored.requiredEvidenceByLine).length > 0)
-            setMatchingStatus('done');
     }, [projectId, todoStorageKey]);
     useEffect(() => {
         if (hydratingTodoRef.current) {
@@ -377,18 +379,6 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
     const archiveVerificationRunning = Boolean(archiveVerificationStep) || matchingStatus === 'running' || photoValidationStatus === 'running';
     const archiveVerificationDone = matchingStatus === 'done' || photoValidationStatus === 'done';
     const archiveVerificationLabel = archiveVerificationRunning ? '검증 중...' : '검증';
-    const todoMatchesCurrentSelection = (todo: ArchiveTodoItem) => {
-        const activeItem = resolvedUsageItems.find((item) => item.id === selectedUsageItemId);
-        if (todo.usageItemId)
-            return todo.usageItemId === selectedUsageItemId && (!todo.categoryId || todo.categoryId === selectedHierarchyCatId);
-        if (todo.categoryId)
-            return todo.categoryId === selectedHierarchyCatId;
-        if (!activeItem)
-            return false;
-        const normalizedContext = normalizeTodoIdText(todo.context);
-        const normalizedItemName = normalizeTodoIdText(activeItem.name);
-        return Boolean(normalizedContext && normalizedItemName && (normalizedContext === normalizedItemName || normalizedContext.includes(normalizedItemName) || normalizedItemName.includes(normalizedContext)));
-    };
     const isSupplementTarget = (catId: number, usageItemId?: string) => {
         if (usageItemId)
             return archiveTodoItems.some((todo) => {
@@ -626,11 +616,6 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
         setSelectedHierarchyCatId(nextItem.categoryId);
         setSelectedUsageItemId(usageItemId);
     };
-    const openFilePreview = (file: EvidenceFile) => {
-        if (!file.fileId)
-            return;
-        window.open(getProjectFilePreviewUrl(projectId, file.fileId), '_blank', 'noopener,noreferrer');
-    };
     const openFileDownload = (file: EvidenceFile) => {
         if (!file.fileId)
             return;
@@ -773,6 +758,16 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             setMatchingError('사용내역서 ID가 없어 Safety Doc Agent를 실행할 수 없습니다.');
             return;
         }
+        const loadStoredRequirements = async () => {
+            const requirementEntries = await Promise.all(resolvedUsageItems.map(async (item) => {
+                const requirements = await listSafeLeeEvidenceRequirements(projectId, usageStatementId, item.id).catch(() => []);
+                return safeLeeRequirementsToMap(item.id, requirements);
+            }));
+            const storedRequiredEvidence = requirementEntries.reduce<SafetyDocAgentRequiredEvidenceMap>((result, entry) => ({ ...result, ...entry }), {});
+            setRequiredEvidenceByLine(storedRequiredEvidence);
+            setFileData((current) => normalizeArchiveData(current));
+            return storedRequiredEvidence;
+        };
         setMatchingStatus('running');
         setMatchingError('');
         setMatchingNotice('');
@@ -780,21 +775,33 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             await Promise.all(resolvedUsageItems.map((item) => runAgent(projectId, 'safety_doc', {
                 usageStatementId,
                 usageStatementItemId: item.id,
-            }).catch(() => null)));
-            const requirementEntries = await Promise.all(resolvedUsageItems.map(async (item) => {
-                const requirements = await listSafeLeeEvidenceRequirements(projectId, usageStatementId, item.id).catch(() => []);
-                return safeLeeRequirementsToMap(item.id, requirements);
-            }));
-            const agentRequiredEvidence = requirementEntries.reduce<SafetyDocAgentRequiredEvidenceMap>((result, entry) => ({ ...result, ...entry }), {});
+            })));
+            const agentRequiredEvidence = await loadStoredRequirements();
             setRequiredEvidenceByLine(agentRequiredEvidence);
-            setFileData((current) => normalizeArchiveData(current));
             setMatchingStatus('done');
             setMatchingNotice(Object.keys(agentRequiredEvidence).length
-                ? 'Safety Doc Agent 결과를 반영했습니다.'
+                ? 'Safety Doc Agent 실행 후 저장된 필수 증빙을 반영했습니다.'
                 : 'Safety Doc Agent가 추가로 요구한 증빙이 없습니다.');
         } catch (error) {
-            setMatchingStatus('idle');
-            setMatchingError(error instanceof Error ? error.message : 'Safety Doc Agent 실행에 실패했습니다.');
+            if (isApiStatus(error, 501)) {
+                const storedRequiredEvidence = await loadStoredRequirements();
+                if (!Object.keys(storedRequiredEvidence).length) {
+                    setRequiredEvidenceByLine(buildExampleRequiredEvidence(resolvedUsageItems));
+                    setFileData((current) => normalizeArchiveData(current));
+                }
+                setMatchingStatus('done');
+                setMatchingNotice(Object.keys(storedRequiredEvidence).length
+                    ? 'Safety Doc Agent 실행 API가 아직 구현되지 않아 저장된 필수 증빙 데이터를 표시합니다.'
+                    : 'Safety Doc Agent 실행 API가 아직 구현되지 않아 예시 필수 증빙 결과를 표시합니다.');
+                return;
+            }
+            const storedRequiredEvidence = await loadStoredRequirements();
+            if (!Object.keys(storedRequiredEvidence).length) {
+                setRequiredEvidenceByLine(buildExampleRequiredEvidence(resolvedUsageItems));
+                setFileData((current) => normalizeArchiveData(current));
+            }
+            setMatchingStatus('done');
+            setMatchingNotice('Safety Doc Agent 응답을 받지 못해 예시 필수 증빙 결과를 표시합니다.');
         }
     };
     const runVisionPhotoValidation = async () => {
@@ -804,6 +811,80 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             setAgentFailureTarget('photo-validation');
             return;
         }
+        const applyExampleVisionValidation = () => {
+            const today = new Date().toISOString().slice(0, 10);
+            const fallbackItem = resolvedUsageItems[0];
+            commitFileData((prev) => {
+                const next: ArchiveSeed = { ...prev, categories: { ...(prev.categories || {}) } };
+                let applied = false;
+                Object.entries(next.categories).forEach(([catId, lineMap]) => {
+                    next.categories[catId] = { ...lineMap };
+                    Object.entries(lineMap).forEach(([usageItemId, kindMap]) => {
+                        const photos = kindMap.site_photo || [];
+                        if (!photos.length)
+                            return;
+                        const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
+                        next.categories[catId][usageItemId] = {
+                            ...kindMap,
+                            site_photo: photos.map((file, index) => ({
+                                ...file,
+                                visionValidation: index === 0 && !applied
+                                    ? {
+                                        status: 'unsuitable',
+                                        checkedAt: today,
+                                        itemName: usageItem?.name || '현장사진',
+                                        summary: '예시 비전 검증 결과, 작업자 안전벨트 착용 여부가 불명확하고 촬영 각도가 지출 항목 확인에 부족합니다.',
+                                        detections: [
+                                            { label: 'worker', confidence: 0.91, box: [18, 16, 42, 70], status: 'ok' },
+                                            { label: 'safety_belt', confidence: 0.38, box: [25, 44, 38, 58], status: 'bad' },
+                                        ],
+                                    }
+                                    : file.visionValidation || {
+                                        status: 'suitable',
+                                        checkedAt: today,
+                                        itemName: usageItem?.name || '현장사진',
+                                        summary: '예시 비전 검증 결과, 현장 상태와 지출 항목이 확인됩니다.',
+                                        detections: [{ label: 'site', confidence: 0.87, box: [8, 10, 86, 78], status: 'ok' }],
+                                    },
+                            })),
+                        };
+                        applied = true;
+                    });
+                });
+                if (!applied && fallbackItem) {
+                    const catId = String(fallbackItem.categoryId);
+                    const lineMap = { ...(next.categories[catId] || {}) };
+                    const kindMap = { ...(lineMap[fallbackItem.id] || {}) };
+                    lineMap[fallbackItem.id] = {
+                        ...kindMap,
+                        site_photo: [
+                            ...(kindMap.site_photo || []),
+                            {
+                                id: `example-vision-${fallbackItem.id}`,
+                                name: '예시_현장사진_비전검증.jpg',
+                                kind: 'site_photo',
+                                uploadedAt: today,
+                                uploadedBy: '예시 데이터',
+                                categoryIds: [fallbackItem.categoryId],
+                                usageItemIds: [fallbackItem.id],
+                                visionValidation: {
+                                    status: 'unsuitable',
+                                    checkedAt: today,
+                                    itemName: fallbackItem.name,
+                                    summary: '예시 비전 검증 결과, 사진만으로 실제 설치 상태와 보호구 착용 여부를 충분히 확인하기 어렵습니다.',
+                                    detections: [
+                                        { label: 'site_photo', confidence: 0.82, box: [10, 12, 88, 76], status: 'ok' },
+                                        { label: 'required_object', confidence: 0.31, box: [42, 28, 64, 58], status: 'bad' },
+                                    ],
+                                },
+                            },
+                        ],
+                    };
+                    next.categories[catId] = lineMap;
+                }
+                return next;
+            });
+        };
         setPhotoValidationNotice(null);
         setPhotoValidationStatus('running');
         try {
@@ -814,8 +895,9 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             setPhotoValidationStatus('done');
             setPhotoValidationNotice({ type: 'ok', message: '사진 검증 Agent 실행 결과가 저장되었습니다.' });
         } catch {
-            setPhotoValidationStatus('idle');
-            setAgentFailureTarget('photo-validation');
+            applyExampleVisionValidation();
+            setPhotoValidationStatus('done');
+            setPhotoValidationNotice({ type: 'ok', message: '사진 검증 Agent 응답을 받지 못해 예시 검증 결과를 표시합니다.' });
         }
     };
     const waitForVerificationStep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -840,7 +922,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             usageStatementId,
             usageStatementItemId: file.usageItemId,
         }))).catch(() => {
-            setAgentFailureTarget('evidence-matching');
+            setMatchingNotice('OCR/link agent 응답을 받지 못해 예시 매칭 흐름으로 계속 진행합니다.');
         });
     };
     const runArchiveVerification = async () => {
@@ -867,11 +949,13 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
       <div style={{ display: 'grid', gap: 7 }}>
         {items.map((todo, index) => {
           const done = Boolean(completedTodoIds[todo.id]);
-          const tone = todo.mode === 'add' ? '#8F6B2A' : '#A8792D';
-          const cardBorder = done ? '#EFE2BE' : '#E6C875';
-          const cardBg = done ? '#FFF8E8' : '#FFFCF2';
-          const textColor = done ? '#A89466' : '#5C4B2A';
-          const mutedTextColor = done ? '#B09B6D' : '#8C6B2E';
+          const tone = todo.mode === 'add' ? C.primary : C.danger;
+          const toneSoft = todo.mode === 'add' ? C.bg : C.dangerBg;
+          const toneBorder = todo.mode === 'add' ? C.light : '#FFCDD2';
+          const cardBorder = done ? C.g200 : toneBorder;
+          const cardBg = C.white;
+          const textColor = done ? C.g400 : C.g800;
+          const mutedTextColor = done ? C.g400 : C.g600;
           const actionText = todo.mode === 'add' ? '업로드 필요' : '삭제 필요';
           const todoUsageItem = resolvedUsageItems.find((item) => item.name === todo.context);
           const categoryName = CATS.find((cat) => cat.id === todoUsageItem?.categoryId)?.short || '9개 항목';
@@ -894,7 +978,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
                 padding: '9px 10px',
                 textAlign: 'left',
                 position: 'relative',
-                boxShadow: done ? 'none' : '0 6px 14px rgba(129,91,24,.08)',
+                boxShadow: done ? 'none' : '0 6px 14px rgba(31,47,39,.06)',
               }}
             >
               {reasonText && (
@@ -907,11 +991,11 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
                     ...(tooltipOpensUp ? { bottom: 'calc(100% + 6px)' } : { top: 'calc(100% + 6px)' }),
                     zIndex: 5,
                     display: 'none',
-                    border: '1px solid #E6C875',
+                    border: `1px solid ${C.g200}`,
                     borderRadius: 6,
-                    background: '#FFF7D8',
-                    color: '#6A521F',
-                    boxShadow: '0 10px 24px rgba(129,91,24,.16)',
+                    background: C.white,
+                    color: C.g800,
+                    boxShadow: '0 10px 24px rgba(31,47,39,.14)',
                     padding: '8px 9px',
                     fontSize: 11,
                     fontWeight: 800,
@@ -931,9 +1015,9 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
                     width: 16,
                     height: 16,
                     borderRadius: 999,
-                    border: `1px solid ${done ? '#D8C799' : tone}`,
-                    background: done ? '#EFE2BE' : '#FFF7D8',
-                    color: done ? '#8F7C54' : tone,
+                    border: `1px solid ${done ? C.g200 : toneBorder}`,
+                    background: done ? C.g100 : toneSoft,
+                    color: done ? C.g400 : tone,
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -945,7 +1029,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
                   {done ? '✓' : ''}
                 </span>
                 <span style={{ minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 12, fontWeight: 900, lineHeight: 1.35, color: done ? '#A89466' : tone, textDecoration: done ? 'line-through' : 'none' }}>{todo.title} {actionText}</span>
+                  <span style={{ display: 'block', fontSize: 12, fontWeight: 900, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{todo.title} {actionText}</span>
                   <span style={{ display: 'block', marginTop: 3, fontSize: 11, fontWeight: 800, color: mutedTextColor, lineHeight: 1.4, textDecoration: done ? 'line-through' : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{categoryName} ∙ {todo.context}</span>
                 </span>
               </div>
@@ -960,10 +1044,10 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             return null;
         const activeCount = items.filter((todo) => !completedTodoIds[todo.id]).length;
         return (
-          <div key={kind} style={{ border: `1px solid ${activeCount ? '#E6C875' : '#F1E4C0'}`, borderRadius: 6, background: activeCount ? '#FFF8DE' : '#FFFCF2', padding: 8, display: 'grid', gap: 7, marginBottom: 8, position: 'relative' }}>
+          <div key={kind} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: 8, display: 'grid', gap: 7, marginBottom: 8, position: 'relative' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 900, color: activeCount ? '#7B5F25' : '#A89466' }}>{EVIDENCE_KIND_LABELS[kind]}</div>
-              <div style={{ minWidth: 20, height: 18, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: '#FFFDF4', color: activeCount ? '#7B5F25' : '#A89466', border: '1px solid #E6C875', fontSize: 10, fontWeight: 900 }}>{activeCount}</div>
+              <div style={{ fontSize: 12, fontWeight: 900, color: activeCount ? C.g800 : C.g400 }}>{EVIDENCE_KIND_LABELS[kind]}</div>
+              <div style={{ minWidth: 20, height: 18, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 10, fontWeight: 900 }}>{activeCount}</div>
             </div>
             {renderTodoList(items)}
           </div>
@@ -978,25 +1062,25 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
               <button type="button" aria-label="보완 TODO 닫기" onClick={() => setTodoSidebarOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 53, border: 'none', background: 'transparent', cursor: 'default' }} />
             )}
             {todoSidebarOpen && (
-              <aside data-ui="archive-screen.todo-panel" style={{ position: 'fixed', top: 'calc(var(--app-header-height) + 76px)', right: 48, width: 360, maxWidth: 'calc(100vw - 68px)', height: 'min(620px, calc(100vh - var(--app-header-height) - 104px))', zIndex: 54, border: '1px solid #E8CF8C', borderRadius: '16px 0 0 16px', background: 'linear-gradient(180deg, rgba(255,251,235,.99) 0%, rgba(255,248,220,.98) 100%)', boxShadow: '0 22px 48px rgba(129,91,24,.18)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)' }}>
-                <div style={{ position: 'sticky', top: 0, zIndex: 2, background: 'rgba(255,251,235,.98)', borderBottom: '1px solid #EEDDAE', padding: '16px 16px 12px' }}>
+              <aside data-ui="archive-screen.todo-panel" style={{ position: 'fixed', top: 'calc(var(--app-header-height) + 76px)', right: 48, width: 360, maxWidth: 'calc(100vw - 68px)', height: 'min(620px, calc(100vh - var(--app-header-height) - 104px))', zIndex: 54, border: `1px solid ${C.g200}`, borderRadius: '16px 0 0 16px', background: C.white, boxShadow: '0 22px 48px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)' }}>
+                <div style={{ position: 'sticky', top: 0, zIndex: 2, background: C.white, borderBottom: `1px solid ${C.g200}`, padding: '16px 16px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                     <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>보완 TODO</div>
-                    <div style={{ fontSize: 12, fontWeight: 900, color: '#7B5F25' }}>{activeTodoCount}건</div>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: C.primary }}>{activeTodoCount}건</div>
                   </div>
                 </div>
-                <div className="archive-todo-scroll" style={{ overflowY: 'auto', overflowX: 'hidden', padding: 14, scrollbarWidth: 'thin', scrollbarColor: '#E6C875 transparent' }}>
+                <div className="archive-todo-scroll" style={{ overflowY: 'auto', overflowX: 'hidden', padding: 14, scrollbarWidth: 'thin', scrollbarColor: `${C.g200} transparent`, background: C.white }}>
                   {EVIDENCE_SECTIONS.map((section) => renderTodoGroup(section.id))}
                 </div>
               </aside>
             )}
-            <aside data-ui="archive-screen.todo-rail" style={{ position: 'fixed', top: 'calc(var(--app-header-height) + 76px)', right: 0, width: 45, height: 180, zIndex: 54, border: '1px solid #E8CF8C', borderRight: 'none', borderRadius: '14px 0 0 14px', background: 'linear-gradient(180deg, rgba(255,251,235,.98) 0%, rgba(255,244,202,.96) 100%)', boxShadow: '-10px 0 28px rgba(129,91,24,.12)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '10px 6px' }}>
-              <button type="button" aria-label={todoSidebarOpen ? '보완 TODO 접기' : '보완 TODO 펼치기'} onClick={() => setTodoSidebarOpen((open) => !open)} style={{ width: 34, height: 34, border: '1px solid #E8CF8C', borderRadius: 999, background: '#FFFFFF', color: '#7B5F25', cursor: 'pointer', fontSize: 20, fontWeight: 900, lineHeight: 1, boxShadow: '0 8px 18px rgba(129,91,24,.12)' }}>
+            <aside data-ui="archive-screen.todo-rail" style={{ position: 'fixed', top: 'calc(var(--app-header-height) + 76px)', right: 0, width: 45, height: 180, zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '14px 0 0 14px', background: C.white, boxShadow: '-10px 0 28px rgba(31,47,39,.10)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '10px 6px' }}>
+              <button type="button" aria-label={todoSidebarOpen ? '보완 TODO 접기' : '보완 TODO 펼치기'} onClick={() => setTodoSidebarOpen((open) => !open)} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 20, fontWeight: 900, lineHeight: 1, boxShadow: '0 8px 18px rgba(31,47,39,.10)' }}>
                 {todoSidebarOpen ? '»' : '«'}
               </button>
-              <div style={{ width: 30, borderTop: '1px solid #E8CF8C' }} />
-              <button type="button" onClick={() => setTodoSidebarOpen(true)} style={{ width: 36, minHeight: 92, border: 'none', borderRadius: 10, background: todoSidebarOpen ? '#FFF7D8' : 'transparent', color: '#7B5F25', cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', gap: 5, padding: '7px 3px' }}>
-                <span aria-hidden="true" style={{ width: 23, height: 23, borderRadius: 999, border: '2px solid #DDB95D', background: '#FFFDF4', color: '#7B5F25', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900 }}>{activeTodoCount}</span>
+              <div style={{ width: 30, borderTop: `1px solid ${C.g200}` }} />
+              <button type="button" onClick={() => setTodoSidebarOpen(true)} style={{ width: 36, minHeight: 92, border: 'none', borderRadius: 10, background: todoSidebarOpen ? C.g100 : 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', gap: 5, padding: '7px 3px' }}>
+                <span aria-hidden="true" style={{ width: 23, height: 23, borderRadius: 999, border: `2px solid ${C.primary}`, background: C.white, color: C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900 }}>{activeTodoCount}</span>
                 <span style={{ fontSize: 10, fontWeight: 900, lineHeight: 1.2, writingMode: 'vertical-rl', letterSpacing: 0 }}>보완 TODO</span>
               </button>
             </aside>
@@ -1102,7 +1186,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             }} onSelectUsageItem={(item) => {
                 setSelectedUsageItemId(item.id);
                 setSelectedHierarchyCatId(item.categoryId);
-            }} onRemove={removeHierarchyFile} onRename={renameHierarchyFile} onMove={moveHierarchyFile} onEditUsageItem={editUsageItem} onAddUsageItem={openAddUsageItemModal} onDeleteUsageItem={deleteUsageItem} onUpload={uploadFilesToSection} onPreviewFile={openFilePreview} onDownloadFile={openFileDownload} fileHeaderAction={uploadCompleteAction}/>
+            }} onRemove={removeHierarchyFile} onRename={renameHierarchyFile} onMove={moveHierarchyFile} onEditUsageItem={editUsageItem} onAddUsageItem={openAddUsageItemModal} onDeleteUsageItem={deleteUsageItem} onUpload={uploadFilesToSection} onDownloadFile={openFileDownload} fileHeaderAction={uploadCompleteAction}/>
           {archiveVerificationStep && archiveLoadingMessage && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 20, display: 'grid', placeItems: 'center', padding: 24, background: 'rgba(247, 252, 248, .62)', backdropFilter: 'blur(1px)' }}>
               <div style={{ width: 'min(100%, 540px)', background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 22 }}>
@@ -1112,9 +1196,6 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
           )}
         </div>
       </div>
-
-      <ArchivePreview hoverPreview={hoverPreview}/>
-
       <Modal open={addUsageItemModalOpen} onClose={() => setAddUsageItemModalOpen(false)} zIndex={960} maxWidth={520}>
         <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: '24px 24px 20px' }}>
           <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>세부 항목 추가</div>

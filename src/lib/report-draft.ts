@@ -61,7 +61,6 @@ export const buildReportDraftJson = (project: ProjectSummary | null, result: Val
   const writtenDate = todayLabel();
   const totalUsage = result.categories.reduce((sum, item) => sum + item.usageAmount, 0);
   const totalRecognized = result.categories.reduce((sum, item) => sum + item.recognizedAmount, 0);
-  const totalDisputed = result.categories.reduce((sum, item) => sum + item.disputedAmount, 0);
   const issues = result.categories.flatMap((category) => category.issues.map((issue) => ({ ...issue, category })));
   const reportPeriod = result.checkedAt || '검토 기간 미지정';
 

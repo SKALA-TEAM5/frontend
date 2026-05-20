@@ -82,19 +82,26 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
   }, [contractName, projectId, reportDraft, result, user]);
 
   const handleReportGenerate = async () => {
-    if (!validationComplete || !projectId || !usageStatementId) return;
+    if (reportStatus === 'generating') return;
+    const buildExampleDraft = () => buildReportDraftJson(projectId ? getProjectById(projectId, user) : null, result, contractName);
     try {
       setReportStatus('generating');
       setReportProgress(25);
+      if (!validationComplete || !projectId || !usageStatementId) throw new Error('보고서 Agent 실행에 필요한 상태가 없습니다.');
       await runAgent(projectId, 'report', { usageStatementId });
       setReportProgress(100);
-      setReportDraft(buildReportDraftJson(getProjectById(projectId, user), result, contractName));
+      setReportDraft(buildExampleDraft());
       setReportStatus('done');
       setReportWorkflowStatus('editing');
       setSavedAt('');
     } catch {
-      setReportStatus('idle');
-      setAgentFailureTarget('report-generation');
+      window.setTimeout(() => {
+        setReportProgress(100);
+        setReportDraft(buildExampleDraft());
+        setReportStatus('done');
+        setReportWorkflowStatus('editing');
+        setSavedAt('');
+      }, 450);
     }
   };
 
@@ -253,10 +260,10 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 생성</div>
-          <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{validationComplete ? '유효성 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '유효성 검증을 먼저 완료해야 보고서를 생성할 수 있습니다.'}</div>
+          <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{validationComplete ? '유효성 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '유효성 검증 결과가 없으면 예시 검증 결과로 보고서 초안을 생성합니다.'}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-          <Button size="sm" onClick={handleReportGenerate} disabled={!validationComplete || reportStatus === 'generating'} style={reportActionButtonStyle}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
+          <Button size="sm" onClick={handleReportGenerate} disabled={reportStatus === 'generating'} style={reportActionButtonStyle}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
           <Button size="sm" variant="outline" onClick={handleDocxExport} disabled={reportStatus !== 'done' || !reportDraft || docxExporting} style={reportActionButtonStyle}>{docxExporting ? '추출 중...' : 'DOCX 추출'}</Button>
         </div>
       </div>

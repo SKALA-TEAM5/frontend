@@ -1,6 +1,7 @@
 'use client';
 
 import Modal from '../ui/Modal';
+import DateRangePicker from '../common/DateRangePicker';
 import { C } from '../../lib/theme';
 
 export interface ProjectInfoEditorDraft {
@@ -82,6 +83,18 @@ export default function ProjectInfoEditorModal({
   onChange,
 }: ProjectInfoEditorModalProps) {
   const isCreate = mode === 'create';
+  const constructionPeriodField = (
+    <div>
+      <div style={labelStyle}>공사기간</div>
+      <DateRangePicker
+        start={draft.startDate || ''}
+        end={draft.endDate || ''}
+        onChange={(startDate, endDate) => onChange({ startDate, endDate })}
+        buttonStyle={fieldStyle}
+        popupAlign="left"
+      />
+    </div>
+  );
 
   return (
     <Modal open={open} onClose={saving ? undefined : onClose} zIndex={965} maxWidth={820}>
@@ -136,10 +149,7 @@ export default function ProjectInfoEditorModal({
                 <input inputMode="numeric" value={draft.constructionAmount || ''} onChange={(event) => onChange({ constructionAmount: event.target.value.replace(/[^\d]/g, '') })} style={fieldStyle} />
               </div>
             ) : (
-              <div>
-                <div style={labelStyle}>공사기간 시작일</div>
-                <input type="date" value={draft.startDate || ''} onChange={(event) => onChange({ startDate: event.target.value })} style={fieldStyle} />
-              </div>
+              constructionPeriodField
             )}
             {isCreate ? (
               <div>
@@ -148,26 +158,12 @@ export default function ProjectInfoEditorModal({
               </div>
             ) : (
               <div>
-                <div style={labelStyle}>공사기간 종료일</div>
-                <input type="date" value={draft.endDate || ''} onChange={(event) => onChange({ endDate: event.target.value })} style={fieldStyle} />
-              </div>
-            )}
-            {isCreate ? (
-              <div>
-                <div style={labelStyle}>공사기간 시작일</div>
-                <input type="date" value={draft.startDate || ''} onChange={(event) => onChange({ startDate: event.target.value })} style={fieldStyle} />
-              </div>
-            ) : (
-              <div>
                 <div style={labelStyle}>소재지</div>
                 <input value={draft.location || ''} onChange={(event) => onChange({ location: event.target.value })} style={fieldStyle} />
               </div>
             )}
             {isCreate ? (
-              <div>
-                <div style={labelStyle}>공사기간 종료일</div>
-                <input type="date" value={draft.endDate || ''} onChange={(event) => onChange({ endDate: event.target.value })} style={fieldStyle} />
-              </div>
+              constructionPeriodField
             ) : (
               <div>
                 <div style={labelStyle}>공정률</div>

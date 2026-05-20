@@ -9,8 +9,8 @@ import ProjectInfoEditorModal from '../../../components/project/ProjectInfoEdito
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
-import { EMPTY_PROJECT, getProjectManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
-import { createActionRequest, getActionRequest, getProject, listActionRequests, listProjectManagerCandidates, markArchiveChecked, replaceProjectAssignees, updateActionRequestStatus, updateProject, type ProjectActionRequest, type ProjectAssignee, type UpdateProjectInput } from '../../../lib/project-api';
+import { EMPTY_PROJECT, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
+import { createActionRequest, getProject, listActionRequests, listProjectManagerCandidates, markArchiveChecked, updateActionRequestStatus, updateProject, type ProjectActionRequest, type UpdateProjectInput } from '../../../lib/project-api';
 import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, requestUsageStatementSupplement, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
@@ -21,7 +21,7 @@ import ArchiveScreen from '../../../features/project-tab/ArchiveScreen';
 import VerifyScreen from '../../../features/project-tab/VerifyScreen';
 import ReportScreen from '../../../features/project-tab/ReportScreen';
 import { CATS, VALIDATION_DASHBOARD_RESULT, type UsageLineItem } from '../../../lib/evidence-utils';
-import type { ArchiveSeed, EvidenceFile } from '../../../types/domain';
+import type { ArchiveSeed } from '../../../types/domain';
 type DetailTab = 'overview' | 'details' | 'validation' | 'report';
 type UsageStatementInfoDraft = UpdateProjectInput & {
     contractNumber: string;
@@ -40,22 +40,6 @@ type UsageStatementInfoDraft = UpdateProjectInput & {
     documentWrittenDate: string;
 };
 type UsageUploadStage = 'idle' | 'ocr' | 'classifying';
-type HistoryEventKind = 'upload' | 'review' | 'action' | 'validation' | 'report' | 'project';
-type HeaderHistoryItem = {
-    id: string;
-    kind: HistoryEventKind;
-    date: string;
-    dateKey?: string;
-    time: number;
-    count: number;
-    title: string;
-    summary: string;
-};
-type PendingReviewUpload = {
-    file: EvidenceFile;
-    categoryName: string;
-    itemName: string;
-};
 type ClassificationMoveNotice = {
     id: string;
     itemName: string;
@@ -104,6 +88,12 @@ interface MvpUsageStatementArchiveData extends MonthUsageStatementArchiveData {
 const formatMonthLabel = (month: string) => {
     const [year, monthNo] = month.split('-');
     return `${year}년 ${Number(monthNo)}월`;
+};
+const normalizeMonthKey = (month?: string | null) => {
+    if (!month)
+        return '';
+    const match = month.match(/^(\d{4})-(\d{2})/);
+    return match ? `${match[1]}-${match[2]}` : month;
 };
 const asRecord = (value: unknown): Record<string, unknown> | null =>
     value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -221,12 +211,6 @@ const actionRequestToDetails = (request: ProjectActionRequest | undefined, month
         month,
     };
 };
-const ACTION_REQUEST_STATUS_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
-    open: { label: '요청됨', color: C.danger, bg: C.dangerBg, border: '#FFCDD2' },
-    in_progress: { label: '보완 업로드 완료', color: '#8A5A00', bg: '#FFF4D8', border: '#F2D59B' },
-    closed: { label: '승인 완료', color: C.primary, bg: C.bg, border: C.light },
-};
-const getActionRequestStatusMeta = (statusCode?: string | null) => ACTION_REQUEST_STATUS_META[statusCode || ''] || { label: statusCode || '-', color: C.g600, bg: C.g100, border: C.g200 };
 const getUsageStatementOcrFailureReason = (file: File) => {
     const fileName = file.name.toLowerCase();
     const supportedExtension = /\.(pdf|png|jpe?g|webp|xlsx)$/i.test(file.name);
@@ -241,33 +225,6 @@ const getUsageStatementOcrFailureReason = (file: File) => {
         return '문서 이미지의 화질이 낮아 금액과 날짜를 정확히 읽을 수 없습니다.';
     return null;
 };
-const formatHistoryDate = (value?: string) => {
-    if (!value || value === '-') return new Date().toLocaleString('ko-KR');
-    return value;
-};
-const extractDateFromText = (value?: string) => value?.match(/\d{4}-\d{2}-\d{2}/)?.[0];
-const getHistoryDateKey = (value?: string) => {
-    const date = formatHistoryDate(value);
-    const koreanDate = date.match(/^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\./);
-    if (koreanDate) return `${koreanDate[1]}. ${koreanDate[2]}. ${koreanDate[3]}.`;
-    const isoDate = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (isoDate) return `${isoDate[1]}. ${Number(isoDate[2])}. ${Number(isoDate[3])}.`;
-    return date.split(' ')[0] || date;
-};
-const getHistoryTime = (value?: string, fallback = Date.now()) => {
-    if (!value || value === '-') return fallback;
-    const parsed = Date.parse(value.replace(/\./g, '-'));
-    return Number.isFinite(parsed) ? parsed : fallback;
-};
-const agentWorkflowBadgeStyle = (tone: 'ok' | 'warn' | 'danger' | 'idle'): CSSProperties => {
-    if (tone === 'danger')
-        return { color: C.danger, background: C.dangerBg, border: '1px solid #FFCDD2' };
-    if (tone === 'warn')
-        return { color: '#8A5A00', background: '#FFF4D8', border: '1px solid #F2D59B' };
-    if (tone === 'ok')
-        return { color: C.primary, background: C.bg, border: `1px solid ${C.g200}` };
-    return { color: C.g400, background: C.white, border: `1px solid ${C.g200}` };
-};
 export default function ProjectDetailPage() {
     const router = useRouter();
     const params = useParams<{
@@ -276,7 +233,6 @@ export default function ProjectDetailPage() {
     const searchParams = useSearchParams();
     const { user } = useCurrentUser();
     const projectId = params?.projectId || '';
-    const [projectRevision, setProjectRevision] = useState(0);
     const [project, setProject] = useState<ProjectSummary>(EMPTY_PROJECT);
     const [projectLoading, setProjectLoading] = useState(true);
     const [projectError, setProjectError] = useState('');
@@ -302,24 +258,15 @@ export default function ProjectDetailPage() {
     const [archiveUsageItems, setArchiveUsageItems] = useState<UsageLineItem[]>([]);
     const [matchReady, setMatchReady] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState('');
-    const [usageStatementPage, setUsageStatementPage] = useState(requestedTabParam === 'archive' ? 1 : 0);
     const [usageUploadStage, setUsageUploadStage] = useState<UsageUploadStage>('idle');
     const [validationStatusByMonth, setValidationStatusByMonth] = useState<Record<string, 'idle' | 'running' | 'done'>>({});
-    const [selectedHistoryDate, setSelectedHistoryDate] = useState('all');
-    const [historyDateMenuOpen, setHistoryDateMenuOpen] = useState(false);
     const [projectHeaderOpen, setProjectHeaderOpen] = useState(true);
     const [actionGuideOpen, setActionGuideOpen] = useState(false);
     const [actionGuideClosingMotion, setActionGuideClosingMotion] = useState<{ x: number; y: number; scale: number } | null>(null);
-    const [actionRequestDetailOpen, setActionRequestDetailOpen] = useState(false);
-    const [actionRequestDetail, setActionRequestDetail] = useState<ProjectActionRequest | null>(null);
-    const [actionRequestDetailLoading, setActionRequestDetailLoading] = useState(false);
-    const [actionRequestDetailError, setActionRequestDetailError] = useState('');
     const [actionCompletionSent, setActionCompletionSent] = useState(false);
-    const [pendingReviewUploads, setPendingReviewUploads] = useState<PendingReviewUpload[]>([]);
     const [todoClearSignal, setTodoClearSignal] = useState(0);
     const [activeArchiveTodoCount, setActiveArchiveTodoCount] = useState(0);
     const [uploadCompleteConfirmOpen, setUploadCompleteConfirmOpen] = useState(false);
-    const [managerModalOpen, setManagerModalOpen] = useState(false);
     const [projectInfoModalOpen, setProjectInfoModalOpen] = useState(false);
     const [monthCreateModalOpen, setMonthCreateModalOpen] = useState(false);
     const [newMonthYear, setNewMonthYear] = useState(String(new Date().getFullYear()));
@@ -329,9 +276,6 @@ export default function ProjectDetailPage() {
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [ocrFailureReason, setOcrFailureReason] = useState('');
     const [classificationMoveNotices, setClassificationMoveNotices] = useState<ClassificationMoveNotice[]>([]);
-    const [draftManagerIds, setDraftManagerIds] = useState<number[]>([]);
-    const [managerSaveError, setManagerSaveError] = useState('');
-    const [managerSaving, setManagerSaving] = useState(false);
     const [projectInfoDraft, setProjectInfoDraft] = useState<UsageStatementInfoDraft>({
         contractNumber: '',
         constructionName: '',
@@ -352,17 +296,25 @@ export default function ProjectDetailPage() {
     const [projectInfoSaveError, setProjectInfoSaveError] = useState('');
     const [projectInfoSaving, setProjectInfoSaving] = useState(false);
     const [statementOverrides, setStatementOverrides] = useState<Record<string, Partial<MonthlyUsageStatementSummary>>>({});
-    const historyDateMenuRef = useRef<HTMLDivElement | null>(null);
     const actionGuideCardRef = useRef<HTMLDivElement | null>(null);
     const actionRequestBadgeRef = useRef<HTMLButtonElement | null>(null);
     const monthHistoryPushedRef = useRef(false);
     const usageUploadTimersRef = useRef<number[]>([]);
-    const monthlyStatements = useMemo(() => Object.values(dbUsageStatementsByMonth)
-        .map((entry) => ({
-        ...entry.statementSummary,
-        ...(statementOverrides[entry.statementSummary.month] || {}),
-    }))
-        .toSorted((a, b) => a.month.localeCompare(b.month)), [dbUsageStatementsByMonth, statementOverrides]);
+    const monthlyStatements = useMemo(() => {
+        const byMonth = new Map<string, MonthlyUsageStatementSummary>();
+        Object.values(dbUsageStatementsByMonth).forEach((entry) => {
+            const month = normalizeMonthKey(entry.statementSummary.month);
+            if (!month)
+                return;
+            byMonth.set(month, {
+                ...entry.statementSummary,
+                month,
+                label: formatMonthLabel(month),
+                ...(statementOverrides[month] || {}),
+            });
+        });
+        return Array.from(byMonth.values()).toSorted((a, b) => a.month.localeCompare(b.month));
+    }, [dbUsageStatementsByMonth, statementOverrides]);
     const latestStatement = monthlyStatements[monthlyStatements.length - 1] || latestFallbackStatement;
     const patchMonthWorkflow = (month: string, status: SharedWorkflowStatus, actionRequestDetails?: ProjectSummary['actionRequestDetails']) => {
         if (!month)
@@ -380,25 +332,6 @@ export default function ProjectDetailPage() {
                 },
             };
         });
-    };
-    const getFallbackActionRequestMonth = () => monthlyStatements.find((statement) => validationStatusByMonth[statement.month] === 'done')?.month
-        || monthlyStatements.find((statement) => statement.sourceFileName && statement.sourceFileName !== '-')?.month
-        || monthlyStatements.find((statement) => {
-            const archiveData = dbUsageStatementsByMonth[statement.month];
-            return Boolean(archiveData?.usageItems.length || Object.keys(archiveData?.archiveSeed.categories || {}).length);
-        })?.month
-        || '';
-    const resolveActionRequestMonth = (month?: string) => {
-        const fallbackMonth = getFallbackActionRequestMonth();
-        if (!month)
-            return fallbackMonth;
-        const statement = monthlyStatements.find((item) => item.month === month);
-        const monthHasStatement = Boolean(statement?.sourceFileName && statement.sourceFileName !== '-');
-        const archiveData = dbUsageStatementsByMonth[month];
-        const monthHasArchiveData = Boolean(archiveData?.usageItems.length || Object.keys(archiveData?.archiveSeed.categories || {}).length);
-        if (fallbackMonth && !monthHasStatement && !monthHasArchiveData)
-            return fallbackMonth;
-        return month;
     };
     const getActionRequestAssigneeName = (request?: ProjectActionRequest) => {
         if (!request?.assigneeUserId)
@@ -419,7 +352,8 @@ export default function ProjectDetailPage() {
         ]);
         setActionRequests(latestActionRequests);
         const mergedStatementArchives = [...statementArchives];
-        if (localData && !mergedStatementArchives.some((item) => item.statementSummary.month === localData.statementSummary.month)) {
+        const localDataMonth = normalizeMonthKey(localData?.statementSummary.month);
+        if (localData && !mergedStatementArchives.some((item) => normalizeMonthKey(item.statementSummary.month) === localDataMonth)) {
             mergedStatementArchives.push(localData);
         }
         const mergedWithActionRequests = mergedStatementArchives.map((item) => {
@@ -433,7 +367,18 @@ export default function ProjectDetailPage() {
             };
         });
         if (mergedWithActionRequests.length) {
-            setDbUsageStatementsByMonth(Object.fromEntries(mergedWithActionRequests.map((item) => [item.statementSummary.month, item])) as Record<string, MonthUsageStatementArchiveData>);
+            setDbUsageStatementsByMonth(Object.fromEntries(mergedWithActionRequests.map((item) => {
+                const month = normalizeMonthKey(item.statementSummary.month);
+                return [month, {
+                    ...item,
+                    statementSummary: {
+                        ...item.statementSummary,
+                        month,
+                        label: formatMonthLabel(month),
+                    },
+                    actionRequestDetails: withActionRequestMonth(item.actionRequestDetails, month),
+                }];
+            })) as Record<string, MonthUsageStatementArchiveData>);
         }
         if (latestData) {
             const latestOpenRequest = latestActionRequests.find((request) => request.usageStatementId === latestData.usageStatementId && OPEN_ACTION_REQUEST_STATUSES.has(request.statusCode));
@@ -498,7 +443,6 @@ export default function ProjectDetailPage() {
         pushMonthHistory();
         setSelectedMonth(month);
         setActiveTab('overview');
-        setUsageStatementPage(0);
         const archiveData = dbUsageStatementsByMonth[month];
         if (archiveData) {
             setArchiveSeed(archiveData.archiveSeed);
@@ -552,7 +496,6 @@ export default function ProjectDetailPage() {
         setArchiveUsageItems([]);
         pushMonthHistory();
         setSelectedMonth(month);
-        setUsageStatementPage(0);
         setMonthCreateModalOpen(false);
     };
     const deleteUsageMonth = () => {
@@ -576,82 +519,13 @@ export default function ProjectDetailPage() {
         });
         if (selectedMonth === targetMonth) {
             setSelectedMonth('');
-            setUsageStatementPage(0);
             setArchiveSeed(null);
             setArchiveUsageItems([]);
         }
         setMonthDeleteTarget(null);
     };
-    const headerHistoryItems = useMemo<HeaderHistoryItem[]>(() => {
-        const categoryFiles = archiveSeed
-            ? Object.values(archiveSeed.categories).flatMap((lineItems) => Object.values(lineItems).flatMap((byKind) => Object.values(byKind).flat()))
-            : [];
-        const fileEvents = [...(archiveSeed?.usage_statement || []), ...categoryFiles].map((file) => ({
-            id: `file-${file.id}`,
-            kind: 'upload' as const,
-            date: formatHistoryDate(file.uploadedAt),
-            time: getHistoryTime(file.uploadedAt),
-            count: 1,
-            title: file.kind === 'usage_statement' ? '사용내역서 업로드' : '증빙자료 업로드',
-            summary: `${file.uploadedBy || '담당자'}님이 ${file.name} 파일을 업로드했습니다.`,
-        }));
-        const statementEvent = latestStatement?.sourceFileName && latestStatement.sourceFileName !== '-'
-            ? [{
-                id: `statement-${latestStatement.month}`,
-                kind: 'upload' as const,
-                date: formatHistoryDate(latestStatement.uploadedAt),
-                time: getHistoryTime(latestStatement.uploadedAt),
-                count: latestStatement.evidenceCount || 1,
-                title: '사용내역서 처리',
-                summary: `${latestStatement.label} 사용내역서 OCR 및 분류 결과가 반영되었습니다.`,
-            }]
-            : [];
-        const validationEvent = selectedValidationStatus === 'done'
-            ? [{
-                id: `validation-${selectedStatement.month}`,
-                kind: 'validation' as const,
-                date: new Date().toLocaleString('ko-KR'),
-                time: Date.now(),
-                count: 1,
-                title: '유효성 검증 완료',
-                summary: `${selectedStatement.label} 검증 결과가 검토 완료되어 보고서 생성이 가능합니다.`,
-            }]
-            : [];
-        const reportEvent = project.reportReady || selectedValidationStatus === 'done'
-            ? [{
-                id: `report-${selectedStatement.month}`,
-                kind: 'report' as const,
-                date: new Date().toLocaleString('ko-KR'),
-                time: Date.now() - 1,
-                count: 1,
-                title: '보고서 생성 가능',
-                summary: '유효성 검증 결과를 기반으로 보고서 초안을 생성할 수 있습니다.',
-            }]
-            : [];
-        const projectEvent = project.recentActivity
-            ? [{
-                id: 'project-recent',
-                kind: 'project' as const,
-                date: formatHistoryDate(extractDateFromText(project.recentActivity)),
-                time: getHistoryTime(extractDateFromText(project.recentActivity), 0),
-                count: 1,
-                title: '프로젝트 정보 갱신',
-                summary: project.recentActivity,
-            }]
-            : [];
-        return [...validationEvent, ...reportEvent, ...statementEvent, ...fileEvents, ...projectEvent]
-            .map((item) => ({ ...item, dateKey: getHistoryDateKey(item.date) }))
-            .sort((a, b) => b.time - a.time)
-            .slice(0, 20);
-    }, [archiveSeed, latestStatement, project.id, project.recentActivity, project.reportReady, selectedStatement.label, selectedStatement.month, selectedValidationStatus]);
-    const historyDateOptions = Array.from(new Set(headerHistoryItems.map((item) => item.dateKey)));
-    const visibleHeaderHistoryItems = selectedHistoryDate === 'all'
-        ? headerHistoryItems
-        : headerHistoryItems.filter((item) => item.dateKey === selectedHistoryDate);
     const canViewActionGuide = user.role === 'project_manager' && selectedMonthHasActionRequest && !actionCompletionSent && Boolean(selectedMonthActionRequestDetails);
     const canEditManagers = user.role === 'she_manager';
-    const projectManagers = getProjectManagers(project);
-    const managerCandidates = managerCandidateProfiles.map((manager) => manager.realName);
     const shouldPulseActionBadge = canViewActionGuide;
     useEffect(() => {
         if (!projectId)
@@ -675,7 +549,7 @@ export default function ProjectDetailPage() {
         return () => {
             alive = false;
         };
-    }, [projectId, projectRevision]);
+    }, [projectId]);
     useEffect(() => {
         if (!canEditManagers)
             return;
@@ -695,18 +569,27 @@ export default function ProjectDetailPage() {
         setMatchReady(false);
         setActionGuideOpen(user.role === 'project_manager' && selectedMonthHasActionRequest);
         setActionCompletionSent(false);
-        setPendingReviewUploads([]);
         if (localData) {
+            const month = normalizeMonthKey(localData.statementSummary.month);
+            const normalizedLocalData = {
+                ...localData,
+                statementSummary: {
+                    ...localData.statementSummary,
+                    month,
+                    label: formatMonthLabel(month),
+                },
+                actionRequestDetails: withActionRequestMonth(localData.actionRequestDetails, month),
+            };
             setDbUsageStatementsByMonth({
-                [localData.statementSummary.month]: localData,
+                [month]: normalizedLocalData,
             });
-            setArchiveSeed(localData.archiveSeed);
-            setArchiveUsageItems(localData.usageItems);
+            setArchiveSeed(normalizedLocalData.archiveSeed);
+            setArchiveUsageItems(normalizedLocalData.usageItems);
             setProject((current) => applyWorkflowToProject({
                 ...current,
-                hasUploads: localData.statementSummary.evidenceCount > 0 || Boolean(localData.statementSummary.sourceFileName && localData.statementSummary.sourceFileName !== '-'),
-                accumulatedAmount: localData.statementSummary.cumulativeAmount,
-            }, localData.workflowStatus ? normalizeWorkflowStatus(localData.workflowStatus) : 'draft', withActionRequestMonth(localData.actionRequestDetails, localData.statementSummary.month)));
+                hasUploads: normalizedLocalData.statementSummary.evidenceCount > 0 || Boolean(normalizedLocalData.statementSummary.sourceFileName && normalizedLocalData.statementSummary.sourceFileName !== '-'),
+                accumulatedAmount: normalizedLocalData.statementSummary.cumulativeAmount,
+            }, normalizedLocalData.workflowStatus ? normalizeWorkflowStatus(normalizedLocalData.workflowStatus) : 'draft', normalizedLocalData.actionRequestDetails));
         }
         refreshArchiveData(project.id)
             .catch(() => {
@@ -755,9 +638,6 @@ export default function ProjectDetailPage() {
         writeLocalValidationStatusByMonth(project.id, validationStatusByMonth);
     }, [project.id, validationStatusByMonth]);
     useEffect(() => {
-        setUsageStatementPage(0);
-    }, [selectedMonth]);
-    useEffect(() => {
         setProjectHeaderOpen(Boolean(selectedMonth));
     }, [selectedMonth]);
     useEffect(() => {
@@ -770,7 +650,6 @@ export default function ProjectDetailPage() {
         const handlePopState = () => {
             setSelectedMonth('');
             setActiveTab('overview');
-            setUsageStatementPage(0);
             setArchiveSeed(null);
             setArchiveUsageItems([]);
             monthHistoryPushedRef.current = false;
@@ -780,51 +659,16 @@ export default function ProjectDetailPage() {
     }, [selectedMonth]);
     useEffect(() => {
         setActiveTab(requestedTab);
-        if (requestedTabParam === 'archive') {
-            setUsageStatementPage(1);
-        }
     }, [requestedTab, requestedTabParam]);
-    useEffect(() => {
-        if (!historyDateMenuOpen)
-            return;
-        const handlePointerDown = (event: PointerEvent) => {
-            if (historyDateMenuRef.current?.contains(event.target as Node))
-                return;
-            setHistoryDateMenuOpen(false);
-        };
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape')
-                setHistoryDateMenuOpen(false);
-        };
-        document.addEventListener('pointerdown', handlePointerDown);
-        document.addEventListener('keydown', handleKeyDown);
-        return () => {
-            document.removeEventListener('pointerdown', handlePointerDown);
-            document.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [historyDateMenuOpen]);
     const updateTab = (tab: DetailTab) => {
         if (!availableTabIds.has(tab))
             return;
         setActiveTab(tab);
-        if (tab !== 'overview')
-            setUsageStatementPage(0);
         router.replace(`/projects/${project.id}?tab=${tab}`);
     };
     const openArchiveView = () => {
         setActiveTab('details');
-        setUsageStatementPage(0);
         router.replace(`/projects/${project.id}?tab=details`);
-    };
-    const registerPendingReviewUploads = (uploadedFiles: EvidenceFile[], context?: { categoryName: string; itemName: string }) => {
-        if (!canUploadEvidence || !uploadedFiles.length)
-            return;
-        const categoryName = context?.categoryName || '선택 항목';
-        const itemName = context?.itemName || categoryName;
-        setPendingReviewUploads((current) => [
-            ...current,
-            ...uploadedFiles.map((file) => ({ file, categoryName, itemName })),
-        ]);
     };
     const revertReviewedProjectToDraft = () => {
         patchMonthWorkflow(selectedStatement.month, 'draft');
@@ -855,7 +699,6 @@ export default function ProjectDetailPage() {
             setActionCompletionSent(true);
             setActionGuideOpen(false);
             setActionGuideClosingMotion(null);
-            setPendingReviewUploads([]);
             setTodoClearSignal((signal) => signal + 1);
             setUploadCompleteConfirmOpen(false);
         } catch {
@@ -868,15 +711,6 @@ export default function ProjectDetailPage() {
             return;
         }
         completeReviewRequest();
-    };
-    const openManagerModal = () => {
-        const idsFromProject = project.assigneeUserIds || [];
-        const idsFromNames = projectManagers
-            .map((name) => managerCandidateProfiles.find((manager) => manager.realName === name)?.id)
-            .filter((id): id is number => typeof id === 'number');
-        setDraftManagerIds(idsFromProject.length ? idsFromProject : idsFromNames);
-        setManagerSaveError('');
-        setManagerModalOpen(true);
     };
     const openProjectInfoModal = () => {
         const { startDate, endDate } = parseProjectPeriod(project.period);
@@ -921,7 +755,6 @@ export default function ProjectDetailPage() {
                     return;
                 }
                 setUsageUploadStage('ocr');
-                setUsageStatementPage(0);
                 uploadProjectFile(project.id, pickedFile, 'usage_statement')
                     .then(async (uploadedEntry) => {
                         if (uploadedEntry.fileId) {
@@ -984,36 +817,6 @@ export default function ProjectDetailPage() {
             }
         };
         input.click();
-    };
-    const toggleDraftManager = (managerId: number) => {
-        setDraftManagerIds((current) => current.includes(managerId) ? current.filter((item) => item !== managerId) : [...current, managerId]);
-        setManagerSaveError('');
-    };
-    const selectedManagerNames = draftManagerIds
-        .map((id) => managerCandidateProfiles.find((manager) => manager.id === id)?.realName)
-        .filter((name): name is string => Boolean(name));
-    const assigneesToProjectPatch = (assignees: ProjectAssignee[]) => {
-        const names = assignees.map((assignee) => assignee.realName).filter(Boolean);
-        return {
-            manager: names.join(', '),
-            participants: names,
-            assigneeUserIds: assignees.map((assignee) => assignee.userId),
-        };
-    };
-    const saveManagers = async () => {
-        const userIds = Array.from(new Set(draftManagerIds));
-        setManagerSaving(true);
-        setManagerSaveError('');
-        try {
-            const assignees = await replaceProjectAssignees(project.id, userIds);
-            setProject((current) => ({ ...current, ...assigneesToProjectPatch(assignees) }));
-            setProjectRevision((revision) => revision + 1);
-            setManagerModalOpen(false);
-        } catch (error) {
-            setManagerSaveError(error instanceof Error ? error.message : '관리자 저장에 실패했습니다.');
-        } finally {
-            setManagerSaving(false);
-        }
     };
     const saveProjectInfo = async () => {
         const requiredValues = [
@@ -1083,54 +886,6 @@ export default function ProjectDetailPage() {
         await markArchiveChecked(project.id);
         setProject((current) => ({ ...current, uncheckedMatchedFileCount: 0 }));
     };
-    const managerModal = (<Modal open={managerModalOpen} onClose={() => setManagerModalOpen(false)} zIndex={960} maxWidth={560}>
-      <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
-        <div style={{ padding: '18px 20px 15px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>관리자 수정</div>
-            <div style={{ fontSize: 12, fontWeight: 800, color: C.g400, marginTop: 5 }}>{project.constructionName}</div>
-          </div>
-          <button type="button" aria-label="관리자 수정 닫기" onClick={() => setManagerModalOpen(false)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
-        </div>
-        <div style={{ padding: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 900, color: C.g400, marginBottom: 8 }}>현재 관리자</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, minHeight: 34, marginBottom: 18 }}>
-            {selectedManagerNames.map((manager) => {
-              const managerId = managerCandidateProfiles.find((candidate) => candidate.realName === manager)?.id;
-              return (
-              <span key={manager} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 999, padding: '6px 9px 6px 11px', background: C.bg, color: C.primary, border: `1px solid ${C.light}`, fontSize: 12, fontWeight: 900 }}>
-                {manager}
-                <button type="button" aria-label={`${manager} 삭제`} onClick={() => {
-                    if (managerId)
-                        setDraftManagerIds((current) => current.filter((item) => item !== managerId));
-                }} style={{ width: 18, height: 18, borderRadius: 999, border: 'none', background: C.white, color: C.g400, fontFamily: 'inherit', fontSize: 14, lineHeight: '18px', cursor: 'pointer', padding: 0 }}>×</button>
-              </span>
-            );
-            })}
-            {selectedManagerNames.length === 0 && <span style={{ fontSize: 13, fontWeight: 800, color: C.g400 }}>현재 지정된 관리자가 없습니다.</span>}
-          </div>
-
-          <div style={{ fontSize: 12, fontWeight: 900, color: C.g400, marginBottom: 8 }}>관리자 후보</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 18 }}>
-            {managerCandidateProfiles.map((manager) => {
-                const selected = draftManagerIds.includes(manager.id);
-                return (
-                  <button key={manager.id} type="button" onClick={() => toggleDraftManager(manager.id)} style={{ border: `1px solid ${selected ? C.primary : C.g200}`, borderRadius: 6, padding: '9px 10px', background: selected ? C.bg : C.white, color: selected ? C.primary : C.g800, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {manager.realName}
-                  </button>
-                );
-            })}
-          </div>
-
-          {!managerCandidates.length && <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, padding: '12px 13px', color: C.g400, fontSize: 13, fontWeight: 800 }}>지정할 수 있는 프로젝트 담당자가 없습니다. system_admin에게 프로젝트 담당자 계정 생성을 요청해 주세요.</div>}
-          {managerSaveError && <div style={{ marginTop: 12, fontSize: 13, fontWeight: 900, color: C.danger }}>{managerSaveError}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-            <button type="button" onClick={() => setManagerModalOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={saveManagers} disabled={managerSaving} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: managerSaving ? C.g200 : C.primary, color: managerSaving ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: managerSaving ? 'not-allowed' : 'pointer' }}>{managerSaving ? '저장 중' : '저장'}</button>
-          </div>
-        </div>
-      </div>
-    </Modal>);
     const projectInfoModal = (<ProjectInfoEditorModal open={projectInfoModalOpen} mode="usage" title="사용내역서 기본 정보 수정" subtitle={project.constructionName} draft={projectInfoDraft} error={projectInfoSaveError} saving={projectInfoSaving} showStatementDates={Boolean(selectedMonth)} onClose={() => setProjectInfoModalOpen(false)} onSave={saveProjectInfo} onChange={(patch) => {
             setProjectInfoDraft((current) => ({ ...current, ...patch }));
             setProjectInfoSaveError('');
@@ -1232,39 +987,6 @@ export default function ProjectDetailPage() {
             setActionGuideClosingMotion(null);
         }, 360);
     };
-    const openActionRequestDetail = async () => {
-        if (!selectedActionRequest)
-            return;
-        setActionRequestDetailOpen(true);
-        setActionRequestDetail(selectedActionRequest);
-        setActionRequestDetailLoading(true);
-        setActionRequestDetailError('');
-        try {
-            const detail = await getActionRequest(project.id, selectedActionRequest.id);
-            setActionRequestDetail(detail);
-            setActionRequests((current) => current.map((request) => request.id === detail.id ? detail : request));
-        } catch (error) {
-            setActionRequestDetailError(error instanceof Error ? error.message : '조치 요청 상세 정보를 불러오지 못했습니다.');
-        } finally {
-            setActionRequestDetailLoading(false);
-        }
-    };
-    const closeActionRequestDetail = () => {
-        setActionRequestDetailOpen(false);
-        setActionRequestDetailError('');
-    };
-    const actionRequestDetailStatusMeta = getActionRequestStatusMeta(actionRequestDetail?.statusCode);
-    const actionRequestDetailRows: Array<[string, string]> = actionRequestDetail ? [
-        ['요청 제목', actionRequestDetail.title || '-'],
-        ['요청 사유', actionRequestDetail.reason || '-'],
-        ['상태', actionRequestDetailStatusMeta.label],
-        ['처리 기한', actionRequestDetail.dueDate || '-'],
-        ['요청일', actionRequestDetail.createdAt?.slice(0, 10) || '-'],
-        ['요청자 ID', String(actionRequestDetail.requestedByUserId ?? '-')],
-        ['담당자 ID', String(actionRequestDetail.assigneeUserId ?? '-')],
-        ['사용내역서 ID', String(actionRequestDetail.usageStatementId ?? '-')],
-        ['세부항목 ID', String(actionRequestDetail.usageStatementItemId ?? '-')],
-    ] : [];
     const actionGuideModal = canViewActionGuide && selectedMonthActionRequestDetails ? (
         <Modal open={actionGuideOpen} onClose={closeActionGuide} zIndex={960} maxWidth={680}>
           <div
@@ -1303,187 +1025,20 @@ export default function ProjectDetailPage() {
                 </div>
               </div>}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-                <button type="button" onClick={openActionRequestDetail} disabled={!selectedActionRequest || actionRequestDetailLoading} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.bg, color: C.primary, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: !selectedActionRequest || actionRequestDetailLoading ? 'not-allowed' : 'pointer', opacity: !selectedActionRequest || actionRequestDetailLoading ? 0.45 : 1 }}>상세 보기</button>
                 <button type="button" onClick={closeActionGuide} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>닫기</button>
               </div>
             </div>
           </div>
         </Modal>
     ) : null;
-    const actionRequestDetailModal = (
-        <Modal open={actionRequestDetailOpen} onClose={closeActionRequestDetail} zIndex={970} maxWidth={620}>
-          <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
-            <div style={{ padding: '18px 20px 14px', borderBottom: `1px solid ${C.g100}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 7 }}>
-                  <span style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>조치 요청 상세</span>
-                  {actionRequestDetail && <span style={{ border: `1px solid ${actionRequestDetailStatusMeta.border}`, borderRadius: 999, background: actionRequestDetailStatusMeta.bg, color: actionRequestDetailStatusMeta.color, padding: '4px 9px', fontSize: 11, fontWeight: 900 }}>{actionRequestDetailStatusMeta.label}</span>}
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 800, color: C.g400 }}>{selectedStatement.label}</div>
-              </div>
-              <button type="button" aria-label="조치 요청 상세 닫기" onClick={closeActionRequestDetail} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
-            </div>
-            <div style={{ padding: 20 }}>
-              {actionRequestDetailLoading && <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '12px 14px', color: C.g600, fontSize: 13, fontWeight: 900, marginBottom: 12 }}>최신 상세 정보를 불러오는 중입니다.</div>}
-              {actionRequestDetailError && <div style={{ border: '1px solid #FFCDD2', borderRadius: 6, background: C.dangerBg, padding: '12px 14px', color: C.danger, fontSize: 13, fontWeight: 900, marginBottom: 12 }}>{actionRequestDetailError}</div>}
-              {actionRequestDetail ? (
-                <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden' }}>
-                  {actionRequestDetailRows.map(([label, value], index) => (
-                    <div key={label} style={{ display: 'grid', gridTemplateColumns: '130px minmax(0, 1fr)', borderTop: index === 0 ? 'none' : `1px solid ${C.g100}` }}>
-                      <div style={{ background: C.g100, padding: '10px 12px', color: C.g600, fontSize: 12, fontWeight: 900 }}>{label}</div>
-                      <div style={{ padding: '10px 12px', color: C.g800, fontSize: 13, fontWeight: 800, lineHeight: 1.55, wordBreak: 'break-word' }}>{value}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ color: C.g400, fontSize: 13, fontWeight: 900 }}>표시할 조치 요청 정보가 없습니다.</div>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-                <button type="button" onClick={() => {
-                    closeActionRequestDetail();
-                    updateTab('details');
-                }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.bg, color: C.primary, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>세부 내역으로 이동</button>
-                <button type="button" onClick={closeActionRequestDetail} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>닫기</button>
-              </div>
-            </div>
-          </div>
-        </Modal>
-    );
-    const agentWorkflowItems = [
-        {
-            code: 'OCR',
-            title: '사용내역서 OCR',
-            description: '금액, 날짜, 세부 항목 추출',
-            label: hasUsageStatement ? '완료' : '대기',
-            tone: hasUsageStatement ? 'ok' as const : 'idle' as const,
-        },
-        {
-            code: 'CL',
-            title: '분류 Agent',
-            description: '세부 항목을 9개 항목으로 분류',
-            label: archiveUsageItems.length ? '완료' : hasUsageStatement ? '실행 가능' : '대기',
-            tone: archiveUsageItems.length ? 'ok' as const : hasUsageStatement ? 'warn' as const : 'idle' as const,
-        },
-        {
-            code: 'SD',
-            title: 'Safety Doc Agent',
-            description: '사용내역서와 증빙자료 매칭',
-            label: matchReady || project.uncheckedMatchedFileCount > 0 ? '매칭 완료' : hasUsageStatement ? '실행 가능' : '대기',
-            tone: matchReady || project.uncheckedMatchedFileCount > 0 ? 'ok' as const : hasUsageStatement ? 'warn' as const : 'idle' as const,
-        },
-        {
-            code: 'VI',
-            title: 'Vision Model',
-            description: '현장사진 적합성 판단',
-            label: archiveUsageItems.length ? '검증 가능' : '대기',
-            tone: archiveUsageItems.length ? 'warn' as const : 'idle' as const,
-        },
-        {
-            code: 'LG',
-            title: 'Legal Agent',
-            description: '법령 기준 유효성 검증',
-            label: selectedMonthWorkflowStatus === 'review_completed' ? '검토 완료' : selectedMonthWorkflowStatus === 'supplement_required' ? '보완 요청' : selectedMonthWorkflowStatus === 'upload_completed' ? '검증 가능' : '대기',
-            tone: selectedMonthWorkflowStatus === 'review_completed' ? 'ok' as const : selectedMonthWorkflowStatus === 'supplement_required' ? 'danger' as const : selectedMonthWorkflowStatus === 'upload_completed' ? 'warn' as const : 'idle' as const,
-        },
-        {
-            code: 'RP',
-            title: 'Report Agent',
-            description: '보고서 초안 생성',
-            label: selectedMonthWorkflowStatus === 'review_completed' || selectedMonthWorkflowStatus === 'supplement_required' ? '생성 가능' : '대기',
-            tone: selectedMonthWorkflowStatus === 'review_completed' || selectedMonthWorkflowStatus === 'supplement_required' ? 'ok' as const : 'idle' as const,
-        },
-    ];
-    const agentWorkflowCard = (<section data-ui="project-detail.agent-workflow" style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-        <span style={{ fontSize: 14, color: C.g800, fontWeight: 900 }}>에이전트 워크플로우</span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        {agentWorkflowItems.map((agent) => {
-            const badgeStyle = agentWorkflowBadgeStyle(agent.tone);
-            return <div key={agent.code} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '9px 10px' }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 7 }}>
-                  <span style={{ fontSize: 12, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.title}</span>
-                  <span style={{ ...badgeStyle, borderRadius: 999, padding: '3px 7px', fontSize: 10, fontWeight: 900, lineHeight: 1.1, whiteSpace: 'nowrap' }}>{agent.label}</span>
-                </div>
-                <div style={{ marginTop: 4, fontSize: 10, fontWeight: 800, color: C.g400, lineHeight: 1.35 }}>{agent.description}</div>
-              </div>
-            </div>;
-        })}
-      </div>
-    </section>);
-    const historyCard = (<section data-ui="project-detail.40" style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ width: '100%', color: C.g800, fontFamily: 'inherit', padding: '8px 4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4 }}>
-        <span data-ui="project-detail.1" style={{ fontSize: 14, color: C.g800, fontWeight: 900 }}>최근 이력</span>
-      </div>
-      <div data-ui="project-detail.41" style={{ marginTop: 6, minHeight: 0, display: 'flex', flexDirection: 'column', flex: '1 1 auto' }}>
-      <div data-ui="project-detail.2" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 6, alignItems: 'center', marginBottom: 8 }}>
-        <button data-ui="project-detail.history-all-date" type="button" onClick={() => {
-            setSelectedHistoryDate('all');
-            setHistoryDateMenuOpen(false);
-        }} style={{ border: selectedHistoryDate === 'all' ? 'none' : `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 10px', fontSize: 11, fontWeight: 900, color: selectedHistoryDate === 'all' ? C.white : C.g600, background: selectedHistoryDate === 'all' ? C.primary : C.white, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>전체 날짜</button>
-        <div ref={historyDateMenuRef} style={{ position: 'relative', minWidth: 0 }}>
-          <button data-ui="project-detail.history-date-menu" type="button" onClick={() => setHistoryDateMenuOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', fontSize: 11, fontWeight: 900, color: selectedHistoryDate === 'all' ? C.g400 : C.primary, background: C.white, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {selectedHistoryDate === 'all' ? '날짜 선택' : selectedHistoryDate}
-          </button>
-          {historyDateMenuOpen && <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 30, background: C.white, border: `1px solid ${C.g200}`, borderRadius: 6, boxShadow: '0 8px 20px rgba(27,94,59,.14)', padding: 4, maxHeight: 190, overflowY: 'auto' }}>
-            {historyDateOptions.length === 0 ? <div style={{ padding: '8px 9px', fontSize: 12, fontWeight: 900, color: C.g400, textAlign: 'center' }}>날짜 없음</div> : historyDateOptions.map((date) => (
-              <button key={date} type="button" onClick={() => {
-                  setSelectedHistoryDate(date);
-                  setHistoryDateMenuOpen(false);
-              }} style={{ width: '100%', border: 'none', background: selectedHistoryDate === date ? C.bg : 'transparent', color: selectedHistoryDate === date ? C.primary : C.g600, borderRadius: 6, padding: '7px 8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, textAlign: 'center' }}>
-                {date}
-              </button>
-            ))}
-          </div>}
-        </div>
-      </div>
-      <div data-ui="project-detail.8" style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
-        {visibleHeaderHistoryItems.length === 0 ? <div style={{ padding: '14px 12px', borderRadius: 6, background: C.g100, border: `1px solid ${C.g200}`, color: C.g400, fontSize: 12, fontWeight: 900, lineHeight: 1.5 }}>
-          표시할 이력이 없습니다.
-        </div> : visibleHeaderHistoryItems.map((item) => (<div data-ui="project-detail.9" key={item.id} style={{ padding: '11px 12px', borderRadius: 6, background: C.g100, border: `1px solid ${C.g200}` }}>
-            <div data-ui="project-detail.10" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
-              <span data-ui="project-detail.11" style={{ fontSize: 12, color: C.g400, fontWeight: 900 }}>{item.date}</span>
-              <span data-ui="project-detail.12" style={{ fontSize: 12, color: item.count > 0 ? C.primary : C.g400, fontWeight: 900 }}>{item.count}건</span>
-            </div>
-            <div data-ui="project-detail.13" style={{ fontSize: 14, color: C.g800, fontWeight: 900, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</div>
-            <div data-ui="project-detail.14" style={{ fontSize: 13, color: C.g600, lineHeight: 1.45 }}>
-              {item.summary}
-            </div>
-          </div>))}
-      </div>
-      </div>
-    </section>);
-    
-    const projectInfoCardStyle: CSSProperties = { minWidth: 0, height: 60, boxSizing: 'border-box', padding: '11px 12px', borderRadius: 6, background: C.g100, border: `1px solid ${C.g200}` };
-    const projectInfoGrid = (<div data-ui="project-detail.info-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, minWidth: 0 }}>
-      <div style={{ ...projectInfoCardStyle, position: 'relative', paddingRight: canEditManagers ? 58 : 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 900, color: C.g400, marginBottom: 4 }}>관리자</div>
-        {canEditManagers && <button type="button" onClick={openManagerModal} style={{ position: 'absolute', top: 11, right: 12, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '3px 8px', background: C.white, color: C.primary, fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>수정</button>}
-        <div title={project.manager} style={{ fontSize: 13, fontWeight: 900, color: C.g800, lineHeight: 1.45, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</div>
-      </div>
-      {[
-              ['건설업체', project.constructionCompany],
-              ['공사기간', project.period],
-              ['소재지', project.location],
-              ['공사금액', `${project.constructionAmount}원`],
-              ['계상된 안전관리비', `${project.plannedAmount}원`],
-              ['대표자', project.representative],
-              ['발주자', project.client],
-          ].map(([label, value]) => (
-            <div key={label} style={projectInfoCardStyle}>
-              <div style={{ fontSize: 12, fontWeight: 900, color: C.g400, marginBottom: 4 }}>{label}</div>
-              <div title={value} style={{ fontSize: 13, fontWeight: 900, color: C.g800, lineHeight: 1.45, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
-            </div>
-          ))}
-    </div>);
+    const projectDetailCardShadow = '0 1px 2px rgba(31,47,39,.05), 0 14px 34px rgba(31,47,39,.05)';
     const overviewUsageRows = selectedStatementArchive?.overviewRows || EMPTY_OVERVIEW_ROWS;
     const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '120px minmax(170px, 1fr) 120px minmax(170px, 1fr)', minWidth: 620 } as const;
     const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 150px 130px', minWidth: 670 } as const;
     const usageTableScrollStyle = { width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden' } as const;
     const tabPanelStyle: CSSProperties = selectedMonth && activeTab === 'report'
         ? { padding: 0, border: 'none', boxShadow: 'none', background: 'transparent', minWidth: 0, overflow: 'visible' }
-        : { padding: 24, borderRadius: 6, background: C.white, minWidth: 0, overflow: 'visible' };
+        : { padding: 24, borderRadius: 12, border: `1px solid ${C.g200}`, background: C.white, minWidth: 0, overflow: 'visible', boxShadow: projectDetailCardShadow };
     const parseProjectPeriod = (period: string) => {
         const [startDate = '', endDate = ''] = period.split('~').map((value) => value.trim().replace(/\//g, '-'));
         return { startDate, endDate };
@@ -1561,7 +1116,7 @@ export default function ProjectDetailPage() {
             {monthlyStatements.length}개월
           </div>
         </div>
-        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 14, background: 'linear-gradient(135deg, rgba(255,255,255,.96) 0%, rgba(247,252,248,.98) 58%, rgba(238,248,242,.9) 100%)', padding: 18, boxShadow: '0 14px 30px rgba(31,55,43,.06)' }}>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: 18, boxShadow: projectDetailCardShadow }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
           {monthlyStatements.map((statement) => {
             const uploaded = Boolean(statement.sourceFileName && statement.sourceFileName !== '-');
@@ -1573,7 +1128,7 @@ export default function ProjectDetailPage() {
                 key={statement.month}
                 type="button"
                 onClick={() => selectUsageMonth(statement.month)}
-                style={{ position: 'relative', border: `1px solid ${hasSupplementRequest ? '#FFB7BC' : uploaded ? C.light : C.g200}`, borderRadius: 12, background: hasSupplementRequest ? 'linear-gradient(135deg, #FFF6F7 0%, #FFFFFF 100%)' : uploaded ? 'linear-gradient(135deg, #F2FAF5 0%, #FFFFFF 100%)' : 'rgba(255,255,255,.88)', padding: '17px 16px', minHeight: 142, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14, boxShadow: hasSupplementRequest ? '0 12px 24px rgba(229, 57, 53, .12)' : '0 10px 22px rgba(31,55,43,.07)' }}
+                style={{ position: 'relative', border: `1px solid ${hasSupplementRequest ? '#FFB7BC' : uploaded ? C.light : C.g200}`, borderRadius: 12, background: hasSupplementRequest ? '#FFF6F7' : uploaded ? 'color-mix(in srgb, var(--c-bg) 62%, #fff)' : C.white, padding: '17px 16px', minHeight: 142, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14, boxShadow: hasSupplementRequest ? '0 12px 24px rgba(229, 57, 53, .12)' : '0 10px 22px var(--c-primary-shadow)' }}
               >
                 <span
                   role="button"
@@ -1615,7 +1170,7 @@ export default function ProjectDetailPage() {
           <button
             type="button"
             onClick={openMonthCreateModal}
-            style={{ border: `1px dashed ${C.light}`, borderRadius: 12, background: 'rgba(255,255,255,.72)', minHeight: 142, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', color: C.primary, boxShadow: '0 10px 22px rgba(31,55,43,.05)' }}
+            style={{ border: `1px dashed ${C.light}`, borderRadius: 12, background: 'color-mix(in srgb, var(--c-bg) 36%, #fff)', minHeight: 142, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', color: C.primary, boxShadow: '0 10px 22px var(--c-primary-shadow)' }}
           >
             <span aria-hidden="true" style={{ position: 'relative', width: 40, height: 40, borderRadius: 999, border: `1px solid ${C.primary}`, background: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ position: 'absolute', width: 16, height: 2, borderRadius: 999, background: C.primary }} />
@@ -1630,7 +1185,7 @@ export default function ProjectDetailPage() {
         overview: (<div style={{ minWidth: 0 }}>
         {!selectedMonth ? monthGridContent : !hasUsageStatement ? (
           <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 6, background: C.bg, padding: '34px 28px', textAlign: 'center' }}>
+            <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 9 }}>사용내역서가 없습니다</div>
             </div>
           </div>
@@ -1650,7 +1205,7 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         <>
-        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: '#F7FCF8', padding: '18px 20px', marginBottom: 16 }}>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '18px 20px', marginBottom: 16, boxShadow: '0 8px 18px rgba(31,47,39,.04)' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>안전관리비 사용 현황</div>
@@ -1673,7 +1228,7 @@ export default function ProjectDetailPage() {
               <Fragment key={label}>
                 {index === 1 && <div aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.g400, fontSize: 18, fontWeight: 900 }}>-</div>}
                 {index === 2 && <div aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.g400, fontSize: 18, fontWeight: 900 }}>=</div>}
-                <div style={{ borderRadius: 6, background: C.white, border: `1px solid ${C.g200}`, padding: '11px 12px', minWidth: 0 }}>
+                <div style={{ borderRadius: 10, background: C.white, border: `1px solid ${C.g200}`, padding: '11px 12px', minWidth: 0 }}>
                   <div style={{ fontSize: 11, color: C.g400, fontWeight: 900, marginBottom: 5 }}>{label}</div>
                   <div title={value} style={{ fontSize: 14, color, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
                 </div>
@@ -1682,7 +1237,7 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         <div className="thin-x-scroll" style={usageTableScrollStyle}>
-        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden', minWidth: usageSummaryGridStyle.minWidth }}>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', minWidth: usageSummaryGridStyle.minWidth }}>
           <div style={{ ...usageSummaryGridStyle, background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
             {['항목', '전회', '금회', '누계'].map((head) => <div key={head} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 900, textAlign: head === '항목' ? 'left' : 'right', borderRight: head === '누계' ? 'none' : `1px solid ${C.g200}` }}>{head}</div>)}
           </div>
@@ -1708,7 +1263,7 @@ export default function ProjectDetailPage() {
         details: (<div style={{ minWidth: 0 }}>
         {!hasUsageStatement ? (
           <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 6, background: C.bg, padding: '34px 28px', textAlign: 'center' }}>
+            <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 9 }}>사용내역서가 없습니다</div>
             </div>
           </div>
@@ -1725,7 +1280,7 @@ export default function ProjectDetailPage() {
         </div>}
         {!selectedMonthHasUploadedStatement ? <>
         <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 6, background: C.bg, padding: '34px 28px', textAlign: 'center' }}>
+          <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
             <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 9 }}>{selectedStatement.label} 사용내역서가 아직 업로드되지 않았습니다</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: C.g400, marginBottom: 16 }}>월은 먼저 표시하고, 사용내역서는 업로드 전 상태로 보여줍니다.</div>
             {usageUploadButton}
@@ -1739,10 +1294,10 @@ export default function ProjectDetailPage() {
             } : undefined} onUsageItemsChange={(items) => {
                 setArchiveUsageItems(items);
                 revertReviewedProjectToDraft();
-            }} onFilesUploaded={registerPendingReviewUploads} onArchiveContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveArchiveTodoCount} onBackToOverview={() => updateTab('overview')} uploadCompleteAction={reviewRequestHeaderButton}/>}
+            }} onArchiveContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveArchiveTodoCount} onBackToOverview={() => updateTab('overview')} uploadCompleteAction={reviewRequestHeaderButton}/>}
         </>}
       </div>),
-        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro contractName={`${project.name} · ${selectedStatement.label}`} canStartValidation={canStartValidationForCurrentView} onValidationComplete={() => {
+        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} onValidationComplete={() => {
                 setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
             }} onValidationApproved={async () => {
                 const usageStatementId = selectedStatementArchive?.usageStatementId;
@@ -1802,7 +1357,7 @@ export default function ProjectDetailPage() {
         report: (<ReportScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} validationComplete={selectedMonthWorkflowStatus === 'review_completed' || selectedMonthWorkflowStatus === 'supplement_required' || selectedValidationStatus === 'done'} contractName={`${project.name} · ${selectedStatement.label}`}/>),
     };
     return (<AppFrame title={project.name} mainClassName="project-detail-main">
-      <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20, borderRadius: 6 }}>
+      <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20, borderRadius: 12, border: `1px solid ${C.g200}`, boxShadow: projectDetailCardShadow }}>
         <div data-ui="project-detail.19" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div data-ui="project-detail.20" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
             <h2 data-ui="project-detail.21" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>
@@ -1843,7 +1398,7 @@ export default function ProjectDetailPage() {
               )}
             </div>
             <div className="thin-x-scroll" style={usageTableScrollStyle}>
-              <div data-ui="project-detail.16" style={{ ...usageInfoGridStyle, border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden', fontSize: 13 }}>
+              <div data-ui="project-detail.16" style={{ ...usageInfoGridStyle, border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', fontSize: 13 }}>
                 {usageStatementInfoRows.map(([labelA, valueA, labelB, valueB]) => (
                   <Fragment key={`${labelA}-${labelB}`}>
                     <div data-ui="project-detail.17" style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 900, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelA}</div>
@@ -1860,8 +1415,6 @@ export default function ProjectDetailPage() {
         </div>
       </Card>
       {actionGuideModal}
-      {actionRequestDetailModal}
-      {managerModal}
       {projectInfoModal}
       {monthCreateModal}
       {monthDeleteModal}

@@ -36,7 +36,6 @@ interface UsageDetailFileViewProps {
   onAddUsageItem: () => void;
   onDeleteUsageItem: (item: UsageLineItem) => void;
   onUpload: (kind: FolderEvidenceCategory, catId: number, usageItemId: string) => void;
-  onPreviewFile?: (file: EvidenceFile) => void;
   onDownloadFile?: (file: EvidenceFile) => void;
   isProblemFile?: (file: EvidenceFile) => boolean;
   isSupplementTarget?: (catId: number, usageItemId?: string) => boolean;
@@ -51,7 +50,7 @@ const PlusIcon = ({ size = 14, color = C.primary }: { size?: number; color?: str
   </span>
 );
 
-export default function UsageDetailFileView({ cats, usageItems, selectedCatId, selectedUsageItemId, actionRequest, getFiles, onSelectCat, onSelectUsageItem, onRemove, onRename, onMove, onEditUsageItem, onAddUsageItem, onDeleteUsageItem, onUpload, onPreviewFile, onDownloadFile, isProblemFile, isSupplementTarget, fileHeaderAction, renderEvidenceTodos }: UsageDetailFileViewProps) {
+export default function UsageDetailFileView({ cats, usageItems, selectedCatId, selectedUsageItemId, actionRequest, getFiles, onSelectCat, onSelectUsageItem, onRemove, onRename, onMove, onEditUsageItem, onAddUsageItem, onDeleteUsageItem, onUpload, onDownloadFile, isProblemFile, isSupplementTarget, fileHeaderAction, renderEvidenceTodos }: UsageDetailFileViewProps) {
   const [dragPayload, setDragPayload] = useState<{ kind: HierarchyEvidenceKind; catId: number; usageItemId: string; file: EvidenceFile } | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ file: EvidenceFile; x: number; y: number } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; file: EvidenceFile } | null>(null);
@@ -64,7 +63,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
   const [moveTargetKind, setMoveTargetKind] = useState<FolderEvidenceCategory>('receipt');
   const filteredItems = usageItems.filter((item) => item.categoryId === selectedCatId);
   const activeItem = filteredItems.find((item) => item.id === selectedUsageItemId) || filteredItems[0];
-  const layoutColumns = 'minmax(140px, .46fr) minmax(550px, 1.28fr) minmax(300px, .96fr)';
+  const layoutColumns = 'minmax(140px, .5fr) minmax(620px, 1.24fr) minmax(250px, .84fr)';
   const usageItemGridColumns = '72px minmax(120px, .78fr) 32px 36px 78px 84px';
   const usageItemRowColumns = `${usageItemGridColumns} 66px`;
   const actionRequestText = `${actionRequest?.title || ''} ${actionRequest?.message || ''}`;

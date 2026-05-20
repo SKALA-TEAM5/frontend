@@ -12,8 +12,8 @@ export default function CenterModal({ open, title, body, actionLabel, onAction, 
     return (<Modal open={open} zIndex={920} maxWidth={460}>
       <div data-ui="center-modal.1" style={{
             background: C.white,
-            borderRadius: 6,
-            boxShadow: '0 18px 44px rgba(31, 55, 43, .14)',
+            borderRadius: 12,
+            boxShadow: '0 22px 52px rgba(31, 47, 39, .18)',
             border: `1px solid ${C.g200}`,
             overflow: 'hidden',
         }}>
@@ -24,7 +24,7 @@ export default function CenterModal({ open, title, body, actionLabel, onAction, 
             <div data-ui="center-modal.4" style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>{body}</div>
           </div>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '14px 22px 18px', background: C.white }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '14px 22px 18px', background: '#FAFBFA' }}>
           <Button size="sm" onClick={onAction} style={{ minWidth: 84, boxShadow: 'none' }}>
             {actionLabel}
           </Button>

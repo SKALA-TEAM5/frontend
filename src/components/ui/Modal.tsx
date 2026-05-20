@@ -11,7 +11,8 @@ export default function Modal({ open, onClose, children, zIndex = 900, maxWidth 
     return (<div data-ui="modal.1" onClick={onClose} style={{
             position: 'fixed',
             inset: 0,
-            background: 'transparent',
+            background: 'rgba(15, 23, 42, .22)',
+            backdropFilter: 'blur(2px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

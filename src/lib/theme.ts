@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-export type AppThemeId = 'green' | 'blue';
+export type AppThemeId = 'default' | 'sky' | 'lavender' | 'mint';
 
 type ThemePalette = {
   label: string;
+  gradient: string;
   primary: string;
   mid: string;
   light: string;
@@ -24,37 +25,73 @@ type ThemePalette = {
 export const APP_THEME_STORAGE_KEY = 'she.app.theme';
 
 export const APP_THEMES: Record<AppThemeId, ThemePalette> = {
-  green: {
-    label: '초록',
-    primary: '#1B5E3B',
-    mid: '#2E7D52',
-    light: '#4CAF78',
-    bg: '#E8F5E9',
-    soft: '#F0FAF3',
+  default: {
+    label: 'Default',
+    gradient: 'linear-gradient(135deg, #8EE7B5 0%, #145A3B 100%)',
+    primary: '#145A3B',
+    mid: '#247257',
+    light: '#7DB49A',
+    bg: '#EEF6F2',
+    soft: '#FCFDFD',
     white: '#FFFFFF',
-    g100: '#F1F5F2',
-    g200: '#c9e8d3',
-    g400: '#6F8E78',
-    g600: '#5A726A',
-    g800: '#2A3B32',
-    ok: '#2E7D52',
-    primaryShadow: 'rgba(27,94,59,.16)',
+    g100: '#EEF2F0',
+    g200: '#D5DDD8',
+    g400: '#7A8A81',
+    g600: '#52635A',
+    g800: '#1F2F27',
+    ok: '#247257',
+    primaryShadow: 'rgba(20,90,59,.13)',
   },
-  blue: {
-    label: '파랑',
-    primary: '#1D4ED8',
-    mid: '#2563EB',
-    light: '#60A5FA',
-    bg: '#EFF6FF',
-    soft: '#F5F9FF',
+  sky: {
+    label: 'Sky',
+    gradient: 'linear-gradient(135deg, #65E2D1 0%, #2F7DDE 100%)',
+    primary: '#2472B8',
+    mid: '#2E91C8',
+    light: '#8ECBE6',
+    bg: '#EEF8FC',
+    soft: '#FCFEFF',
     white: '#FFFFFF',
-    g100: '#EEF4FF',
-    g200: '#BFDBFE',
-    g400: '#64748B',
-    g600: '#475569',
-    g800: '#172554',
-    ok: '#2563EB',
-    primaryShadow: 'rgba(29,78,216,.16)',
+    g100: '#EDF5F8',
+    g200: '#D4E7EF',
+    g400: '#6D8996',
+    g600: '#4C6570',
+    g800: '#1E3440',
+    ok: '#2472B8',
+    primaryShadow: 'rgba(36,114,184,.14)',
+  },
+  lavender: {
+    label: 'Lavender',
+    gradient: 'linear-gradient(135deg, #F06AE9 0%, #7C2DFF 100%)',
+    primary: '#7054D8',
+    mid: '#8B6BEA',
+    light: '#C2B4F6',
+    bg: '#F6F3FF',
+    soft: '#FEFCFF',
+    white: '#FFFFFF',
+    g100: '#F0EDF8',
+    g200: '#DED7EF',
+    g400: '#7B728E',
+    g600: '#5C536E',
+    g800: '#2F2940',
+    ok: '#7054D8',
+    primaryShadow: 'rgba(112,84,216,.14)',
+  },
+  mint: {
+    label: 'Mint',
+    gradient: 'linear-gradient(135deg, #66E7C1 0%, #1FAF89 100%)',
+    primary: '#168767',
+    mid: '#22A47F',
+    light: '#8ADCC4',
+    bg: '#EFFAF6',
+    soft: '#FCFEFD',
+    white: '#FFFFFF',
+    g100: '#EEF6F2',
+    g200: '#D5E9DF',
+    g400: '#728B80',
+    g600: '#506A5E',
+    g800: '#1D342B',
+    ok: '#168767',
+    primaryShadow: 'rgba(22,135,103,.14)',
   },
 };
 
@@ -70,10 +107,10 @@ export const C = {
   g400: 'var(--c-g400)',
   g600: 'var(--c-g600)',
   g800: 'var(--c-g800)',
-  danger: '#E53935',
-  dangerBg: '#FFF5F5',
-  warn: '#F57C00',
-  warnBg: '#FFF8F0',
+  danger: '#C2413F',
+  dangerBg: '#FFF6F5',
+  warn: '#B7791F',
+  warnBg: '#FFF9EA',
   ok: 'var(--c-ok)',
   primaryShadow: 'var(--c-primary-shadow)',
 };
@@ -101,11 +138,11 @@ export const applyAppTheme = (themeId: AppThemeId) => {
 };
 
 export const useAppTheme = () => {
-  const [themeId, setThemeId] = useState<AppThemeId>('green');
+  const [themeId, setThemeId] = useState<AppThemeId>('default');
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem(APP_THEME_STORAGE_KEY);
-    const nextTheme = isThemeId(storedTheme) ? storedTheme : 'green';
+    const nextTheme = isThemeId(storedTheme) ? storedTheme : 'default';
     setThemeId(nextTheme);
     applyAppTheme(nextTheme);
   }, []);
