@@ -30,16 +30,6 @@ export interface OcrWorkflowResponse {
   result: Record<string, unknown>;
 }
 
-export interface AgentLogResponse {
-  id: number;
-  usageStatementId: number | null;
-  agentTypeCode: string;
-  statusCode: string;
-  modelName: string | null;
-  runId: string | null;
-  createdAt: string;
-}
-
 export type RequiredEvidenceMap = Record<string, Partial<Record<FolderEvidenceCategory, string[]>>>;
 
 type EvidenceRequirementRecord = {
@@ -64,14 +54,6 @@ export const runAgent = async (
   return response.data;
 };
 
-export const listAgentLogs = async (projectId: string, params: { runId?: string; usageStatementId?: number } = {}) => {
-  const searchParams = new URLSearchParams();
-  if (params.runId) searchParams.set('runId', params.runId);
-  if (params.usageStatementId) searchParams.set('usageStatementId', String(params.usageStatementId));
-  const response = await apiFetch<AgentLogResponse[]>(`/projects/${projectId}/agents/logs${searchParams.size ? `?${searchParams}` : ''}`);
-  return response.data || [];
-};
-
 export const parseUsageStatementWithOcr = async (projectId: string, fileId: number | string) => {
   const response = await apiFetch<OcrWorkflowResponse>(`/projects/${projectId}/agents/ocr/usage-statements/parse`, {
     method: 'POST',
@@ -92,24 +74,6 @@ export const parseAndMatchEvidenceWithOcr = async (
       usageStatementItemId: Number(input.usageStatementItemId),
     },
   });
-  return response.data;
-};
-
-export const runClassificationAgent = async (projectId: string, usageStatementId: number, rerun = false) => {
-  const response = await apiFetch<LawAgentRunResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/classification`, {
-    method: 'POST',
-    body: { rerun },
-  });
-  return response.data;
-};
-
-export const getLatestClassification = async (projectId: string, usageStatementId: number) => {
-  const response = await apiFetch<Record<string, unknown>>(`/projects/${projectId}/usage-statements/${usageStatementId}/classification/latest`);
-  return response.data;
-};
-
-export const getClassificationStatus = async (projectId: string, usageStatementId: number, classificationId: string) => {
-  const response = await apiFetch<Record<string, unknown>>(`/projects/${projectId}/usage-statements/${usageStatementId}/classification/${classificationId}`);
   return response.data;
 };
 
@@ -144,34 +108,6 @@ export const listSafeLeeEvidenceRequirements = async (projectId: string, usageSt
     `/projects/${projectId}/usage-statements/${usageStatementId}/line-items/${itemId}/evidence-requirements`,
   );
   return response.data.requirements || [];
-};
-
-export const getSafeLeeEvidenceRequirementInput = async (projectId: string, usageStatementId: number, itemId: string | number) => {
-  const response = await apiFetch<Record<string, unknown>>(
-    `/projects/${projectId}/usage-statements/${usageStatementId}/line-items/${itemId}/evidence-requirement-input`,
-  );
-  return response.data;
-};
-
-export const saveSafeLeeEvidenceRequirementJudgement = async (
-  projectId: string,
-  usageStatementId: number,
-  itemId: string | number,
-  input: { requiredEvidences: string[]; confidence?: number; reason?: string; modelName?: string },
-) => {
-  const response = await apiFetch<{ itemId: number; savedRequirements: EvidenceRequirementRecord[] }>(
-    `/projects/${projectId}/usage-statements/${usageStatementId}/line-items/${itemId}/evidence-requirements/judgement`,
-    {
-      method: 'POST',
-      body: {
-        requiredEvidences: input.requiredEvidences,
-        confidence: input.confidence,
-        reason: input.reason,
-        modelName: input.modelName,
-      },
-    },
-  );
-  return response.data;
 };
 
 export const safeLeeRequirementsToMap = (itemId: string | number, requirements: EvidenceRequirementRecord[]): RequiredEvidenceMap => {

@@ -1,6 +1,3 @@
-import type { UserRole } from '../lib/permissions';
-import type { ProjectStatus } from '../lib/project-data';
-
 export type EvidenceCategory = 'receipt' | 'site_photo' | 'usage_statement' | 'tax_invoice' | 'other_document';
 export type FolderEvidenceCategory = Exclude<EvidenceCategory, 'usage_statement'>;
 export type BackendEvidenceTypeCode =
@@ -57,16 +54,6 @@ export interface EvidenceFile {
   };
 }
 
-export interface ContractInfo {
-  name: string;
-  num: string;
-  project?: string;
-  period?: string;
-  round?: string;
-  planned?: string;
-  accumulated?: string;
-}
-
 export type ArchiveEvidenceByKind = Partial<Record<FolderEvidenceCategory, EvidenceFile[]>>;
 export type ArchiveLineItemMap = Record<string, ArchiveEvidenceByKind>;
 export type ArchiveCategoryMap = Record<string, ArchiveLineItemMap>;
@@ -74,22 +61,6 @@ export type ArchiveCategoryMap = Record<string, ArchiveLineItemMap>;
 export interface ArchiveSeed {
   usage_statement: EvidenceFile[];
   categories: ArchiveCategoryMap;
-}
-
-export interface ValidationSummary {
-  totalUsed: number;
-  totalSettled: number;
-  totalTax: number;
-}
-
-export interface ReportRow {
-  id: number;
-  cat: string;
-  status: 'ok' | 'warn' | 'error';
-  used: number;
-  tax: number;
-  settled: number;
-  note: string;
 }
 
 export type ValidationDecision = 'appropriate' | 'conditional' | 'inappropriate';
@@ -146,60 +117,4 @@ export interface ValidationDashboardResult {
     basis: string;
   };
   categories: CategoryValidationResult[];
-}
-
-export type ValidationStatus = 'not_started' | 'running' | 'completed' | 'needs_action';
-
-export type ActionRequestStatus = 'open' | 'in_progress' | 'closed';
-
-export type ReportStatus = 'not_requested' | 'drafting' | 'reviewing' | 'finalized';
-
-export type ActivityTargetType = 'project' | 'evidence' | 'validation' | 'action_request' | 'report';
-
-export interface ProjectEvidenceState {
-  projectId: string;
-  category: EvidenceCategory;
-  files: EvidenceFile[];
-}
-
-export interface ProjectValidationState {
-  projectId: string;
-  status: ValidationStatus;
-  resultIds: string[];
-  confirmedAt?: string;
-  confirmedBy?: string;
-}
-
-export interface ProjectReportState {
-  projectId: string;
-  status: ReportStatus;
-  rows: ReportRow[];
-  version: number;
-  finalizedAt?: string;
-  finalizedBy?: string;
-}
-
-export interface ActivityLogEntry {
-  id: string;
-  projectId: string;
-  actorName: string;
-  actorRole: UserRole;
-  action: string;
-  targetType: ActivityTargetType;
-  targetId: string;
-  reason?: string;
-  createdAt: string;
-}
-
-export interface StatusHistoryEntry {
-  id: string;
-  projectId: string;
-  actorName: string;
-  actorRole: UserRole;
-  targetType: ActivityTargetType;
-  targetId: string;
-  fromStatus?: ProjectStatus | ValidationStatus | ActionRequestStatus | ReportStatus;
-  toStatus: ProjectStatus | ValidationStatus | ActionRequestStatus | ReportStatus;
-  reason?: string;
-  createdAt: string;
 }

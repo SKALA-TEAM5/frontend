@@ -274,23 +274,6 @@ export const replaceProjectAssignees = async (projectId: string, assigneeUserIds
   return response.data.assignees;
 };
 
-export const listProjectAssignees = async (projectId: string) => {
-  const response = await apiFetch<ProjectAssigneeListResponse>(`/projects/${projectId}/assignees`);
-  return response.data.assignees;
-};
-
-export const addProjectAssignee = async (projectId: string, userId: number) => {
-  await apiFetch<null>(`/projects/${projectId}/assignees/${userId}`, {
-    method: 'POST',
-  });
-};
-
-export const removeProjectAssignee = async (projectId: string, userId: number) => {
-  await apiFetch<null>(`/projects/${projectId}/assignees/${userId}`, {
-    method: 'DELETE',
-  });
-};
-
 export const listProjectManagerCandidates = async () => {
   const response = await apiFetch<UserListResponse>('/users?roleCode=user');
   return response.data.items;
@@ -328,10 +311,5 @@ export const updateActionRequestStatus = async (projectId: string, actionRequest
     method: 'PATCH',
     body: { statusCode },
   });
-  return response.data;
-};
-
-export const getActionRequest = async (projectId: string, actionRequestId: number) => {
-  const response = await apiFetch<ProjectActionRequest>(`/projects/${projectId}/action-requests/${actionRequestId}`);
   return response.data;
 };

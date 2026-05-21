@@ -1,5 +1,4 @@
 import { C } from './theme';
-import type { AppUser } from './permissions';
 
 export const PROJECT_STATUS = {
   OPEN: 'open',
@@ -116,12 +115,6 @@ export interface NewProjectInput {
   usageStatementFileName?: string;
 }
 
-export const CURRENT_USER: AppUser = {
-  id: '',
-  name: '',
-  role: 'she_manager',
-};
-
 export const EMPTY_PROJECT: ProjectSummary = {
   id: '',
   contractNumber: '',
@@ -185,20 +178,9 @@ const splitManagerNames = (value: string) =>
 
 export const getProjectManagers = (project: ProjectSummary) => splitManagerNames(project.manager);
 
-export const getDashboardCountsFromProjects = (projects: ProjectSummary[]) => ({
-  myProjects: projects.length,
-  active: projects.filter((project) => project.projectStatusCode === PROJECT_STATUS_CODE.ACTIVE).length,
-  completed: projects.filter((project) => project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED).length,
-  suspended: projects.filter((project) => project.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED).length,
-});
-
 export const getSheFilterOptionsFromProjects = (projects: ProjectSummary[]) => {
   return {
     managers: ['전체', ...Array.from(new Set(projects.flatMap((project) => getProjectManagers(project))))],
     statuses: ['전체', ...Object.values(STATUS_META).map((meta) => meta.label)],
   };
 };
-
-export const getProjectById = (_projectId: string, _user: AppUser = CURRENT_USER) => EMPTY_PROJECT;
-
-export const getMonthlyUsageStatements = (_projectId: string): MonthlyUsageStatementSummary[] => [];

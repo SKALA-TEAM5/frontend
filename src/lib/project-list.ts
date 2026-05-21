@@ -4,21 +4,6 @@ export type ProjectSortField = 'name' | 'contractNumber' | 'startDate' | 'endDat
 export type SortDirection = 'asc' | 'desc';
 export type PeriodMode = 'all' | '1m' | '3m' | '6m' | 'custom';
 
-export const PROJECT_SORT_FIELD_LABELS: Record<ProjectSortField, string> = {
-  name: '가나다순',
-  contractNumber: '계약번호순',
-  startDate: '공사시작일순',
-  endDate: '공사마감일순',
-  progress: '공정률순',
-  usageRate: '안전관리비 사용률순',
-  manager: '담당자순',
-};
-
-export const SORT_DIRECTION_LABELS: Record<SortDirection, string> = {
-  asc: '오름차순',
-  desc: '내림차순',
-};
-
 interface ProjectFilterOptions {
   keyword?: string;
   projectName?: string;

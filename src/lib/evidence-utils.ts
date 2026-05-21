@@ -1,4 +1,4 @@
-import type { ArchiveCategoryMap, ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory, ValidationDashboardResult } from '../types/domain';
+import type { ArchiveSeed, EvidenceCategory, EvidenceFile, ValidationDashboardResult } from '../types/domain';
 
 interface CategoryMeta {
   id: number;
@@ -17,7 +17,6 @@ export interface UsageLineItem {
   unitPrice?: number;
 }
 
-type UploadedEvidenceMap = Record<EvidenceCategory, EvidenceFile[]>;
 type CategoryKeywordMap = Record<number, string[]>;
 
 export const CATS: CategoryMeta[] = [
@@ -260,8 +259,6 @@ export const classifyEvidenceToCategoryIds = (name: string, description = ''): n
   return matches.length > 0 ? matches.slice(0, 3) : [];
 };
 
-export const getCategoryLabels = (categoryIds: number[]) => categoryIds.map((id) => CATS.find((cat) => cat.id === id)?.short || `${id}번 항목`);
-
 const getDefaultUsageItemIds = (categoryIds: number[]) => categoryIds
   .map((categoryId) => USAGE_LINE_ITEMS.find((item) => item.categoryId === categoryId)?.id)
   .filter(Boolean) as string[];
@@ -287,17 +284,6 @@ export const createEntryFromFile = (file: File, kind: EvidenceCategory, extra: P
   previewUrl: isImageFile(file.name) ? URL.createObjectURL(file) : '',
 });
 
-const putArchiveFile = (categories: ArchiveCategoryMap, catId: number | string, usageItemId: string, kind: FolderEvidenceCategory, file: EvidenceFile) => {
-  const categoryKey = String(catId);
-  categories[categoryKey] = {
-    ...(categories[categoryKey] || {}),
-    [usageItemId]: {
-      ...(categories[categoryKey]?.[usageItemId] || {}),
-      [kind]: [...(categories[categoryKey]?.[usageItemId]?.[kind] || []), file],
-    },
-  };
-};
-
 export const createDefaultArchiveData = (): ArchiveSeed => ({
   usage_statement: [],
   categories: {},
@@ -309,27 +295,6 @@ export const normalizeArchiveData = (seed: ArchiveSeed | null): ArchiveSeed => {
     usage_statement: Array.isArray(seed.usage_statement) ? seed.usage_statement : [],
     categories: seed.categories || {},
   };
-};
-
-export const buildArchiveDataFromUploads = (files?: UploadedEvidenceMap | null): ArchiveSeed => {
-  const archive = createDefaultArchiveData();
-  if (!files) return archive;
-
-  (['receipt', 'site_photo', 'tax_invoice', 'other_document'] as const).forEach((kind) => {
-    const list = files[kind] || [];
-    list.forEach((entry) => {
-      const categoryIds = entry.categoryIds?.length ? entry.categoryIds : [];
-      categoryIds.forEach((categoryId) => {
-        const usageItemIds = entry.usageItemIds?.length ? entry.usageItemIds : getDefaultUsageItemIds([categoryId]);
-        usageItemIds.forEach((usageItemId) => {
-          putArchiveFile(archive.categories, categoryId, usageItemId, kind, { ...entry, id: entry.id || nextFileId(), kind, categoryIds, usageItemIds: [usageItemId] });
-        });
-      });
-    });
-  });
-
-  archive.usage_statement = (files.usage_statement || []).map((entry) => ({ ...entry, id: entry.id || nextFileId(), kind: 'usage_statement' as const, categoryIds: [] }));
-  return archive;
 };
 
 export const makeThumbSvg = (kind: EvidenceCategory) => encodeURIComponent(

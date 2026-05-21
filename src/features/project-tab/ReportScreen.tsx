@@ -5,8 +5,7 @@ import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { runAgent } from '../../lib/agent-api';
-import { useCurrentUser } from '../../lib/dev-user';
-import { AGENT_TYPE_CODE, getProjectById } from '../../lib/project-data';
+import { AGENT_TYPE_CODE } from '../../lib/project-data';
 import { buildReportDraftJson, type ReportDraft } from '../../lib/report-draft';
 import { C } from '../../lib/theme';
 import { VALIDATION_DASHBOARD_RESULT } from '../../lib/evidence-utils';
@@ -55,7 +54,6 @@ const reportInputStyle: CSSProperties = {
 };
 
 const ReportScreen = ({ contractName, projectId, usageStatementId, validationComplete = false }: ReportScreenProps) => {
-  const { user } = useCurrentUser();
   const [reportStatus, setReportStatus] = useState<ReportGenerationStatus>('idle');
   const [reportProgress, setReportProgress] = useState(0);
   const [reportWorkflowStatus, setReportWorkflowStatus] = useState<ReportWorkflowStatus>('editing');
@@ -68,7 +66,7 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
 
   useEffect(() => {
     if (!reportDraft || reportDraft.report_sections.some((section) => section.section_id === 'tax_settlement')) return;
-    const templateDraft = buildReportDraftJson(projectId ? getProjectById(projectId, user) : null, result, contractName);
+    const templateDraft = buildReportDraftJson(null, result, contractName);
     const taxSection = templateDraft.report_sections.find((section) => section.section_id === 'tax_settlement');
     if (!taxSection) return;
     setReportDraft((current) => {
@@ -79,11 +77,11 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
       report_sections.splice(insertIndex, 0, taxSection);
       return { ...current, report_sections };
     });
-  }, [contractName, projectId, reportDraft, result, user]);
+  }, [contractName, reportDraft, result]);
 
   const handleReportGenerate = async () => {
     if (reportStatus === 'generating') return;
-    const buildExampleDraft = () => buildReportDraftJson(projectId ? getProjectById(projectId, user) : null, result, contractName);
+    const buildExampleDraft = () => buildReportDraftJson(null, result, contractName);
     try {
       setReportStatus('generating');
       setReportProgress(25);

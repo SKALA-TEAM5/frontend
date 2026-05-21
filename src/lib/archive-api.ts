@@ -457,16 +457,9 @@ export const getLatestUsageStatementArchive = async (projectId: string) => {
   return toArchiveData(projectId, response.data.statement);
 };
 
-export const getUsageStatementArchiveByMonth = async (projectId: string, year: number, month: number) => {
+const getUsageStatementArchiveByMonth = async (projectId: string, year: number, month: number) => {
   const response = await apiFetch<{ projectId: number; statement: UsageStatementDetailResponse }>(
     `/projects/${projectId}/usage-statements/by-month?year=${year}&month=${month}`,
-  );
-  return toArchiveData(projectId, response.data.statement);
-};
-
-export const getUsageStatementArchive = async (projectId: string, usageStatementId: number) => {
-  const response = await apiFetch<{ projectId: number; statement: UsageStatementDetailResponse }>(
-    `/projects/${projectId}/usage-statements/${usageStatementId}`,
   );
   return toArchiveData(projectId, response.data.statement);
 };
@@ -591,17 +584,17 @@ export const deleteEvidenceFileLink = async (projectId: string, linkId: number |
   });
 };
 
-export const listArchiveCategories = async (projectId: string) => {
+const listArchiveCategories = async (projectId: string) => {
   const response = await apiFetch<ArchiveCategoryListResponse>(`/projects/${projectId}/archive/categories`);
   return response.data.items;
 };
 
-export const listArchiveCategoryItems = async (projectId: string, categoryCode: string) => {
+const listArchiveCategoryItems = async (projectId: string, categoryCode: string) => {
   const response = await apiFetch<ArchiveItemListResponse>(`/projects/${projectId}/archive/categories/${categoryCode}/items`);
   return response.data.items;
 };
 
-export const listItemEvidenceFiles = async (projectId: string, itemId: string) => {
+const listItemEvidenceFiles = async (projectId: string, itemId: string) => {
   const response = await apiFetch<ItemEvidenceFilesResponse>(`/projects/${projectId}/usage-statement-items/${itemId}/evidence-files`);
   return response.data;
 };
