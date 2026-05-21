@@ -319,6 +319,9 @@
     min-width: 0;
     overflow-x: hidden;
     min-height: calc(100vh - 64px);
+    background:
+      radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--c-bg) 84%, transparent) 0, transparent 36%),
+      linear-gradient(135deg, color-mix(in srgb, var(--c-bg) 72%, #fff) 0%, color-mix(in srgb, var(--c-soft) 72%, var(--c-bg)) 100%);
   }
   .app-main.dashboard-main {
     width: 100vw;
@@ -335,7 +338,9 @@
     max-width: 1840px;
     padding-left: clamp(132px, 8vw, 172px);
     padding-right: clamp(132px, 8vw, 172px);
-    background: var(--c-soft);
+    background:
+      radial-gradient(circle at 10% 2%, color-mix(in srgb, var(--c-bg) 88%, transparent) 0, transparent 34%),
+      linear-gradient(135deg, color-mix(in srgb, var(--c-bg) 76%, #fff) 0%, color-mix(in srgb, var(--c-soft) 66%, var(--c-bg)) 100%);
   }
   .app-footer {
     box-sizing: border-box;
