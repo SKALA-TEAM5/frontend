@@ -32,13 +32,21 @@ export const AGENT_TYPE_CODE = {
   VISION: 'vision',
   LEGAL: 'legal',
   REPORT: 'report',
+  ORCHESTRATOR: 'orchestrator',
 } as const;
 
 export const AGENT_LOG_STATUS = {
+  PENDING: 'pending',
   RUNNING: 'running',
-  SUCCEEDED: 'succeeded',
-  COMPLETED: 'completed',
-  FAILED: 'failed',
+  SUCCESS: 'success',
+  FAIL: 'fail',
+  CANCELED: 'canceled',
+} as const;
+
+export const FILE_STATUS_CODE = {
+  DRAFT: 'draft',
+  SUCCESS: 'success',
+  FAIL: 'fail',
 } as const;
 
 export type ProjectStatus = typeof PROJECT_STATUS[keyof typeof PROJECT_STATUS];
@@ -47,6 +55,7 @@ export type ProjectStatusCode = typeof PROJECT_STATUS_CODE[keyof typeof PROJECT_
 export type ActionRequestStatusCode = typeof ACTION_REQUEST_STATUS[keyof typeof ACTION_REQUEST_STATUS];
 export type AgentTypeCode = typeof AGENT_TYPE_CODE[keyof typeof AGENT_TYPE_CODE];
 export type AgentLogStatusCode = typeof AGENT_LOG_STATUS[keyof typeof AGENT_LOG_STATUS];
+export type FileStatusCode = typeof FILE_STATUS_CODE[keyof typeof FILE_STATUS_CODE];
 
 export interface ProjectSummary {
   id: string;

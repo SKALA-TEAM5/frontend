@@ -1,21 +1,20 @@
 import { apiFetch } from './api-client';
 import { backendEvidenceTypeToCategory } from './archive-api';
-import type { AgentTypeCode } from './project-data';
+import type { AgentLogStatusCode, AgentTypeCode } from './project-data';
 import type { FolderEvidenceCategory } from '../types/domain';
 
 export type AgentType = AgentTypeCode;
 
 export interface AgentRunResponse {
-  runId: string;
   agentType: string;
-  status: string;
+  status: AgentLogStatusCode | string;
   logIds: number[];
   result: Record<string, unknown>;
 }
 
 export interface LawAgentRunResponse {
   workflow: string;
-  status: string;
+  status: AgentLogStatusCode | string;
   validationLogIds: number[];
   result: Record<string, unknown>;
 }
@@ -23,7 +22,7 @@ export interface LawAgentRunResponse {
 export interface OcrWorkflowResponse {
   requestId: string;
   workflow: string;
-  status: string;
+  status: AgentLogStatusCode | string;
   validationLogIds: number[];
   usageStatementId: number | null;
   evidenceFileLinkId: number | null;
