@@ -158,20 +158,33 @@ const buildExampleRequiredEvidence = (items: UsageLineItem[]): SafetyDocAgentReq
         return result;
     }, {});
 };
-const readStoredArchiveTodos = (projectId: string, key?: string) => {
+type StoredArchiveTodoState = {
+    requiredEvidenceByLine: SafetyDocAgentRequiredEvidenceMap;
+    completedTodoIds: Record<string, boolean>;
+    dismissedTodoIds: Record<string, boolean>;
+};
+
+const EMPTY_ARCHIVE_TODO_STATE: StoredArchiveTodoState = {
+    requiredEvidenceByLine: {},
+    completedTodoIds: {},
+    dismissedTodoIds: {},
+};
+
+const readStoredArchiveTodos = (projectId: string, key?: string): StoredArchiveTodoState => {
     if (typeof window === 'undefined')
-        return { requiredEvidenceByLine: {}, completedTodoIds: {} } as { requiredEvidenceByLine: SafetyDocAgentRequiredEvidenceMap; completedTodoIds: Record<string, boolean> };
+        return EMPTY_ARCHIVE_TODO_STATE;
     try {
         const raw = window.localStorage.getItem(getArchiveTodoStorageKey(projectId, key));
         if (!raw)
-            return { requiredEvidenceByLine: {}, completedTodoIds: {} };
-        const parsed = JSON.parse(raw) as Partial<{ requiredEvidenceByLine: SafetyDocAgentRequiredEvidenceMap; completedTodoIds: Record<string, boolean> }>;
+            return EMPTY_ARCHIVE_TODO_STATE;
+        const parsed = JSON.parse(raw) as Partial<StoredArchiveTodoState>;
         return {
             requiredEvidenceByLine: parsed.requiredEvidenceByLine || {},
             completedTodoIds: parsed.completedTodoIds || {},
+            dismissedTodoIds: parsed.dismissedTodoIds || {},
         };
     } catch {
-        return { requiredEvidenceByLine: {}, completedTodoIds: {} };
+        return EMPTY_ARCHIVE_TODO_STATE;
     }
 };
 export default function ArchiveScreen({ projectId, usageStatementId, matchReady, uncheckedMatchedFileCount = 0, onDismissMatchReady, archiveSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onArchiveSeedChange, onFilesUploaded, onArchiveContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onBackToOverview, uploadCompleteAction }: ArchiveScreenProps) {
@@ -188,6 +201,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
     const [archiveVerificationStep, setArchiveVerificationStep] = useState<'ocr' | 'safety' | 'vision' | null>(null);
     const [photoValidationNotice, setPhotoValidationNotice] = useState<{ type: 'ok' | 'bad'; message: string } | null>(null);
     const [completedTodoIds, setCompletedTodoIds] = useState<Record<string, boolean>>(initialTodoState.completedTodoIds);
+    const [dismissedTodoIds, setDismissedTodoIds] = useState<Record<string, boolean>>(initialTodoState.dismissedTodoIds);
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
     const [addUsageItemModalOpen, setAddUsageItemModalOpen] = useState(false);
@@ -218,6 +232,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
         hydratingTodoRef.current = true;
         setRequiredEvidenceByLine(stored.requiredEvidenceByLine);
         setCompletedTodoIds(stored.completedTodoIds);
+        setDismissedTodoIds(stored.dismissedTodoIds);
     }, [projectId, todoStorageKey]);
     useEffect(() => {
         if (hydratingTodoRef.current) {
@@ -229,20 +244,9 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
         window.localStorage.setItem(getArchiveTodoStorageKey(projectId, todoStorageKey), JSON.stringify({
             requiredEvidenceByLine,
             completedTodoIds,
+            dismissedTodoIds,
         }));
-    }, [completedTodoIds, projectId, requiredEvidenceByLine, todoStorageKey]);
-    useEffect(() => {
-        if (clearTodoSignalRef.current === clearTodoSignal)
-            return;
-        clearTodoSignalRef.current = clearTodoSignal;
-        setRequiredEvidenceByLine({});
-        setCompletedTodoIds({});
-        setMatchingStatus('idle');
-        setMatchingNotice('');
-        setPhotoValidationNotice(null);
-        if (typeof window !== 'undefined')
-            window.localStorage.removeItem(getArchiveTodoStorageKey(projectId, todoStorageKey));
-    }, [clearTodoSignal, projectId, todoStorageKey]);
+    }, [completedTodoIds, dismissedTodoIds, projectId, requiredEvidenceByLine, todoStorageKey]);
     useEffect(() => {
         if (!resolvedUsageItems.length)
             return;
@@ -369,11 +373,37 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
         return todos.filter((todo) => {
             if (seen.has(todo.id))
                 return false;
+            if (dismissedTodoIds[todo.id])
+                return false;
             seen.add(todo.id);
             return true;
         });
-    }, [actionRequest?.message, actionRequest?.title, fileData.categories, requiredEvidenceByLine, resolvedUsageItems]);
+    }, [actionRequest?.message, actionRequest?.title, dismissedTodoIds, fileData.categories, requiredEvidenceByLine, resolvedUsageItems]);
     const activeTodoCount = archiveTodoItems.filter((todo) => !completedTodoIds[todo.id]).length;
+    useEffect(() => {
+        if (clearTodoSignalRef.current === clearTodoSignal)
+            return;
+        clearTodoSignalRef.current = clearTodoSignal;
+        setDismissedTodoIds((current) => {
+            const next = { ...current };
+            archiveTodoItems.forEach((todo) => {
+                if (completedTodoIds[todo.id])
+                    next[todo.id] = true;
+            });
+            return next;
+        });
+        setCompletedTodoIds((current) => {
+            const next = { ...current };
+            archiveTodoItems.forEach((todo) => {
+                if (current[todo.id])
+                    delete next[todo.id];
+            });
+            return next;
+        });
+        setMatchingStatus('idle');
+        setMatchingNotice('');
+        setPhotoValidationNotice(null);
+    }, [archiveTodoItems, clearTodoSignal, completedTodoIds]);
     useEffect(() => {
         onTodoCountChange?.(activeTodoCount);
     }, [activeTodoCount, onTodoCountChange]);
@@ -1099,14 +1129,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
         ];
         return (
           <div className="archive-verification-loader">
-            <div className="archive-loader-ocean" aria-hidden="true">
-              <div className="archive-loader-wave archive-loader-wave-a" />
-              <div className="archive-loader-wave archive-loader-wave-b" />
-              <div className="archive-loader-turtle" />
-              <div className="archive-loader-island">
-                <span className="archive-loader-palm" />
-              </div>
-            </div>
+            <div className="archive-loader-ocean" aria-hidden="true" />
             <div style={{ display: 'grid', gap: 10, minWidth: 0 }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>{archiveLoadingMessage.title}</div>
               <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.55 }}>{archiveLoadingMessage.body}</div>

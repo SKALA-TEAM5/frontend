@@ -22,6 +22,12 @@ type ReportWorkflowStatus = 'editing' | 'saved';
 
 const REPORT_STEPS = ['항목별 판정 요약', '부적정 사유 정리', '보완 요청 문안 생성', '보고서 초안 저장'];
 
+const isReportDraft = (value: unknown): value is ReportDraft => {
+  if (!value || typeof value !== 'object') return false;
+  const draft = value as Partial<ReportDraft>;
+  return typeof draft.report_no === 'string' && Array.isArray(draft.report_sections);
+};
+
 const chipStyle = (color: string, bg: string, border?: string): CSSProperties => ({
   display: 'inline-flex',
   alignItems: 'center',
@@ -85,21 +91,24 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
     try {
       setReportStatus('generating');
       setReportProgress(25);
-      if (!validationComplete || !projectId || !usageStatementId) throw new Error('보고서 Agent 실행에 필요한 상태가 없습니다.');
-      await runAgent(projectId, AGENT_TYPE_CODE.REPORT, { usageStatementId });
+      let nextDraft: ReportDraft;
+      if (validationComplete && projectId && usageStatementId) {
+        const response = await runAgent(projectId, AGENT_TYPE_CODE.REPORT, { usageStatementId });
+        const reportDraft = response.result.reportDraft;
+        if (!isReportDraft(reportDraft)) throw new Error('보고서 Agent 응답에 reportDraft가 없습니다.');
+        nextDraft = reportDraft;
+      } else {
+        nextDraft = buildExampleDraft();
+      }
       setReportProgress(100);
-      setReportDraft(buildExampleDraft());
+      setReportDraft(nextDraft);
       setReportStatus('done');
       setReportWorkflowStatus('editing');
       setSavedAt('');
     } catch {
-      window.setTimeout(() => {
-        setReportProgress(100);
-        setReportDraft(buildExampleDraft());
-        setReportStatus('done');
-        setReportWorkflowStatus('editing');
-        setSavedAt('');
-      }, 450);
+      setReportStatus('idle');
+      setReportProgress(0);
+      setAgentFailureTarget('server-request');
     }
   };
 
