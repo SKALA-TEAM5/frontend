@@ -7,6 +7,7 @@ metadata:
     app: team5-frontend
 spec:
   replicas: 1
+  revisionHistoryLimit: 2
   selector:
     matchLabels:
       app: team5-frontend
