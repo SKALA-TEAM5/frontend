@@ -2,6 +2,94 @@
 
 산업안전보건관리비 사용내역서와 증빙자료를 월 단위로 검토하는 Next.js 프론트엔드입니다.
 
+## Docker / Kubernetes 실행 가이드
+
+프론트엔드는 Next.js standalone Docker 이미지로 빌드하여 Kubernetes에 배포합니다.
+
+### 로컬 실행
+
+```bash
+npm install
+npm run dev
+```
+
+```text
+http://localhost:3000
+```
+
+### Docker 실행
+
+```bash
+docker build -f DockerFile -t team5-frontend:standalone .
+docker run --rm -p 3000:3000 team5-frontend:standalone
+```
+
+### 이미지 Push
+
+EKS 워커 노드는 `linux/amd64` 환경이므로 Mac에서 빌드할 때 platform을 명시해야 합니다.
+
+```bash
+docker login <REGISTRY_HOST> -u '<REGISTRY_USERNAME>'
+```
+
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  -f DockerFile \
+  -t <REGISTRY_HOST>/<PROJECT_NAME>/team5-frontend:latest \
+  --push .
+```
+
+### Kubernetes 배포
+
+Private registry 접근용 secret을 한 번만 생성합니다.
+
+```bash
+kubectl create secret docker-registry team5-harbor-secret \
+  --namespace=<NAMESPACE> \
+  --docker-server=<REGISTRY_HOST> \
+  --docker-username='<REGISTRY_USERNAME>' \
+  --docker-password='<REGISTRY_PASSWORD>' \
+  --dry-run=client \
+  -o yaml | kubectl apply -f -
+```
+
+```bash
+kubectl apply -f k8s/frontend-deployment.yaml
+kubectl apply -f k8s/frontend-service.yaml
+```
+
+```bash
+kubectl rollout status deployment/team5-frontend -n <NAMESPACE>
+kubectl get pods,svc,deploy -n <NAMESPACE> -l app=team5-frontend
+```
+
+### Kubernetes 접속
+
+현재 Service는 `ClusterIP`이므로 외부 공개 전에는 port-forward로 접속합니다.
+
+```bash
+kubectl port-forward svc/team5-frontend 3000:3000 -n <NAMESPACE>
+```
+
+```text
+http://localhost:3000
+```
+
+### 문제 확인
+
+`ImagePullBackOff`가 발생하면 원인을 먼저 확인합니다.
+
+```bash
+kubectl describe pod <POD_NAME> -n <NAMESPACE>
+```
+
+`no match for platform in manifest`가 보이면 `linux/amd64` 이미지로 다시 push한 뒤 재시작합니다.
+
+```bash
+kubectl rollout restart deployment/team5-frontend -n <NAMESPACE>
+```
+
 ## 요구 환경
 
 - Node.js 20 이상
