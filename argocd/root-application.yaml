@@ -12,6 +12,9 @@ spec:
     - repoURL: https://github.com/SKALA-TEAM5/db.git
       targetRevision: main
       path: k8s/postgres
+    - repoURL: https://github.com/SKALA-TEAM5/db.git
+      targetRevision: main
+      path: k8s/minio
   destination:
     server: https://kubernetes.default.svc
     namespace: skala3-finalproj-class2-team5
