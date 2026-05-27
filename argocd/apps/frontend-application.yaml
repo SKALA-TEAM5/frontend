@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: team5-iveri
+  name: team5-iveri-frontend
   namespace: skala-argocd
 spec:
   project: default
