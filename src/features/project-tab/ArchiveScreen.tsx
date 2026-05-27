@@ -1213,7 +1213,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             }} onRemove={removeHierarchyFile} onRename={renameHierarchyFile} onMove={moveHierarchyFile} onEditUsageItem={editUsageItem} onAddUsageItem={openAddUsageItemModal} onDeleteUsageItem={deleteUsageItem} onUpload={uploadFilesToSection} onDownloadFile={openFileDownload} fileHeaderAction={uploadCompleteAction}/>
           {archiveVerificationStep && archiveLoadingMessage && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 20, display: 'grid', placeItems: 'center', padding: 24, background: 'rgba(247, 252, 248, .62)', backdropFilter: 'blur(1px)' }}>
-              <div style={{ width: 'min(100%, 540px)', background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 22 }}>
+              <div style={{ width: 'min(100%, 680px)', background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 22 }}>
                 {renderArchiveVerificationLoader()}
               </div>
             </div>

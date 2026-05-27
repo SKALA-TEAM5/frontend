@@ -125,9 +125,9 @@ const extractValidationUsageStatementId = (source: unknown) =>
 const extractValidationRunState = (source: unknown): ValidationRunState => {
   const rawStatus = readNestedStringField(source, ['status', 'statusCode', 'status_code', 'state', 'resultCode', 'result_code']).toLowerCase();
   if (!rawStatus) return 'unknown';
-  if ([AGENT_LOG_STATUS.COMPLETED, AGENT_LOG_STATUS.SUCCEEDED, 'complete', 'done', 'success', 'passed', 'confirmed', 'approved'].includes(rawStatus)) return 'done';
-  if ([AGENT_LOG_STATUS.RUNNING, 'processing', 'pending', 'queued', 'started', 'in_progress'].includes(rawStatus)) return 'running';
-  if ([AGENT_LOG_STATUS.FAILED, 'failure', 'error', 'errored', 'cancelled', 'canceled'].includes(rawStatus)) return 'failed';
+  if ([AGENT_LOG_STATUS.SUCCESS, 'completed', 'complete', 'done', 'succeeded', 'passed', 'confirmed', 'approved'].includes(rawStatus)) return 'done';
+  if ([AGENT_LOG_STATUS.RUNNING, AGENT_LOG_STATUS.PENDING, 'processing', 'queued', 'started', 'in_progress'].includes(rawStatus)) return 'running';
+  if ([AGENT_LOG_STATUS.FAIL, AGENT_LOG_STATUS.CANCELED, 'failed', 'failure', 'error', 'errored', 'cancelled'].includes(rawStatus)) return 'failed';
   return 'unknown';
 };
 
