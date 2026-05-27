@@ -952,7 +952,7 @@ export default function ProjectDetailPage() {
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
             아직 완료되지 않은 보완 TODO가 {activeArchiveTodoCount}건 있습니다. <br />모든 보완을 완료했는지 확인해 주세요.
             <br /><br />
-            <span style={{ color: C.danger, fontWeight: 900 }}>업로드 완료를 진행하면 현재 월의 보완 TODO 리스트가 모두 삭제됩니다.</span>
+            <span style={{ color: C.danger, fontWeight: 900 }}>업로드 완료를 진행하면 완료된 TODO는 목록에서 삭제됩니다.</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
             <button type="button" onClick={() => setUploadCompleteConfirmOpen(false)} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>취소</button>

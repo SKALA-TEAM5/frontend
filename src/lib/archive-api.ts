@@ -1,6 +1,6 @@
 import { apiFetch, apiUrl } from './api-client';
 import { CATS, calculateUsageLineAmount, createDefaultArchiveData, makeEntry, parseUsageNumber, type UsageLineItem } from './evidence-utils';
-import { normalizeUsageWorkflowStatus, type MonthlyUsageStatementSummary, type UsageWorkflowStatus } from './project-data';
+import { normalizeUsageWorkflowStatus, type FileStatusCode, type MonthlyUsageStatementSummary, type UsageWorkflowStatus } from './project-data';
 import type { ArchiveSeed, BackendEvidenceTypeCode, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../types/domain';
 
 interface LatestUsageStatementResponse {
@@ -40,6 +40,7 @@ interface ProjectFileResponse {
   sizeBytes: number | null;
   capturedAt: string | null;
   uploadedAt: string | null;
+  statusCode: FileStatusCode | string;
   linkedItemCount: number;
 }
 
@@ -50,6 +51,7 @@ interface ProjectFileUploadResponse {
   mimeType: string | null;
   sizeBytes: number | null;
   uploadedAt: string | null;
+  statusCode: FileStatusCode | string;
 }
 
 interface ArchiveCategoryListResponse {
@@ -338,6 +340,7 @@ const projectFileToEntry = (projectId: string, file: ProjectFileResponse | Proje
     uploadedAt: formatDate(file.uploadedAt),
     uploadedBy: '',
     documentType: 'uploadedEvidenceTypeName' in file ? file.uploadedEvidenceTypeName : undefined,
+    statusCode: file.statusCode,
     previewUrl: file.mimeType?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, fileId) : '',
     categoryIds: [],
     usageItemIds: [],

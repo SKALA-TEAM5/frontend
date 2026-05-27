@@ -16,6 +16,7 @@ type ThemePalette = {
   g100: string;
   g200: string;
   g400: string;
+  g500: string;
   g600: string;
   g800: string;
   ok: string;
@@ -37,6 +38,7 @@ export const APP_THEMES: Record<AppThemeId, ThemePalette> = {
     g100: '#EEF2F0',
     g200: '#D5DDD8',
     g400: '#7A8A81',
+    g500: '#66766D',
     g600: '#52635A',
     g800: '#1F2F27',
     ok: '#247257',
@@ -54,6 +56,7 @@ export const APP_THEMES: Record<AppThemeId, ThemePalette> = {
     g100: '#EDF5F8',
     g200: '#D4E7EF',
     g400: '#6D8996',
+    g500: '#5C7782',
     g600: '#4C6570',
     g800: '#1E3440',
     ok: '#2472B8',
@@ -71,6 +74,7 @@ export const APP_THEMES: Record<AppThemeId, ThemePalette> = {
     g100: '#F0EDF8',
     g200: '#DED7EF',
     g400: '#7B728E',
+    g500: '#6A617D',
     g600: '#5C536E',
     g800: '#2F2940',
     ok: '#7054D8',
@@ -88,6 +92,7 @@ export const APP_THEMES: Record<AppThemeId, ThemePalette> = {
     g100: '#EEF6F2',
     g200: '#D5E9DF',
     g400: '#728B80',
+    g500: '#617B70',
     g600: '#506A5E',
     g800: '#1D342B',
     ok: '#168767',
@@ -105,6 +110,7 @@ export const C = {
   g100: 'var(--c-g100)',
   g200: 'var(--c-g200)',
   g400: 'var(--c-g400)',
+  g500: 'var(--c-g500)',
   g600: 'var(--c-g600)',
   g800: 'var(--c-g800)',
   danger: '#C2413F',
@@ -131,6 +137,7 @@ export const applyAppTheme = (themeId: AppThemeId) => {
   root.style.setProperty('--c-g100', palette.g100);
   root.style.setProperty('--c-g200', palette.g200);
   root.style.setProperty('--c-g400', palette.g400);
+  root.style.setProperty('--c-g500', palette.g500);
   root.style.setProperty('--c-g600', palette.g600);
   root.style.setProperty('--c-g800', palette.g800);
   root.style.setProperty('--c-ok', palette.ok);
