@@ -7,6 +7,7 @@ metadata:
     app: team5-frontend
 spec:
   type: ClusterIP
+  revisionHistoryLimit: 2
   selector:
     app: team5-frontend
   ports:
