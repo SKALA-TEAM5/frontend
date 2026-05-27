@@ -5,13 +5,16 @@ metadata:
   namespace: skala-argocd
 spec:
   project: default
-  source:
-    repoURL: https://github.com/SKALA-TEAM5/frontend.git
-    targetRevision: main
-    path: argocd/apps
+  sources:
+    - repoURL: https://github.com/SKALA-TEAM5/frontend.git
+      targetRevision: main
+      path: k8s
+    - repoURL: https://github.com/SKALA-TEAM5/db.git
+      targetRevision: main
+      path: k8s/postgres
   destination:
     server: https://kubernetes.default.svc
-    namespace: skala-argocd
+    namespace: skala3-finalproj-class2-team5
   syncPolicy:
     automated:
       selfHeal: true
