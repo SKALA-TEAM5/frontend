@@ -6,6 +6,18 @@
 
 프론트엔드는 Next.js standalone Docker 이미지로 빌드하여 Kubernetes에 배포합니다.
 
+## 환경 설정 원칙
+
+- 로컬 개발은 `.env.local`을 사용합니다. 이 파일은 커밋하지 않습니다.
+- 배포 환경의 API 주소는 GitHub Actions의 Docker build arg로 주입합니다.
+- `main`에 머지되면 운영 배포가 진행되므로, 통합 확인은 `develop`에서 먼저 진행합니다.
+
+로컬 개발용 예시는 `.env.example`을 복사해서 사용합니다.
+
+```bash
+cp .env.example .env.local
+```
+
 ### 로컬 실행
 
 ```bash
@@ -20,7 +32,10 @@ http://localhost:3000
 ### Docker 실행
 
 ```bash
-docker build -f DockerFile -t team5-frontend:standalone .
+docker build \
+  -f DockerFile \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 \
+  -t team5-frontend:standalone .
 docker run --rm -p 3000:3000 team5-frontend:standalone
 ```
 
