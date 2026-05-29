@@ -17,9 +17,6 @@ type ArchiveValidationStatus = 'idle' | 'running' | 'done';
 interface ArchiveScreenProps {
     projectId: string;
     usageStatementId?: number;
-    matchReady: boolean;
-    uncheckedMatchedFileCount?: number;
-    onDismissMatchReady: () => void | Promise<void>;
     archiveSeed: ArchiveSeed | null;
     usageItems?: UsageLineItem[];
     onUsageItemsChange?: (items: UsageLineItem[]) => void;
@@ -52,6 +49,13 @@ type AddUsageItemDraft = {
     unit: string;
     quantity: string;
     unitPrice: string;
+};
+type ClassificationMoveNotice = {
+    id: string;
+    itemName: string;
+    fromCategoryName: string;
+    toCategoryName: string;
+    reason?: string;
 };
 const EVIDENCE_KIND_LABELS: Record<FolderEvidenceCategory, string> = {
     receipt: '영수증',
@@ -111,6 +115,8 @@ const inferEvidenceKindFromText = (value: string): FolderEvidenceCategory => {
         return 'tax_invoice';
     return 'other_document';
 };
+const getCategoryDisplayName = (categoryId: number) => CATS.find((cat) => cat.id === categoryId)?.short || `${categoryId}번 항목`;
+
 const classifyUsageLineCategory = (name: string, fallbackCategoryId: number) => {
     const text = name.replace(/\s+/g, '').toLowerCase();
     const rules: Array<[number, RegExp]> = [
@@ -187,11 +193,10 @@ const readStoredArchiveTodos = (projectId: string, key?: string): StoredArchiveT
         return EMPTY_ARCHIVE_TODO_STATE;
     }
 };
-export default function ArchiveScreen({ projectId, usageStatementId, matchReady, uncheckedMatchedFileCount = 0, onDismissMatchReady, archiveSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onArchiveSeedChange, onFilesUploaded, onArchiveContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onBackToOverview, uploadCompleteAction }: ArchiveScreenProps) {
+export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onArchiveSeedChange, onFilesUploaded, onArchiveContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onBackToOverview, uploadCompleteAction }: ArchiveScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const initialTodoState = readStoredArchiveTodos(projectId, todoStorageKey);
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(archiveSeed || createDefaultArchiveData()));
-    const [checkingMatchedFiles, setCheckingMatchedFiles] = useState(false);
     const [matchingStatus, setMatchingStatus] = useState<'idle' | 'running' | 'done'>('idle');
     const [requiredEvidenceByLine, setRequiredEvidenceByLine] = useState<SafetyDocAgentRequiredEvidenceMap>(initialTodoState.requiredEvidenceByLine);
     const [matchingError, setMatchingError] = useState('');
@@ -208,6 +213,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
     const [addUsageItemDraft, setAddUsageItemDraft] = useState<AddUsageItemDraft>({ name: '', date: new Date().toISOString().slice(0, 10), unit: 'EA', quantity: '1', unitPrice: '' });
     const [addUsageItemError, setAddUsageItemError] = useState('');
     const [classiAgentRunning, setClassiAgentRunning] = useState(false);
+    const [classificationMoveNotices, setClassificationMoveNotices] = useState<ClassificationMoveNotice[]>([]);
     const [todoSidebarOpen, setTodoSidebarOpen] = useState(false);
     const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(resolvedUsageItems[0]?.categoryId || 1);
     const [selectedUsageItemId, setSelectedUsageItemId] = useState(resolvedUsageItems[0]?.id || '');
@@ -705,6 +711,15 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             onUsageItemsChange?.(nextItems);
             setSelectedHierarchyCatId(nextItem.categoryId || categoryId);
             setSelectedUsageItemId(nextItem.id);
+            if (selectedHierarchyCatId !== (nextItem.categoryId || categoryId)) {
+                setClassificationMoveNotices([{
+                    id: nextItem.id,
+                    itemName: nextItem.name,
+                    fromCategoryName: getCategoryDisplayName(selectedHierarchyCatId),
+                    toCategoryName: getCategoryDisplayName(nextItem.categoryId || categoryId),
+                    reason: '입력한 항목명을 기준으로 classi 에이전트가 더 적합한 9개 항목 위치를 선택했습니다.',
+                }]);
+            }
             onArchiveContentMutated?.('add-item');
         } catch (error) {
             setAddUsageItemError(error instanceof Error ? error.message : '세부항목 추가에 실패했습니다.');
@@ -751,14 +766,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
         onArchiveContentMutated?.('delete-item');
     };
     const isProblemFile = (file: EvidenceFile) => file.kind === 'site_photo' && file.visionValidation?.status === 'unsuitable';
-    const hasUncheckedMatchedFiles = uncheckedMatchedFileCount > 0;
-    const showMatchReadyNotice = matchReady || hasUncheckedMatchedFiles;
-    const archiveLoadingMessage = checkingMatchedFiles
-        ? {
-            title: '매칭 파일 확인을 반영하고 있어요',
-            body: '검토 완료 상태를 저장하고 세부 내역 화면을 갱신하고 있습니다.',
-        }
-        : archiveVerificationStep === 'ocr'
+    const archiveLoadingMessage = archiveVerificationStep === 'ocr'
             ? {
                 title: 'OCR 매칭 결과를 확인하고 있어요',
                 body: '영수증과 사용내역서의 날짜, 빈값, 연결 가능성을 link agent가 먼저 점검합니다.',
@@ -774,14 +782,6 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
                         body: 'vision model이 사진 속 현장 상태와 세부 항목의 적합성을 판단합니다.',
                     }
                     : null;
-    const dismissMatchReady = async () => {
-        setCheckingMatchedFiles(true);
-        try {
-            await onDismissMatchReady();
-        } finally {
-            setCheckingMatchedFiles(false);
-        }
-    };
     const runSafetyDocMatching = async () => {
         if (matchingStatus === 'running')
             return;
@@ -1162,16 +1162,6 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
             <button type="button" onClick={() => void runArchiveVerification()} disabled={archiveVerificationRunning} style={{ height: 40, border: `1px solid ${archiveVerificationDone ? C.primary : C.g800}`, borderRadius: 999, background: archiveVerificationDone ? C.bg : C.white, color: archiveVerificationDone ? C.primary : C.g800, cursor: archiveVerificationRunning ? 'wait' : 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{archiveVerificationLabel}</button>
           </div>
         </div>
-        {showMatchReadyNotice && (<Card style={{ marginBottom: 16, padding: '14px 18px', background: C.bg, border: `1px solid ${C.light}` }}>
-            <div data-ui="archive-screen.3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div data-ui="archive-screen.4" style={{ fontSize: 15, fontWeight: 700, color: C.primary }}>
-                {hasUncheckedMatchedFiles ? `관리자가 아직 확인하지 않은 매칭 파일 ${uncheckedMatchedFileCount}건이 있습니다.` : '매칭 검토가 완료되었습니다. 파일을 드래그해 다른 폴더로 이동할 수 있습니다.'}
-              </div>
-              <button data-ui="archive-screen.5" onClick={() => void dismissMatchReady()} disabled={checkingMatchedFiles} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '7px 11px', background: C.white, cursor: checkingMatchedFiles ? 'not-allowed' : 'pointer', color: checkingMatchedFiles ? C.g400 : C.primary, fontFamily: 'inherit', fontSize: 12, fontWeight: 900 }}>{checkingMatchedFiles ? '확인 중' : '확인'}</button>
-            </div>
-          </Card>)}
-
-        {checkingMatchedFiles && archiveLoadingMessage && <InlineLoader title={archiveLoadingMessage.title} body={archiveLoadingMessage.body}/>}
         <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
         {matchingError && (
           <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>
@@ -1265,6 +1255,22 @@ export default function ArchiveScreen({ projectId, usageStatementId, matchReady,
           <InlineLoader title="classi 에이전트 실행 중" body="세부 항목이 산업안전보건관리비 9개 항목 중 어디에 해당하는지 확인하고 있습니다. 완료될 때까지 다른 작업을 할 수 없습니다." />
         </div>
       </Modal>
+      <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 변경" body={<div>
+        <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>classi 에이전트가 세부항목의 9개 항목 위치를 변경했습니다.</div>
+        <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
+          {classificationMoveNotices.map((notice) => (
+            <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
+              <div title={notice.itemName} style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
+                <span title={notice.fromCategoryName} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.fromCategoryName}</span>
+                <span style={{ color: C.primary, fontWeight: 900 }}>→</span>
+                <span title={notice.toCategoryName} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.toCategoryName}</span>
+              </div>
+              {notice.reason && <div style={{ marginTop: 7, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{notice.reason}</div>}
+            </div>
+          ))}
+        </div>
+      </div>} actionLabel="확인" onAction={() => setClassificationMoveNotices([])} />
 
       <Modal open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} zIndex={940} maxWidth={420}>
         <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: '24px 24px 20px' }}>

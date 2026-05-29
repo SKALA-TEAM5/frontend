@@ -56,7 +56,6 @@ interface ProjectFileUploadResponse {
 
 interface ArchiveCategoryListResponse {
   projectId: number;
-  uncheckedMatchedFileCount: number;
   items: ArchiveCategoryResponse[];
 }
 
@@ -66,7 +65,6 @@ interface ArchiveCategoryResponse {
   itemCount: number;
   linkedFileCount: number;
   linkCount: number;
-  uncheckedMatchedFileCount: number;
   unsatisfiedRequirementCount: number;
 }
 
@@ -89,7 +87,6 @@ interface ArchiveItemResponse {
   remark: string | null;
   pageNo: number | null;
   linkedFileCount: number;
-  uncheckedMatchedFileCount: number;
   unsatisfiedRequirementCount: number;
 }
 
