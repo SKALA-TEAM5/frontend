@@ -7,7 +7,6 @@ import Card from '../../components/ui/Card';
 import { AppFrame } from '../../components/common';
 import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
-import { VALIDATION_DASHBOARD_RESULT } from '../../lib/evidence-utils';
 import { C } from '../../lib/theme';
 import { USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
 import { listProjects } from '../../lib/project-api';
@@ -47,6 +46,58 @@ const EXAMPLE_SUPPLEMENT_REASON_TRENDS = [
   { key: '2026-03', label: '3월', counts: { purpose: 1, allocation: 0, labor: 1, evidence: 2 } },
   { key: '2026-04', label: '4월', counts: { purpose: 0, allocation: 1, labor: 1, evidence: 3 } },
   { key: '2026-05', label: '5월', counts: { purpose: 1, allocation: 1, labor: 0, evidence: 2 } },
+] as const;
+
+const AI_USAGE_COST_ROWS = [
+  {
+    user: '김서연',
+    role: 'SHE 담당자',
+    tokens: 684_200,
+    calls: 126,
+    cost: 48200,
+    agents: [
+      { label: '법령 검증', cost: 18800, color: '#3D8CC9' },
+      { label: '보고서 생성', cost: 14200, color: '#8F75D6' },
+      { label: '증빙 매칭', cost: 9800, color: '#2AA879' },
+      { label: 'OCR 검토', cost: 5400, color: '#E7A13A' },
+    ],
+  },
+  {
+    user: '김현장',
+    role: '프로젝트 담당자',
+    tokens: 431_600,
+    calls: 74,
+    cost: 31600,
+    agents: [
+      { label: '현장사진 검증', cost: 16200, color: '#8F75D6' },
+      { label: '증빙 매칭', cost: 11200, color: '#2AA879' },
+      { label: 'OCR 검토', cost: 4200, color: '#E7A13A' },
+    ],
+  },
+  {
+    user: '박공무',
+    role: '프로젝트 담당자',
+    tokens: 208_900,
+    calls: 39,
+    cost: 14800,
+    agents: [
+      { label: '증빙 매칭', cost: 7200, color: '#2AA879' },
+      { label: 'OCR 검토', cost: 4100, color: '#E7A13A' },
+      { label: '현장사진 검증', cost: 3500, color: '#8F75D6' },
+    ],
+  },
+  {
+    user: '이프로',
+    role: '프로젝트 담당자',
+    tokens: 124_700,
+    calls: 22,
+    cost: 8900,
+    agents: [
+      { label: 'OCR 검토', cost: 3600, color: '#E7A13A' },
+      { label: '증빙 매칭', cost: 3100, color: '#2AA879' },
+      { label: '법령 검증', cost: 2200, color: '#3D8CC9' },
+    ],
+  },
 ] as const;
 
 const mergeWorkflowStatus = (project: ProjectSummary) => {
@@ -297,7 +348,6 @@ export default function DashboardPage() {
   const [sortBy, setSortBy] = useState<ProjectSortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [selectedReasonProjectId, setSelectedReasonProjectId] = useState('');
-  const [selectedSupplementReasonProjectId, setSelectedSupplementReasonProjectId] = useState('');
   const [logoutPending, setLogoutPending] = useState(false);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const dateRangeRef = useRef<HTMLDivElement | null>(null);
@@ -497,43 +547,10 @@ export default function DashboardPage() {
       status: getProjectMonthWorkflowStatus(project) || USAGE_WORKFLOW_STATUS.DRAFT,
     }))
     .slice(0, 6);
-  const validationReasonMatchIds = VALIDATION_DASHBOARD_RESULT.categories.flatMap((category) => {
-    const issueTexts = category.issues.length
-      ? category.issues.map((issue) => `${category.categoryName} ${issue.title} ${issue.description} ${issue.requiredAction} ${issue.recommendedFiles.join(' ')}`)
-      : category.decision === 'appropriate'
-        ? []
-        : [`${category.categoryName} ${category.legalBasis.map((basis) => `${basis.summary} ${basis.agentReasoning}`).join(' ')}`];
-    return issueTexts.flatMap(getSupplementReasonMatchIds);
-  });
-  const projectReasonMatchIds = projects.flatMap((project) => {
-    if (getProjectMonthWorkflowStatus(project) !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) return [];
-    const sourceText = `${project.actionRequestDetails?.title || ''} ${project.actionRequestDetails?.reason || ''}`;
-    return getSupplementReasonMatchIds(sourceText);
-  });
-  const selectedSupplementReasonProject = projects.find((project) => project.id === selectedSupplementReasonProjectId);
-  const selectedSupplementProjectReasonMatchIds = selectedSupplementReasonProject && getProjectMonthWorkflowStatus(selectedSupplementReasonProject) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-    ? getSupplementReasonMatchIds(`${selectedSupplementReasonProject.actionRequestDetails?.title || ''} ${selectedSupplementReasonProject.actionRequestDetails?.reason || ''}`)
-    : [];
-  const combinedReasonMatchIds = selectedSupplementReasonProjectId
-    ? selectedSupplementProjectReasonMatchIds
-    : [...validationReasonMatchIds, ...projectReasonMatchIds];
-  const supplementReasonRows = SUPPLEMENT_REASON_TYPES.map((reasonType) => ({
-    ...reasonType,
-    count: combinedReasonMatchIds.filter((id) => id === reasonType.id).length,
-  }));
-  const supplementReasonTotal = supplementReasonRows.reduce((sum, row) => sum + row.count, 0);
-  const supplementReasonChartRows = supplementReasonTotal > 0
-    ? supplementReasonRows
-    : supplementReasonRows.map((row) => ({ ...row, count: 0 }));
-  const supplementReasonRadius = 48;
-  const supplementReasonCircumference = 2 * Math.PI * supplementReasonRadius;
-  let supplementReasonOffset = 0;
-  const supplementReasonSegments = supplementReasonRows.map((row) => {
-    const length = supplementReasonTotal > 0 ? (row.count / supplementReasonTotal) * supplementReasonCircumference : 0;
-    const segment = { ...row, length, offset: supplementReasonOffset };
-    supplementReasonOffset += length;
-    return segment;
-  });
+  const aiUsageTotalCost = AI_USAGE_COST_ROWS.reduce((sum, row) => sum + row.cost, 0);
+  const aiUsageTotalTokens = AI_USAGE_COST_ROWS.reduce((sum, row) => sum + row.tokens, 0);
+  const aiUsageTotalCalls = AI_USAGE_COST_ROWS.reduce((sum, row) => sum + row.calls, 0);
+  const aiUsageMaxCost = Math.max(1, ...AI_USAGE_COST_ROWS.map((row) => row.cost));
   const selectedReasonProject = projects.find((project) => project.id === selectedReasonProjectId) || projects[0];
   const reasonProjectId = selectedReasonProject?.id || '';
   const projectTableHeaders: Array<{ label: string; field: ProjectSortField; width: number }> = [
@@ -918,47 +935,55 @@ export default function DashboardPage() {
               </div>
             </Card>
 
-            <Card style={{ ...dashboardPanelStyle, padding: '18px 20px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box' }}>
-              <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>보완 요청 사유 분석</div>
+            <Card style={{ ...dashboardPanelStyle, padding: '18px 20px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 10 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>사용자별 AI 사용 비용</div>
                 <select
-                  aria-label="프로젝트"
-                  value={selectedSupplementReasonProjectId}
-                  onChange={(event) => setSelectedSupplementReasonProjectId(event.target.value)}
-                  style={{ width: 160, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 12, fontWeight: 700, padding: '0 10px' }}
+                  aria-label="AI 사용 비용 기간"
+                  defaultValue="month"
+                  style={{ width: 124, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 12, fontWeight: 700, padding: '0 10px' }}
                 >
-                  <option value="">전체</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>{project.constructionName}</option>
-                  ))}
+                  <option value="month">이번 달</option>
+                  <option value="prev">지난달</option>
+                  <option value="all">전체</option>
                 </select>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '136px minmax(0, 1fr)', gap: 18, alignItems: 'center', minHeight: 150 }}>
-                <div style={{ position: 'relative', width: 136, height: 136 }}>
-                  <svg width="136" height="136" viewBox="0 0 136 136">
-                    <circle cx="68" cy="68" r={supplementReasonRadius} fill="none" stroke="var(--c-g100)" strokeWidth="18" />
-                    {supplementReasonSegments.map((segment) => segment.length > 0 && (
-                      <circle key={segment.id} cx="68" cy="68" r={supplementReasonRadius} fill="none" stroke={segment.color} strokeWidth="18" strokeDasharray={`${segment.length} ${supplementReasonCircumference}`} strokeDashoffset={-segment.offset} transform="rotate(-90 68 68)" />
-                    ))}
-                  </svg>
-                  <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: 28, fontWeight: 700, color: C.g800, lineHeight: 1 }}>{supplementReasonTotal}</div>
-                      <div style={{ marginTop: 4, fontSize: 10, fontWeight: 700, color: C.g600 }}>총 요청</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.1fr) minmax(0,.9fr)', gap: 8, marginBottom: 10 }}>
+                <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, padding: '10px 11px', background: 'color-mix(in srgb, var(--c-bg) 36%, #fff)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: C.g600 }}>총 사용 금액</div>
+                  <div style={{ marginTop: 4, fontSize: 22, fontWeight: 700, color: C.primary, lineHeight: 1 }}>₩{aiUsageTotalCost.toLocaleString('ko-KR')}</div>
+                </div>
+                <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, padding: '10px 11px', background: C.white }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: C.g600 }}>토큰 / 호출</div>
+                  <div style={{ marginTop: 5, fontSize: 13, fontWeight: 700, color: C.g800 }}>{(aiUsageTotalTokens / 1_000_000).toFixed(2)}M</div>
+                  <div style={{ marginTop: 2, fontSize: 10, fontWeight: 700, color: C.g400 }}>{aiUsageTotalCalls.toLocaleString('ko-KR')}회 호출</div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gap: 8, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', paddingRight: 5, scrollbarGutter: 'stable' }}>
+                {AI_USAGE_COST_ROWS.map((row) => (
+                  <div key={row.user} style={{ display: 'grid', gridTemplateColumns: '32px minmax(0,1fr) auto', gap: 9, alignItems: 'center', borderTop: `1px solid ${C.g100}`, paddingTop: 8 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 999, background: 'color-mix(in srgb, var(--c-primary) 92%, #fff)', color: C.white, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700 }}>{row.user.slice(0, 1)}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.user}</div>
+                          <div style={{ marginTop: 2, fontSize: 9, fontWeight: 700, color: C.g400 }}>{row.role} · {(row.tokens / 1000).toFixed(0)}K tokens</div>
+                        </div>
+                      </div>
+                      <div style={{ height: 8, display: 'flex', overflow: 'hidden', borderRadius: 999, background: C.g100 }}>
+                        {row.agents.map((agent) => (
+                          <span key={agent.label} title={`${agent.label} ₩${agent.cost.toLocaleString('ko-KR')}`} style={{ width: `${Math.max(4, (agent.cost / row.cost) * 100)}%`, background: agent.color }} />
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.g800 }}>₩{row.cost.toLocaleString('ko-KR')}</div>
+                      <div style={{ marginTop: 4, width: 52, height: 4, borderRadius: 999, background: C.g100, overflow: 'hidden' }}>
+                        <div style={{ width: `${(row.cost / aiUsageMaxCost) * 100}%`, height: '100%', background: C.primary }} />
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
-                  {supplementReasonChartRows.map((row) => (
-                    <div key={row.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 20px', gap: 9, alignItems: 'center', fontSize: 11, fontWeight: 700, lineHeight: 1.35 }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0, color: C.g800 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 999, background: row.color, flexShrink: 0 }} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
-                      </span>
-                      <span style={{ color: row.color, textAlign: 'right' }}>{row.count}</span>
-                    </div>
-                  ))}
-                </div>
+                ))}
               </div>
             </Card>
 

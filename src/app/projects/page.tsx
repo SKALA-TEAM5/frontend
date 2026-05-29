@@ -13,7 +13,7 @@ import { USAGE_WORKFLOW_STATUS, getSheFilterOptionsFromProjects, normalizeUsageW
 import { createProject, deleteProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
-import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
+import { getVisibleProjects, type PeriodMode } from '../../lib/project-list';
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -83,9 +83,6 @@ export default function ProjectsPage() {
   const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
   const [manager, setManager] = useState(filterOptions.managers[0] || '전체');
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
-  const [sortBy, setSortBy] = useState<ProjectSortField>('name');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [viewMode, setViewMode] = useState<'list' | 'card'>('list');
 
   const loadProjects = useCallback(() => {
     let alive = true;
@@ -147,26 +144,8 @@ export default function ProjectsPage() {
       allManagerLabel: filterOptions.managers[0],
       allStatusLabel: filterOptions.statuses[0],
       includeManagerStatus: true,
-    }, sortBy, sortDirection);
-  }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, sortDirection, status]);
-  const projectTableHeaders: Array<{ label: string; field?: ProjectSortField }> = [
-    { label: '프로젝트명', field: 'name' },
-    { label: '프로젝트 번호', field: 'contractNumber' },
-    { label: '공정률', field: 'progress' },
-    { label: '안전관리비 사용률', field: 'usageRate' },
-    { label: '공사 기간', field: 'startDate' },
-    { label: '담당자', field: 'manager' },
-    ...(user.role !== 'project_manager' ? [{ label: '관리' }] : []),
-  ];
-  const toggleProjectTableSort = (field?: ProjectSortField) => {
-    if (!field) return;
-    if (sortBy === field) {
-      setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
-      return;
-    }
-    setSortBy(field);
-    setSortDirection('asc');
-  };
+    }, 'name', 'asc');
+  }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, status]);
 
   const updateCreateField = (key: keyof NewProjectInput, value: string) => {
     setCreateForm((current) => ({ ...current, [key]: value }));
@@ -289,7 +268,7 @@ export default function ProjectsPage() {
           <div style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>전체 {visibleProjects.length}건</div>
         </div>
 
-        <div data-ui="projects.1" style={{ display: 'grid', gridTemplateColumns: 'minmax(145px, 1.1fr) minmax(110px, .85fr) minmax(105px, .78fr) minmax(105px, .78fr) minmax(190px, 1.25fr) 164px', gap: 8, marginBottom: 12 }}>
+        <div data-ui="projects.1" style={{ display: 'grid', gridTemplateColumns: 'minmax(145px, 1.1fr) minmax(110px, .85fr) minmax(105px, .78fr) minmax(105px, .78fr) minmax(190px, 1.25fr)', gap: 8, marginBottom: 12 }}>
           <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={inputStyle} />
           <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={inputStyle} />
           <select aria-label="관리자" value={manager} onChange={(event) => setManager(event.target.value)} style={inputStyle}>
@@ -307,117 +286,9 @@ export default function ProjectsPage() {
             }}
             buttonStyle={inputStyle}
           />
-          <div aria-label="보기 방식" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, height: 38, padding: 3, border: `1px solid ${C.g200}`, borderRadius: 8, background: '#F7F8F7', boxSizing: 'border-box' }}>
-            {[
-              { key: 'list' as const, label: '목록' },
-              { key: 'card' as const, label: '카드' },
-            ].map((option) => {
-              const active = viewMode === option.key;
-              return (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => setViewMode(option.key)}
-                  style={{ border: 'none', borderRadius: 6, background: active ? C.white : 'transparent', color: active ? C.primary : C.g600, fontFamily: 'inherit', fontSize: 12, fontWeight: 900, cursor: 'pointer', boxShadow: active ? '0 1px 4px rgba(31,55,43,.08)' : 'none' }}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
         </div>
 
-        {viewMode === 'list' ? <div data-ui="projects.3" style={{ overflowX: 'auto', overflowY: 'visible', minHeight: 320, border: `1px solid ${C.g100}`, borderRadius: 8 }}>
-          <table style={{ minWidth: user.role !== 'project_manager' ? 1020 : 920, width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {projectTableHeaders.map((header) => {
-                  const active = Boolean(header.field && sortBy === header.field);
-                  return (
-                    <th key={header.label} style={{ position: 'sticky', top: 0, zIndex: 1, height: 40, padding: 0, borderBottom: `1px solid ${C.g200}`, background: '#F7F8F7', color: C.g600, fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'left' }}>
-                      <button
-                        type="button"
-                        disabled={!header.field}
-                        onClick={() => toggleProjectTableSort(header.field)}
-                        aria-sort={active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
-                        style={{ width: '100%', height: 40, border: 'none', background: 'transparent', color: active ? C.primary : C.g600, cursor: header.field ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, padding: '0 14px', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap' }}
-                      >
-                        <span>{header.label}</span>
-                        {header.field && <span aria-hidden="true" style={{ opacity: active ? 1 : .25, fontSize: 10, lineHeight: 1 }}>{active ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>}
-                      </button>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan={user.role !== 'project_manager' ? 7 : 6} style={{ height: 160, padding: 24, textAlign: 'center', color: C.g400, fontSize: 13, fontWeight: 900 }}>프로젝트 목록을 불러오는 중입니다.</td>
-                </tr>
-              )}
-              {!loading && loadError && (
-                <tr>
-                  <td colSpan={user.role !== 'project_manager' ? 7 : 6} style={{ height: 160, padding: 24, textAlign: 'center', color: C.danger, fontSize: 13, fontWeight: 900 }}>{loadError}</td>
-                </tr>
-              )}
-              {!loading && !loadError && visibleProjects.length === 0 && (
-                <tr>
-                  <td colSpan={user.role !== 'project_manager' ? 7 : 6} style={{ height: 160, padding: 24, textAlign: 'center', color: C.g400, fontSize: 13, fontWeight: 900 }}>조회된 프로젝트가 없습니다.</td>
-                </tr>
-              )}
-              {!loading && !loadError && visibleProjects.map((project) => {
-                const progress = Math.min(100, Math.max(0, Number.parseInt(project.progressRate, 10) || 0));
-                const safetyBudgetUsage = Number.parseFloat(String(project.usageRate).replace(/[^\d.]/g, '')) || 0.1;
-                return (
-                  <tr key={project.id} onClick={() => router.push(`/projects/${project.id}`)} style={{ cursor: 'pointer', background: hasSupplementRequiredMonth(project) ? '#FFF5F6' : C.white }}>
-                    <td style={{ padding: '13px 14px', borderTop: `1px solid ${hasSupplementRequiredMonth(project) ? '#F2C4C9' : C.g200}`, color: C.g800, fontSize: 13, fontWeight: 900 }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                        {hasSupplementRequiredMonth(project) && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: C.danger, boxShadow: '0 0 0 3px rgba(229,57,53,.14)', flexShrink: 0 }} />}
-                        <span style={{ whiteSpace: 'nowrap' }}>{project.constructionName}</span>
-                      </span>
-                    </td>
-                    <td style={{ padding: '13px 14px', borderTop: `1px solid ${hasSupplementRequiredMonth(project) ? '#F2C4C9' : C.g200}`, color: C.g600, fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{project.contractNumber}</td>
-                    <td style={{ padding: '13px 14px', borderTop: `1px solid ${hasSupplementRequiredMonth(project) ? '#F2C4C9' : C.g200}`, minWidth: 150 }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 34px', gap: 8, alignItems: 'center' }}>
-                        <div style={{ height: 8, background: '#E8EEEB', borderRadius: 999, overflow: 'hidden' }}>
-                          <div style={{ width: `${progress}%`, height: '100%', background: progress >= 70 ? C.primary : progress >= 30 ? '#2F73B7' : '#C9545E' }} />
-                        </div>
-                        <span style={{ textAlign: 'right', fontSize: 12, fontWeight: 900, color: C.g800 }}>{progress}%</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: '13px 14px', borderTop: `1px solid ${hasSupplementRequiredMonth(project) ? '#F2C4C9' : C.g200}`, minWidth: 150 }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 42px', gap: 8, alignItems: 'center' }}>
-                        <div style={{ height: 8, background: '#E8EEEB', borderRadius: 999, overflow: 'hidden' }}>
-                          <div style={{ width: `${Math.max(2, Math.min(100, safetyBudgetUsage))}%`, height: '100%', background: safetyBudgetUsage >= 80 ? '#C9545E' : safetyBudgetUsage >= 50 ? '#F0A22E' : C.primary }} />
-                        </div>
-                        <span style={{ textAlign: 'right', fontSize: 12, fontWeight: 900, color: C.g800 }}>{safetyBudgetUsage}%</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: '13px 14px', borderTop: `1px solid ${hasSupplementRequiredMonth(project) ? '#F2C4C9' : C.g200}`, color: C.g600, fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{project.period || '-'}</td>
-                    <td style={{ padding: '13px 14px', borderTop: `1px solid ${hasSupplementRequiredMonth(project) ? '#F2C4C9' : C.g200}`, color: C.g800, fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{project.manager}</td>
-                    {user.role !== 'project_manager' && (
-                      <td style={{ padding: '10px 14px', borderTop: `1px solid ${hasSupplementRequiredMonth(project) ? '#F2C4C9' : C.g200}`, whiteSpace: 'nowrap' }}>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setDeleteError('');
-                            setDeleteTarget(project);
-                          }}
-                          style={{ border: `1px solid #FFCDD2`, borderRadius: 999, background: C.dangerBg, color: C.danger, height: 30, padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: 'none' }}
-                        >
-                          삭제
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div> : (
-          <div data-ui="projects.card-grid" style={{ minHeight: 320, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+          <div data-ui="projects.card-grid" className="projects-card-grid" style={{ minHeight: 320 }}>
             {loading && <div style={{ gridColumn: '1 / -1', minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 13, fontWeight: 900 }}>프로젝트 목록을 불러오는 중입니다.</div>}
             {!loading && loadError && <div style={{ gridColumn: '1 / -1', minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.danger, fontSize: 13, fontWeight: 900 }}>{loadError}</div>}
             {!loading && !loadError && visibleProjects.length === 0 && <div style={{ gridColumn: '1 / -1', minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 13, fontWeight: 900 }}>조회된 프로젝트가 없습니다.</div>}
@@ -498,7 +369,6 @@ export default function ProjectsPage() {
               );
             })}
           </div>
-        )}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, color: C.g600, fontSize: 12, fontWeight: 800 }}>
           <span>전체 {projects.length}건</span>
         </div>
