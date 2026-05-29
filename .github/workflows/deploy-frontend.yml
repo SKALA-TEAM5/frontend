@@ -46,6 +46,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ secrets.HARBOR_REGISTRY }}/${{ secrets.HARBOR_PROJECT }}/team5-frontend:latest
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=http://api-team5-iveri.skala25a.project.skala-ai.com
 
       - name: Update kubeconfig
         run: |
