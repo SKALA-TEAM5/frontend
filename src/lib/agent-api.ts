@@ -29,6 +29,57 @@ export interface OcrWorkflowResponse {
   result: Record<string, unknown>;
 }
 
+export interface OrchestratorTodo {
+  agentTypeCode: string;
+  usageStatementItemId: number | null;
+  fileId: number | null;
+  reason: string;
+  statusCode: string;
+}
+
+export interface OrchestratorStatusResponse {
+  projectId: number;
+  usageStatementId: number;
+  hasUsageStatementItems: boolean;
+  hasReceiptsOrTaxInvoices: boolean;
+  hasSitePhotos: boolean;
+  classiReady: boolean;
+  evidenceReviewReady: boolean;
+  legalReady: boolean;
+  reportReady: boolean;
+  logs: Array<Record<string, unknown>>;
+  todos: OrchestratorTodo[];
+}
+
+const readField = <T = unknown>(source: Record<string, unknown>, camelKey: string, snakeKey: string): T | undefined =>
+  (source[camelKey] ?? source[snakeKey]) as T | undefined;
+
+const normalizeOrchestratorStatus = (raw: unknown): OrchestratorStatusResponse => {
+  const source = (raw || {}) as Record<string, unknown>;
+  const rawTodos = (readField<unknown[]>(source, 'todos', 'todos') || []) as Array<Record<string, unknown>>;
+  return {
+    projectId: Number(readField(source, 'projectId', 'project_id') || 0),
+    usageStatementId: Number(readField(source, 'usageStatementId', 'usage_statement_id') || 0),
+    hasUsageStatementItems: Boolean(readField(source, 'hasUsageStatementItems', 'has_usage_statement_items')),
+    hasReceiptsOrTaxInvoices: Boolean(readField(source, 'hasReceiptsOrTaxInvoices', 'has_receipts_or_tax_invoices')),
+    hasSitePhotos: Boolean(readField(source, 'hasSitePhotos', 'has_site_photos')),
+    classiReady: Boolean(readField(source, 'classiReady', 'classi_ready')),
+    evidenceReviewReady: Boolean(readField(source, 'evidenceReviewReady', 'evidence_review_ready')),
+    legalReady: Boolean(readField(source, 'legalReady', 'legal_ready')),
+    reportReady: Boolean(readField(source, 'reportReady', 'report_ready')),
+    logs: (source.logs as Array<Record<string, unknown>>) || [],
+    todos: rawTodos.map((todo) => ({
+      agentTypeCode: String(readField(todo, 'agentTypeCode', 'agent_type_code') || ''),
+      usageStatementItemId: readField(todo, 'usageStatementItemId', 'usage_statement_item_id') == null
+        ? null
+        : Number(readField(todo, 'usageStatementItemId', 'usage_statement_item_id')),
+      fileId: readField(todo, 'fileId', 'file_id') == null ? null : Number(readField(todo, 'fileId', 'file_id')),
+      reason: String(todo.reason || ''),
+      statusCode: String(readField(todo, 'statusCode', 'status_code') || 'open'),
+    })),
+  };
+};
+
 export type RequiredEvidenceMap = Record<string, Partial<Record<FolderEvidenceCategory, string[]>>>;
 
 type EvidenceRequirementRecord = {
@@ -82,6 +133,21 @@ export const runValidationAgent = async (projectId: string, usageStatementId: nu
     body: { usageStatementId: String(usageStatementId), rerun },
   });
   return response.data;
+};
+
+export const runEvidenceReviewAgent = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<void>(`/projects/${projectId}/agents/validate`, {
+    method: 'POST',
+    body: { usageStatementId },
+  });
+  return response.data;
+};
+
+export const getOrchestratorStatus = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<unknown>(
+    `/projects/${projectId}/agents/orchestrator/status?usageStatementId=${usageStatementId}`,
+  );
+  return normalizeOrchestratorStatus(response.data);
 };
 
 export const getLatestValidation = async (projectId: string) => {
