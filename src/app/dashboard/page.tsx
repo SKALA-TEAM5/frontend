@@ -954,7 +954,8 @@ export default function DashboardPage() {
                     표시할 보완 요청 사유가 없습니다.
                   </div>
                 ) : displayedReasonTrendRows.map((row, rowIndex) => (
-                  <div key={row.key} style={{ display: 'grid', gridTemplateRows: '1fr 18px', gap: 4, height: '100%', borderLeft: rowIndex > 0 ? `1px solid ${C.g100}` : 'none', padding: rowIndex > 0 ? '0 0 0 8px' : '0 0 0 2px' }}>
+                  <div key={row.key} style={{ position: 'relative', display: 'grid', gridTemplateRows: '1fr 18px', gap: 4, height: '100%', padding: '0 7px' }}>
+                    {rowIndex > 0 && <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 2, bottom: 22, width: 1, background: C.g100, transform: 'translateX(-.5px)' }} />}
                     <div style={{ display: 'grid', gridTemplateColumns: `repeat(${SUPPLEMENT_REASON_TYPES.length}, minmax(0, 1fr))`, gap: 1, alignItems: 'end', justifyItems: 'center', alignSelf: 'end', height: 88 }}>
                       {row.reasons.map((reason) => (
                         <span
