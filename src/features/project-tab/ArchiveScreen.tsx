@@ -9,7 +9,7 @@ import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
 import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadProjectFile, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
-import { listSafeLeeEvidenceRequirements, parseAndMatchEvidenceWithOcr, runAgent, safeLeeRequirementsToMap } from '../../lib/agent-api';
+import { getOrchestratorStatus, listSafeLeeEvidenceRequirements, parseAndMatchEvidenceWithOcr, runAgent, runEvidenceReviewAgent, safeLeeRequirementsToMap, type OrchestratorTodo } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import { AGENT_TYPE_CODE } from '../../lib/project-data';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
@@ -42,6 +42,25 @@ type ArchiveTodoItem = {
     categoryId?: number;
     usageItemId?: string;
     detail?: string;
+};
+
+const toOrchestratorTodo = (todo: OrchestratorTodo, usageItems: UsageLineItem[]): ArchiveTodoItem | null => {
+    const usageItem = todo.usageStatementItemId == null
+        ? undefined
+        : usageItems.find((item) => String(item.id) === String(todo.usageStatementItemId));
+    const reason = todo.reason || '보완 사항 확인 필요';
+    const kind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason);
+    return {
+        id: `orchestrator:${todo.agentTypeCode}:${todo.usageStatementItemId || 'all'}:${todo.fileId || 'none'}:${normalizeTodoIdText(reason)}`,
+        mode: 'add',
+        source: todo.agentTypeCode === 'legal' ? 'law' : todo.agentTypeCode === 'vision' ? 'vision' : 'matching',
+        kind,
+        title: EVIDENCE_KIND_LABELS[kind] || '보완 요청',
+        context: usageItem?.name || '사용내역서 세부 항목',
+        categoryId: usageItem?.categoryId,
+        usageItemId: usageItem?.id,
+        detail: toNounPhraseDetail(reason),
+    };
 };
 type AddUsageItemDraft = {
     name: string;
@@ -207,6 +226,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
     const [photoValidationNotice, setPhotoValidationNotice] = useState<{ type: 'ok' | 'bad'; message: string } | null>(null);
     const [completedTodoIds, setCompletedTodoIds] = useState<Record<string, boolean>>(initialTodoState.completedTodoIds);
     const [dismissedTodoIds, setDismissedTodoIds] = useState<Record<string, boolean>>(initialTodoState.dismissedTodoIds);
+    const [orchestratorTodoItems, setOrchestratorTodoItems] = useState<ArchiveTodoItem[]>([]);
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
     const [addUsageItemModalOpen, setAddUsageItemModalOpen] = useState(false);
@@ -215,6 +235,8 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
     const [classiAgentRunning, setClassiAgentRunning] = useState(false);
     const [classificationMoveNotices, setClassificationMoveNotices] = useState<ClassificationMoveNotice[]>([]);
     const [todoSidebarOpen, setTodoSidebarOpen] = useState(false);
+    const [todoSidebarPinned, setTodoSidebarPinned] = useState(false);
+    const [todoHoverBlocked, setTodoHoverBlocked] = useState(false);
     const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(resolvedUsageItems[0]?.categoryId || 1);
     const [selectedUsageItemId, setSelectedUsageItemId] = useState(resolvedUsageItems[0]?.id || '');
     const pendingArchiveSeedRef = useRef<ArchiveSeed | null>(null);
@@ -222,6 +244,20 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
     const archiveSeedSnapshotRef = useRef('');
     const hydratingTodoRef = useRef(false);
     const clearTodoSignalRef = useRef(clearTodoSignal);
+    const todoPanelRef = useRef<HTMLElement | null>(null);
+    useEffect(() => {
+        if (!todoSidebarOpen)
+            return;
+        const closeOnOutsidePointerDown = (event: PointerEvent) => {
+            const target = event.target;
+            if (target instanceof Node && todoPanelRef.current?.contains(target))
+                return;
+            setTodoSidebarPinned(false);
+            setTodoSidebarOpen(false);
+        };
+        document.addEventListener('pointerdown', closeOnOutsidePointerDown);
+        return () => document.removeEventListener('pointerdown', closeOnOutsidePointerDown);
+    }, [todoSidebarOpen]);
     useEffect(() => {
         if (!archiveSeed)
             return;
@@ -289,9 +325,46 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             return lineMap[usageItemId]?.[kind] || [];
         return Object.values(lineMap).flatMap((kindMap) => kindMap[kind] || []);
     };
-    const getHierarchyFilesForCategory = (kind: HierarchyEvidenceKind, catId: number, usageItemId?: string) => kind === 'misc' ? [] : getFilesForCategory(kind, catId, usageItemId);
+    const getHierarchyFilesForCategory = (kind: HierarchyEvidenceKind, catId: number, usageItemId?: string) => {
+        if (kind === 'misc')
+            return [];
+        const files = getFilesForCategory(kind, catId, usageItemId);
+        if (kind !== 'site_photo')
+            return files;
+        return files.map((file, index) => {
+            if (file.visionValidation || index !== 0)
+                return file;
+            return {
+                ...file,
+                visionValidation: {
+                    status: 'unsuitable' as const,
+                    checkedAt: '2026-05-15',
+                    itemName: resolvedUsageItems.find((item) => item.id === usageItemId)?.name || '현장사진',
+                    summary: '예시 비전 결과, 작업자 안전벨트 착용 여부가 불명확합니다.',
+                    detections: [
+                        { label: 'worker', confidence: 0.91, box: [14, 12, 48, 76] as [number, number, number, number], status: 'ok' as const },
+                        { label: 'safety_belt', confidence: 0.38, box: [24, 42, 36, 42] as [number, number, number, number], status: 'bad' as const },
+                        { label: 'helmet', confidence: 0.74, box: [22, 16, 18, 16] as [number, number, number, number], status: 'ok' as const },
+                    ],
+                },
+            };
+        });
+    };
+    const refreshOrchestratorStatusTodos = async () => {
+        if (!usageStatementId)
+            return;
+        try {
+            const status = await getOrchestratorStatus(projectId, usageStatementId);
+            setOrchestratorTodoItems((status.todos || []).map((todo) => toOrchestratorTodo(todo, resolvedUsageItems)).filter((todo): todo is ArchiveTodoItem => Boolean(todo)));
+        } catch {
+            setOrchestratorTodoItems([]);
+        }
+    };
+    useEffect(() => {
+        void refreshOrchestratorStatusTodos();
+    }, [projectId, usageStatementId, resolvedUsageItems]);
     const archiveTodoItems = useMemo<ArchiveTodoItem[]>(() => {
-        const todos: ArchiveTodoItem[] = [];
+        const todos: ArchiveTodoItem[] = [...orchestratorTodoItems];
         const actionRequestText = normalizeTodoIdText(`${actionRequest?.title || ''} ${actionRequest?.message || ''}`);
         const actionRequestUsageItem = actionRequestText
             ? resolvedUsageItems.find((item) => {
@@ -384,7 +457,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             seen.add(todo.id);
             return true;
         });
-    }, [actionRequest?.message, actionRequest?.title, dismissedTodoIds, fileData.categories, requiredEvidenceByLine, resolvedUsageItems]);
+    }, [actionRequest?.message, actionRequest?.title, dismissedTodoIds, fileData.categories, orchestratorTodoItems, requiredEvidenceByLine, resolvedUsageItems]);
     const activeTodoCount = archiveTodoItems.filter((todo) => !completedTodoIds[todo.id]).length;
     useEffect(() => {
         if (clearTodoSignalRef.current === clearTodoSignal)
@@ -420,7 +493,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         if (usageItemId)
             return archiveTodoItems.some((todo) => {
                 const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
-                return usageItem?.categoryId === catId && todo.context === usageItem.name;
+                return usageItem?.categoryId === catId && (todo.usageItemId === usageItemId || todo.context === usageItem.name);
             });
         return archiveTodoItems.some((todo) => {
             const usageItem = resolvedUsageItems.find((item) => item.name === todo.context);
@@ -959,19 +1032,35 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
     const runArchiveVerification = async () => {
         if (archiveVerificationRunning)
             return;
+        if (!usageStatementId) {
+            setAgentFailureTarget('evidence-matching');
+            return;
+        }
         setArchiveVerificationStep('ocr');
+        setMatchingStatus('running');
+        setPhotoValidationStatus('running');
+        setMatchingNotice('');
+        setPhotoValidationNotice(null);
         try {
-            const ocrTask = runOcrLinkValidation();
-            const safetyTask = runSafetyDocMatching();
-            const visionTask = runVisionPhotoValidation();
+            const reviewTask = runEvidenceReviewAgent(projectId, usageStatementId);
             await waitForVerificationStep(1800);
-            await ocrTask;
             setArchiveVerificationStep('safety');
             await waitForVerificationStep(2100);
-            await safetyTask;
             setArchiveVerificationStep('vision');
             await waitForVerificationStep(2100);
-            await visionTask;
+            await reviewTask;
+            await refreshOrchestratorStatusTodos();
+            setMatchingStatus('done');
+            setPhotoValidationStatus('done');
+            setMatchingNotice('증빙 검증 결과를 보완 TODO에 반영했습니다.');
+            setPhotoValidationNotice({ type: 'ok', message: '현장사진 검증 결과를 확인했습니다.' });
+        } catch {
+            await Promise.allSettled([
+                runOcrLinkValidation(),
+                runSafetyDocMatching(),
+                runVisionPhotoValidation(),
+            ]);
+            await refreshOrchestratorStatusTodos();
         } finally {
             setArchiveVerificationStep(null);
         }
@@ -1006,7 +1095,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                 color: textColor,
                 cursor: 'pointer',
                 fontFamily: 'inherit',
-                padding: '9px 10px',
+                padding: '9px 8px',
                 textAlign: 'left',
                 position: 'relative',
                 boxShadow: done ? 'none' : '0 6px 14px rgba(31,47,39,.06)',
@@ -1017,8 +1106,8 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                   aria-hidden="true"
                   style={{
                     position: 'absolute',
-                    left: 10,
-                    right: 10,
+                    left: 8,
+                    right: 8,
                     ...(tooltipOpensUp ? { bottom: 'calc(100% + 6px)' } : { top: 'calc(100% + 6px)' }),
                     zIndex: 5,
                     display: 'none',
@@ -1039,7 +1128,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                   {reasonText}
                 </span>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr)', gap: 8, alignItems: 'start' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr)', gap: 7, alignItems: 'start' }}>
                 <span
                   aria-hidden="true"
                   style={{
@@ -1075,7 +1164,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             return null;
         const activeCount = items.filter((todo) => !completedTodoIds[todo.id]).length;
         return (
-          <div key={kind} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: 8, display: 'grid', gap: 7, marginBottom: 8, position: 'relative' }}>
+          <div key={kind} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: 7, display: 'grid', gap: 7, marginBottom: 8, position: 'relative' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 900, color: activeCount ? C.g800 : C.g400 }}>{EVIDENCE_KIND_LABELS[kind]}</div>
               <div style={{ minWidth: 20, height: 18, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 10, fontWeight: 900 }}>{activeCount}</div>
@@ -1090,31 +1179,35 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         return (
           <>
             {todoSidebarOpen && (
-              <button type="button" aria-label="보완 TODO 닫기" onClick={() => setTodoSidebarOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 53, border: 'none', background: 'transparent', cursor: 'default' }} />
-            )}
-            {todoSidebarOpen && (
-              <aside data-ui="archive-screen.todo-panel" style={{ position: 'fixed', top: 'calc(var(--app-header-height) + 76px)', right: 48, width: 360, maxWidth: 'calc(100vw - 68px)', height: 'min(620px, calc(100vh - var(--app-header-height) - 104px))', zIndex: 54, border: `1px solid ${C.g200}`, borderRadius: '16px 0 0 16px', background: C.white, boxShadow: '0 22px 48px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)' }}>
+              <aside ref={todoPanelRef} data-ui="archive-screen.todo-panel" onClick={() => setTodoSidebarPinned(true)} onMouseLeave={() => { if (!todoSidebarPinned) setTodoSidebarOpen(false); }} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 320, maxWidth: 'calc(100vw - 24px)', height: 'calc(100vh - var(--app-header-height))', zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '10px 0 0 10px', background: C.white, boxShadow: '-18px 0 42px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)', overscrollBehavior: 'contain', opacity: todoSidebarPinned ? 1 : 0.95, transition: 'opacity .16s ease' }}>
                 <div style={{ position: 'sticky', top: 0, zIndex: 2, background: C.white, borderBottom: `1px solid ${C.g200}`, padding: '16px 16px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                     <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>보완 TODO</div>
-                    <div style={{ fontSize: 12, fontWeight: 900, color: C.primary }}>{activeTodoCount}건</div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 900, color: C.primary }}>{activeTodoCount}건</div>
+                      <button type="button" aria-label={todoSidebarPinned ? '보완 TODO 접기' : '보완 TODO 고정'} onClick={(event) => { event.stopPropagation(); if (!todoSidebarPinned) { setTodoSidebarPinned(true); setTodoSidebarOpen(true); return; } setTodoSidebarPinned(false); setTodoSidebarOpen(false); setTodoHoverBlocked(true); }} style={{ width: 28, height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 18, fontWeight: 900, lineHeight: 1 }}>
+                        »
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className="archive-todo-scroll" style={{ overflowY: 'auto', overflowX: 'hidden', padding: 14, scrollbarWidth: 'thin', scrollbarColor: `${C.g200} transparent`, background: C.white }}>
+                <div className="archive-todo-scroll" style={{ overflowY: 'auto', overflowX: 'hidden', padding: '12px 8px 12px 12px', scrollbarWidth: 'thin', scrollbarColor: `${C.g200} transparent`, background: C.white, overscrollBehavior: 'contain' }}>
                   {EVIDENCE_SECTIONS.map((section) => renderTodoGroup(section.id))}
                 </div>
               </aside>
             )}
-            <aside data-ui="archive-screen.todo-rail" style={{ position: 'fixed', top: 'calc(var(--app-header-height) + 76px)', right: 0, width: 45, height: 180, zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '14px 0 0 14px', background: C.white, boxShadow: '-10px 0 28px rgba(31,47,39,.10)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '10px 6px' }}>
-              <button type="button" aria-label={todoSidebarOpen ? '보완 TODO 접기' : '보완 TODO 펼치기'} onClick={() => setTodoSidebarOpen((open) => !open)} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 20, fontWeight: 900, lineHeight: 1, boxShadow: '0 8px 18px rgba(31,47,39,.10)' }}>
-                {todoSidebarOpen ? '»' : '«'}
-              </button>
-              <div style={{ width: 30, borderTop: `1px solid ${C.g200}` }} />
-              <button type="button" onClick={() => setTodoSidebarOpen(true)} style={{ width: 36, minHeight: 92, border: 'none', borderRadius: 10, background: todoSidebarOpen ? C.g100 : 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', gap: 5, padding: '7px 3px' }}>
-                <span aria-hidden="true" style={{ width: 23, height: 23, borderRadius: 999, border: `2px solid ${C.primary}`, background: C.white, color: C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900 }}>{activeTodoCount}</span>
-                <span style={{ fontSize: 10, fontWeight: 900, lineHeight: 1.2, writingMode: 'vertical-rl', letterSpacing: 0 }}>보완 TODO</span>
-              </button>
-            </aside>
+            {!todoSidebarOpen && (
+              <aside data-ui="archive-screen.todo-rail" onMouseEnter={() => { if (!todoHoverBlocked) setTodoSidebarOpen(true); }} onMouseLeave={() => setTodoHoverBlocked(false)} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 45, height: 180, zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '14px 0 0 14px', background: C.white, boxShadow: '-10px 0 28px rgba(31,47,39,.10)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '10px 6px' }}>
+                <button type="button" aria-label="보완 TODO 펼치기" onClick={() => { setTodoHoverBlocked(false); setTodoSidebarPinned(true); setTodoSidebarOpen(true); }} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 20, fontWeight: 900, lineHeight: 1, boxShadow: '0 8px 18px rgba(31,47,39,.10)' }}>
+                  «
+                </button>
+                <div style={{ width: 30, borderTop: `1px solid ${C.g200}` }} />
+                <button type="button" onClick={() => { setTodoHoverBlocked(false); setTodoSidebarPinned(true); setTodoSidebarOpen(true); }} style={{ width: 36, minHeight: 92, border: 'none', borderRadius: 10, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', gap: 5, padding: '7px 3px' }}>
+                  <span aria-hidden="true" style={{ width: 23, height: 23, borderRadius: 999, border: `2px solid ${C.primary}`, background: C.white, color: C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900 }}>{activeTodoCount}</span>
+                  <span style={{ fontSize: 10, fontWeight: 900, lineHeight: 1.2, writingMode: 'vertical-rl', letterSpacing: 0 }}>보완 TODO</span>
+                </button>
+              </aside>
+            )}
           </>
         );
     };

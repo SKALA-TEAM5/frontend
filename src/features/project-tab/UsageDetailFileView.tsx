@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from '../../components/ui/Modal';
@@ -50,10 +50,21 @@ const PlusIcon = ({ size = 14, color = C.primary }: { size?: number; color?: str
   </span>
 );
 
+const MoreIcon = ({ color = C.g600 }: { color?: string }) => (
+  <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+    {[0, 1, 2].map((dot) => (
+      <span key={dot} style={{ width: 3, height: 3, borderRadius: 999, background: color }} />
+    ))}
+  </span>
+);
+
 export default function UsageDetailFileView({ cats, usageItems, selectedCatId, selectedUsageItemId, actionRequest, getFiles, onSelectCat, onSelectUsageItem, onRemove, onRename, onMove, onEditUsageItem, onAddUsageItem, onDeleteUsageItem, onUpload, onDownloadFile, isProblemFile, isSupplementTarget, fileHeaderAction, renderEvidenceTodos }: UsageDetailFileViewProps) {
   const [dragPayload, setDragPayload] = useState<{ kind: HierarchyEvidenceKind; catId: number; usageItemId: string; file: EvidenceFile } | null>(null);
-  const [hoverPreview, setHoverPreview] = useState<{ file: EvidenceFile; x: number; y: number } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; file: EvidenceFile } | null>(null);
+  const [openFileMenu, setOpenFileMenu] = useState<{ kind: FolderEvidenceCategory; file: EvidenceFile; top: number; left: number } | null>(null);
+  const fileMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<EvidenceFile | null>(null);
+  const [showVisionBoxes, setShowVisionBoxes] = useState(true);
   const [fileEditDraft, setFileEditDraft] = useState('');
   const [editUsageItemTarget, setEditUsageItemTarget] = useState<UsageLineItem | null>(null);
   const [editUsageItemDraft, setEditUsageItemDraft] = useState({ categoryId: selectedCatId, name: '', date: '', unit: '', quantity: '', unitPrice: '' });
@@ -85,22 +96,13 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     setDragPayload(null);
   };
 
-  const openTooltip = (file: EvidenceFile, target: HTMLElement) => {
-    const rect = target.getBoundingClientRect();
-    setHoverPreview({
-      file,
-      x: rect.left,
-      y: rect.bottom + 2,
-    });
-  };
-
   const openFileEditModal = (kind: FolderEvidenceCategory, file: EvidenceFile) => {
     setMoveTarget({ kind, catId: selectedCatId, file });
     setFileEditDraft(file.name);
     setMoveTargetCatId(selectedCatId);
     setMoveTargetUsageItemId(selectedUsageItemId);
     setMoveTargetKind(kind);
-    setHoverPreview(null);
+    setOpenFileMenu(null);
   };
 
   const confirmMove = () => {
@@ -176,45 +178,123 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     setMoveTargetCatId(catId);
     setMoveTargetUsageItemId(nextUsageItem?.id || '');
   };
+  useEffect(() => {
+    if (!openFileMenu) return;
+    const updateFileMenuPosition = () => {
+      const anchor = fileMenuAnchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      setOpenFileMenu((current) => current ? { ...current, top: rect.top, left: rect.right + 4 } : current);
+    };
+    window.addEventListener('scroll', updateFileMenuPosition, true);
+    window.addEventListener('resize', updateFileMenuPosition);
+    return () => {
+      window.removeEventListener('scroll', updateFileMenuPosition, true);
+      window.removeEventListener('resize', updateFileMenuPosition);
+    };
+  }, [openFileMenu]);
 
   const renderFileRow = (kind: FolderEvidenceCategory, file: EvidenceFile) => {
     const problem = Boolean(isProblemFile?.(file));
     return (
-      <div key={file.id} draggable onMouseLeave={() => setHoverPreview(null)} onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ border: `1px solid ${problem ? '#FFCDD2' : C.g100}`, background: problem ? C.dangerBg : C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 18px', alignItems: 'center', gap: 6 }}>
+      <div key={file.id} draggable onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ position: 'relative', border: `1px solid ${problem ? '#FFCDD2' : C.g100}`, background: problem ? C.dangerBg : C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: 6 }}>
           <div style={{ minWidth: 0 }}>
-            <div title={file.name} onMouseEnter={(event) => openTooltip(file, event.currentTarget)} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
+            <div title={file.name} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 10, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
             </div>
           </div>
-          <button type="button" onClick={(event) => { event.stopPropagation(); openFileEditModal(kind, file); }} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}>수정</button>
-          <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(kind, selectedCatId, activeItem?.id || selectedUsageItemId, file.id); }} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 14 }}>×</button>
+          <button type="button" aria-label={`${file.name} 더보기`} onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); const isOpen = openFileMenu?.file.id === file.id && openFileMenu.kind === kind; fileMenuAnchorRef.current = isOpen ? null : event.currentTarget; setOpenFileMenu(isOpen ? null : { kind, file, top: rect.top, left: rect.right + 4 }); }} style={{ width: 26, height: 26, border: 'none', borderRadius: 999, background: 'transparent', color: openFileMenu?.file.id === file.id && openFileMenu.kind === kind ? C.g800 : C.g400, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <MoreIcon color={openFileMenu?.file.id === file.id && openFileMenu.kind === kind ? C.g800 : C.g400} />
+          </button>
         </div>
       </div>
     );
   };
 
-  const renderPreviewTooltip = () => {
-    if (!hoverPreview || typeof document === 'undefined') return null;
-    const file = hoverPreview.file;
-    const previewSrc = file.previewUrl || `data:image/svg+xml;charset=UTF-8,${makeThumbSvg(file.kind)}`;
-    const canShowImagePreview = Boolean(file.previewUrl || isImageFile(file.name));
+  const renderFileMenu = () => {
+    if (!openFileMenu || typeof document === 'undefined') return null;
+    const menuWidth = 58;
+    const left = Math.min(openFileMenu.left, window.innerWidth - menuWidth - 8);
     return createPortal(
-      <div style={{ position: 'fixed', top: hoverPreview.y, left: hoverPreview.x, width: 260, background: C.white, border: `1px solid ${C.g200}`, borderRadius: 12, boxShadow: '0 12px 28px rgba(0,0,0,.16)', padding: 11, zIndex: 9999, pointerEvents: 'none' }}>
-        <div style={{ borderRadius: 10, overflow: 'hidden', background: C.g100, marginBottom: 9, minHeight: 138, display: 'grid', placeItems: 'center' }}>
-          {canShowImagePreview ? <img src={previewSrc} alt={file.name} style={{ width: '100%', height: 138, objectFit: 'cover', display: 'block' }} /> : <FileThumb entry={file} size={72} />}
-        </div>
-        <div style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 5, wordBreak: 'break-all' }}>{file.name}</div>
-        <div style={{ fontSize: 11, color: C.g400, lineHeight: 1.5 }}>{file.uploadedBy || '업로더 미상'} · {file.uploadedAt || '날짜 미상'}</div>
-        {file.description && <div style={{ marginTop: 6, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{file.description}</div>}
+      <div style={{ position: 'fixed', top: openFileMenu.top, left, zIndex: 1100, width: menuWidth, border: `1px solid ${C.g200}`, borderRadius: 8, background: C.white, boxShadow: '0 12px 26px rgba(31,47,39,.14)', padding: 3 }}>
+        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setPreviewTarget(openFileMenu.file); setShowVisionBoxes(true); setOpenFileMenu(null); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: '6px 4px', textAlign: 'center' }}>미리보기</button>
+        <div style={{ height: 1, background: C.g100, margin: '2px 4px' }} />
+        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; openFileEditModal(openFileMenu.kind, openFileMenu.file); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: '6px 4px', textAlign: 'center' }}>수정</button>
+        <div style={{ height: 1, background: C.g100, margin: '2px 4px' }} />
+        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setOpenFileMenu(null); onRemove(openFileMenu.kind, selectedCatId, activeItem?.id || selectedUsageItemId, openFileMenu.file.id); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.danger, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: '6px 4px', textAlign: 'center' }}>삭제</button>
       </div>,
-      document.body
+      document.body,
+    );
+  };
+
+  const renderPreviewOverlay = () => {
+    if (!previewTarget) return null;
+    const previewSrc = previewTarget.previewUrl || `data:image/svg+xml;charset=UTF-8,${makeThumbSvg(previewTarget.kind)}`;
+    const canShowImagePreview = Boolean(previewTarget.previewUrl || isImageFile(previewTarget.name));
+    const detections = previewTarget.visionValidation?.detections || [];
+    const showDetections = showVisionBoxes && detections.length > 0 && canShowImagePreview;
+    return (
+      <div
+        role="dialog"
+        aria-label="파일 미리보기"
+        onClick={() => setPreviewTarget(null)}
+        style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'grid', placeItems: 'center', background: 'rgba(31,47,39,.08)', backdropFilter: 'blur(.5px)', padding: 24 }}
+      >
+        <div onClick={(event) => event.stopPropagation()} style={{ width: 'min(560px, 72%)', border: `1px solid ${C.g200}`, borderRadius: 16, background: C.white, boxShadow: '0 22px 52px rgba(31,47,39,.22)', padding: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {previewTarget.visionValidation && (
+                <span style={{ border: `1px solid ${previewTarget.visionValidation.status === 'unsuitable' ? '#FFCDD2' : C.g200}`, borderRadius: 999, background: previewTarget.visionValidation.status === 'unsuitable' ? C.dangerBg : C.bg, color: previewTarget.visionValidation.status === 'unsuitable' ? C.danger : C.primary, padding: '5px 10px', fontSize: 12, fontWeight: 900 }}>
+                  비전 결과 {previewTarget.visionValidation.status === 'unsuitable' ? '부적합' : '적합'}
+                </span>
+              )}
+            </div>
+          </div>
+          <div style={{ position: 'relative', border: `1px solid ${C.g100}`, borderRadius: 12, overflow: 'hidden', background: C.g100, minHeight: 260, display: 'grid', placeItems: 'center' }}>
+            {canShowImagePreview ? (
+              <img src={previewSrc} alt={previewTarget.name} style={{ width: '100%', maxHeight: 360, objectFit: 'contain', display: 'block' }} />
+            ) : (
+              <div style={{ minHeight: 260, display: 'grid', placeItems: 'center' }}>
+                <FileThumb entry={previewTarget} size={104} />
+              </div>
+            )}
+            {showDetections && detections.map((detection, index) => {
+              const [x, y, width, height] = detection.box;
+              const boxColor = detection.status === 'bad' ? '#E53935' : '#2F73D9';
+              return (
+                <div
+                  key={`${detection.label}-${index}`}
+                  style={{ position: 'absolute', left: `${x}%`, top: `${y}%`, width: `${width}%`, height: `${height}%`, border: `3px solid ${boxColor}`, boxSizing: 'border-box', pointerEvents: 'none' }}
+                >
+                  <span style={{ position: 'absolute', left: -3, top: -28, background: boxColor, color: C.white, padding: '3px 6px', borderRadius: 4, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }}>
+                    {detection.label} {detection.confidence.toFixed(2)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 12, alignItems: 'center', marginTop: 12 }}>
+            <div title={previewTarget.name} style={{ minWidth: 0, fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{previewTarget.name}</div>
+            {previewTarget.visionValidation && (
+              <button type="button" onClick={() => setShowVisionBoxes((value) => !value)} style={{ border: `1px solid ${showVisionBoxes ? C.primary : C.g200}`, borderRadius: 999, background: showVisionBoxes ? C.bg : C.white, color: showVisionBoxes ? C.primary : C.g600, padding: '7px 10px', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                바운더리 박스 {showVisionBoxes ? 'ON' : 'OFF'}
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+            <button type="button" onClick={() => setPreviewTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, padding: '8px 14px' }}>
+              닫기
+            </button>
+          </div>
+        </div>
+      </div>
     );
   };
 
   return (
-    <div data-ui="usage-detail-file-view.1" style={{ position: 'relative', width: '100%', minWidth: 0, overflow: 'visible' }}>
+    <div data-ui="usage-detail-file-view.1" onClick={() => setOpenFileMenu(null)} style={{ position: 'relative', width: '100%', minWidth: 0, overflow: 'visible' }}>
       <section style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden', minWidth: 0 }}>
         <div style={{ display: 'grid', gridTemplateColumns: layoutColumns, borderBottom: `1px solid ${C.g200}`, background: '#F7FBF8', minWidth: 0 }}>
           <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 14, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>9개 항목</div>
@@ -357,7 +437,8 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
           </div>
         </div>
       </section>
-      {renderPreviewTooltip()}
+      {renderFileMenu()}
+      {renderPreviewOverlay()}
       <Modal open={Boolean(moveTarget)} onClose={closeFileEditModal} zIndex={980} maxWidth={760}>
         <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
           <div style={{ padding: '22px 24px 16px', borderBottom: `1px solid ${C.g100}` }}>
@@ -509,7 +590,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                     key={cat.id}
                     type="button"
                     onClick={() => setEditUsageItemDraft((draft) => ({ ...draft, categoryId: cat.id }))}
-                    style={{ minWidth: 0, width: '100%', minHeight: 54, border: `1px solid ${active ? C.light : C.g200}`, borderRadius: 10, background: active ? C.bg : C.white, color: active ? C.primary : C.g800, padding: '9px 10px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, lineHeight: 1.35, wordBreak: 'keep-all', overflowWrap: 'anywhere' }}
+                    style={{ minWidth: 0, width: '100%', minHeight: 58, border: `1px solid ${active ? C.light : C.g200}`, borderRadius: 10, background: active ? C.bg : C.white, color: active ? C.primary : C.g800, padding: '10px 12px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, lineHeight: 1.35, wordBreak: 'keep-all', overflowWrap: 'anywhere' }}
                   >
                     {cat.short}
                   </button>
