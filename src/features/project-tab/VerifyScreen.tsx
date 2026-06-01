@@ -388,7 +388,15 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
         </div>
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <table>
+        <table style={{ width: '100%', tableLayout: 'fixed' }}>
+          <colgroup>
+            <col style={{ width: '27%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '11%' }} />
+          </colgroup>
           <thead>
             <tr>
               <th style={thStyle}>항목</th>
@@ -447,19 +455,21 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       </div>
 
       <section style={{ marginBottom: 14 }}>
-        <button type="button" onClick={() => setSubmittedEvidenceOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${C.g100}`, background: C.white, borderRadius: 10, padding: '9px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
-          <span style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>제출 증빙</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 900, color: C.g400 }}>
-            {item.evidenceSummary.submittedFiles.length}건
-            <span style={{ color: C.g600 }}>{submittedEvidenceOpen ? '접기' : '펼치기'}</span>
-          </span>
-        </button>
-        {submittedEvidenceOpen && <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8 }}>
-          {item.evidenceSummary.submittedFiles.map((file) => <div key={`${file.kind}-${file.name}`} style={{ display: 'grid', gridTemplateColumns: '74px minmax(0,1fr)', gap: 8, alignItems: 'center', padding: '8px 10px', borderRadius: 10, border: `1px solid ${C.g100}`, background: C.white }}>
-            <span style={chipStyle(C.g600, C.g100)}>{fileKindLabel[file.kind]}</span>
-            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 800, color: C.g800 }}>{file.name}</span>
-          </div>)}
-        </div>}
+        <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, overflow: 'hidden', background: C.white }}>
+          <button type="button" onClick={() => setSubmittedEvidenceOpen((open) => !open)} style={{ width: '100%', border: 'none', background: C.white, borderRadius: 0, padding: '9px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
+            <span style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>제출 증빙</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 900, color: C.g400 }}>
+              {item.evidenceSummary.submittedFiles.length}건
+              <span style={{ color: C.g600 }}>{submittedEvidenceOpen ? '접기' : '펼치기'}</span>
+            </span>
+          </button>
+          {submittedEvidenceOpen && <div style={{ display: 'flex', flexDirection: 'column', gap: 0, borderTop: `1px solid ${C.g100}`, background: '#FBFCFB' }}>
+            {item.evidenceSummary.submittedFiles.map((file, index) => <div key={`${file.kind}-${file.name}`} style={{ display: 'grid', gridTemplateColumns: '74px minmax(0,1fr)', gap: 8, alignItems: 'center', padding: '9px 10px', borderTop: index > 0 ? `1px solid ${C.g100}` : 'none', background: 'transparent' }}>
+              <span style={chipStyle(C.g600, C.g100)}>{fileKindLabel[file.kind]}</span>
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 800, color: C.g800 }}>{file.name}</span>
+            </div>)}
+          </div>}
+        </div>
       </section>
 
       {(item.evidenceSummary.problematicFiles.length > 0 || item.evidenceSummary.missingTypes.length > 0) && <section style={{ marginBottom: 14 }}>
@@ -608,7 +618,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       </Card>
 
       {renderSheReviewPanel()}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(300px, 1.0fr)', gap: 12, alignItems: 'start', marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.22fr) minmax(360px, 1.18fr)', gap: 12, alignItems: 'start', marginBottom: 12 }}>
         {renderCategoryTable()}
         {renderEvidenceBlock(selectedCategory)}
       </div>

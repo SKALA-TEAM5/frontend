@@ -10,7 +10,7 @@ import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
 import { ACTION_REQUEST_STATUS, EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
-import { createActionRequest, getProject, listActionRequests, listProjectManagerCandidates, markArchiveChecked, updateActionRequestStatus, updateProject, type ProjectActionRequest, type UpdateProjectInput } from '../../../lib/project-api';
+import { createActionRequest, getProject, listActionRequests, listProjectManagerCandidates, updateActionRequestStatus, updateProject, type ProjectActionRequest, type UpdateProjectInput } from '../../../lib/project-api';
 import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, requestUsageStatementSupplement, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
@@ -256,7 +256,6 @@ export default function ProjectDetailPage() {
     const [activeTab, setActiveTab] = useState<DetailTab>(requestedTab);
     const [archiveSeed, setArchiveSeed] = useState<ArchiveSeed | null>(null);
     const [archiveUsageItems, setArchiveUsageItems] = useState<UsageLineItem[]>([]);
-    const [matchReady, setMatchReady] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState('');
     const [usageUploadStage, setUsageUploadStage] = useState<UsageUploadStage>('idle');
     const [validationStatusByMonth, setValidationStatusByMonth] = useState<Record<string, 'idle' | 'running' | 'done'>>({});
@@ -566,7 +565,6 @@ export default function ProjectDetailPage() {
         setArchiveUsageItems([]);
         setDbUsageStatementsByMonth({});
         setValidationStatusByMonth(readLocalValidationStatusByMonth(project.id));
-        setMatchReady(false);
         setActionGuideOpen(user.role === 'project_manager' && selectedMonthHasActionRequest);
         setActionCompletionSent(false);
         if (localData) {
@@ -878,13 +876,6 @@ export default function ProjectDetailPage() {
         } finally {
             setProjectInfoSaving(false);
         }
-    };
-    const dismissArchiveMatchReady = async () => {
-        setMatchReady(false);
-        if (project.uncheckedMatchedFileCount <= 0)
-            return;
-        await markArchiveChecked(project.id);
-        setProject((current) => ({ ...current, uncheckedMatchedFileCount: 0 }));
     };
     const projectInfoModal = (<ProjectInfoEditorModal open={projectInfoModalOpen} mode="usage" title="사용내역서 기본 정보 수정" subtitle={project.constructionName} draft={projectInfoDraft} error={projectInfoSaveError} saving={projectInfoSaving} showStatementDates={Boolean(selectedMonth)} onClose={() => setProjectInfoModalOpen(false)} onSave={saveProjectInfo} onChange={(patch) => {
             setProjectInfoDraft((current) => ({ ...current, ...patch }));
@@ -1287,7 +1278,7 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         </> : null}
-        {selectedMonthHasUploadedStatement && <ArchiveScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} matchReady={matchReady} uncheckedMatchedFileCount={project.uncheckedMatchedFileCount} onDismissMatchReady={dismissArchiveMatchReady} archiveSeed={archiveSeed} usageItems={archiveUsageItems} actionRequest={canViewActionGuide ? {
+        {selectedMonthHasUploadedStatement && <ArchiveScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} archiveSeed={archiveSeed} usageItems={archiveUsageItems} actionRequest={canViewActionGuide ? {
                 title: actionGuideTitle,
                 message: actionGuideMessage,
                 dueDate: selectedMonthActionRequestDetails?.dueDate,
@@ -1391,11 +1382,6 @@ export default function ProjectDetailPage() {
                   {STATUS_META[selectedMonthWorkflowStatus].label}
                 </span>
               ))}
-              {project.uncheckedMatchedFileCount > 0 && (
-                <button type="button" onClick={openArchiveView} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '4px 10px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  미확인 매칭 {project.uncheckedMatchedFileCount}건
-                </button>
-              )}
             </div>
             <div className="thin-x-scroll" style={usageTableScrollStyle}>
               <div data-ui="project-detail.16" style={{ ...usageInfoGridStyle, border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', fontSize: 13 }}>

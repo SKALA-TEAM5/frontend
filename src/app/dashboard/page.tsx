@@ -2,12 +2,11 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import Card from '../../components/ui/Card';
 import { AppFrame } from '../../components/common';
 import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
-import { VALIDATION_DASHBOARD_RESULT } from '../../lib/evidence-utils';
 import { C } from '../../lib/theme';
 import { USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
 import { listProjects } from '../../lib/project-api';
@@ -16,30 +15,41 @@ import { ROLE_LABELS } from '../../lib/permissions';
 
 const LOCAL_USAGE_STATEMENT_PREFIX = 'iveri-mvp-usage-statement:';
 
+const DASHBOARD_CHART_COLORS = [
+  '#4269D0FF',
+  '#EFB118FF',
+  '#FF725CFF',
+  '#6CC5B0FF',
+  '#3CA951FF',
+  '#FF8AB7FF',
+  '#A463F2FF',
+  '#97BBF5FF',
+] as const;
+
 const SUPPLEMENT_REASON_TYPES = [
   {
     id: 'purpose',
     label: '집행 목적 부적합',
     keywords: ['목적', '범위', '본사', '관리비', '사용 목적', '인정 범위'],
-    color: '#3D8CC9',
+    color: DASHBOARD_CHART_COLORS[0],
   },
   {
     id: 'allocation',
     label: '법정 계상률 초과',
     keywords: ['계상', '금액', '초과', '안전관리비', '정산', '예산'],
-    color: '#E7A13A',
+    color: DASHBOARD_CHART_COLORS[1],
   },
   {
     id: 'labor',
     label: '인건비 중복계상',
     keywords: ['인건비', '임금', '급여', '중복', '근로자', '직접 노무'],
-    color: '#8F75D6',
+    color: DASHBOARD_CHART_COLORS[2],
   },
   {
     id: 'evidence',
     label: '증빙 정합성 미흡',
     keywords: ['증빙', '영수증', '사진', '세금계산서', '자료', '제출', '첨부'],
-    color: '#2AA879',
+    color: DASHBOARD_CHART_COLORS[3],
   },
 ] as const;
 
@@ -48,6 +58,39 @@ const EXAMPLE_SUPPLEMENT_REASON_TRENDS = [
   { key: '2026-04', label: '4월', counts: { purpose: 0, allocation: 1, labor: 1, evidence: 3 } },
   { key: '2026-05', label: '5월', counts: { purpose: 1, allocation: 1, labor: 0, evidence: 2 } },
 ] as const;
+
+const AI_USAGE_COST_ROWS = [
+  {
+    user: '김서연',
+    role: 'SHE 담당자',
+    tokens: 684_200,
+    calls: 126,
+    cost: 48200,
+  },
+  {
+    user: '김현장',
+    role: '프로젝트 담당자',
+    tokens: 431_600,
+    calls: 74,
+    cost: 31600,
+  },
+  {
+    user: '박공무',
+    role: '프로젝트 담당자',
+    tokens: 208_900,
+    calls: 39,
+    cost: 14800,
+  },
+  {
+    user: '이프로',
+    role: '프로젝트 담당자',
+    tokens: 124_700,
+    calls: 22,
+    cost: 8900,
+  },
+] as const;
+
+const AI_USAGE_COST_COLORS = DASHBOARD_CHART_COLORS;
 
 const mergeWorkflowStatus = (project: ProjectSummary) => {
   if (typeof window === 'undefined') return project;
@@ -297,10 +340,21 @@ export default function DashboardPage() {
   const [sortBy, setSortBy] = useState<ProjectSortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [selectedReasonProjectId, setSelectedReasonProjectId] = useState('');
-  const [selectedSupplementReasonProjectId, setSelectedSupplementReasonProjectId] = useState('');
+  const [aiUsagePeriodMode, setAiUsagePeriodMode] = useState<'all' | 'month'>('all');
+  const [aiUsageYear, setAiUsageYear] = useState('2026');
+  const [aiUsageMonth, setAiUsageMonth] = useState('05');
   const [logoutPending, setLogoutPending] = useState(false);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
+  const [chartTooltip, setChartTooltip] = useState<{ x: number; y: number; title: string; body: string } | null>(null);
   const dateRangeRef = useRef<HTMLDivElement | null>(null);
+
+  const showChartTooltip = (event: ReactMouseEvent, title: string, body: string) => {
+    setChartTooltip({ x: event.clientX + 14, y: event.clientY + 14, title, body });
+  };
+  const moveChartTooltip = (event: ReactMouseEvent) => {
+    setChartTooltip((tooltip) => tooltip ? { ...tooltip, x: event.clientX + 14, y: event.clientY + 14 } : tooltip);
+  };
+  const hideChartTooltip = () => setChartTooltip(null);
 
   useEffect(() => {
     if (user.role === 'project_manager') {
@@ -497,41 +551,22 @@ export default function DashboardPage() {
       status: getProjectMonthWorkflowStatus(project) || USAGE_WORKFLOW_STATUS.DRAFT,
     }))
     .slice(0, 6);
-  const validationReasonMatchIds = VALIDATION_DASHBOARD_RESULT.categories.flatMap((category) => {
-    const issueTexts = category.issues.length
-      ? category.issues.map((issue) => `${category.categoryName} ${issue.title} ${issue.description} ${issue.requiredAction} ${issue.recommendedFiles.join(' ')}`)
-      : category.decision === 'appropriate'
-        ? []
-        : [`${category.categoryName} ${category.legalBasis.map((basis) => `${basis.summary} ${basis.agentReasoning}`).join(' ')}`];
-    return issueTexts.flatMap(getSupplementReasonMatchIds);
-  });
-  const projectReasonMatchIds = projects.flatMap((project) => {
-    if (getProjectMonthWorkflowStatus(project) !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) return [];
-    const sourceText = `${project.actionRequestDetails?.title || ''} ${project.actionRequestDetails?.reason || ''}`;
-    return getSupplementReasonMatchIds(sourceText);
-  });
-  const selectedSupplementReasonProject = projects.find((project) => project.id === selectedSupplementReasonProjectId);
-  const selectedSupplementProjectReasonMatchIds = selectedSupplementReasonProject && getProjectMonthWorkflowStatus(selectedSupplementReasonProject) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-    ? getSupplementReasonMatchIds(`${selectedSupplementReasonProject.actionRequestDetails?.title || ''} ${selectedSupplementReasonProject.actionRequestDetails?.reason || ''}`)
-    : [];
-  const combinedReasonMatchIds = selectedSupplementReasonProjectId
-    ? selectedSupplementProjectReasonMatchIds
-    : [...validationReasonMatchIds, ...projectReasonMatchIds];
-  const supplementReasonRows = SUPPLEMENT_REASON_TYPES.map((reasonType) => ({
-    ...reasonType,
-    count: combinedReasonMatchIds.filter((id) => id === reasonType.id).length,
-  }));
-  const supplementReasonTotal = supplementReasonRows.reduce((sum, row) => sum + row.count, 0);
-  const supplementReasonChartRows = supplementReasonTotal > 0
-    ? supplementReasonRows
-    : supplementReasonRows.map((row) => ({ ...row, count: 0 }));
-  const supplementReasonRadius = 48;
-  const supplementReasonCircumference = 2 * Math.PI * supplementReasonRadius;
-  let supplementReasonOffset = 0;
-  const supplementReasonSegments = supplementReasonRows.map((row) => {
-    const length = supplementReasonTotal > 0 ? (row.count / supplementReasonTotal) * supplementReasonCircumference : 0;
-    const segment = { ...row, length, offset: supplementReasonOffset };
-    supplementReasonOffset += length;
+  const aiUsageTotalCost = AI_USAGE_COST_ROWS.reduce((sum, row) => sum + row.cost, 0);
+  const aiUsageTotalTokens = AI_USAGE_COST_ROWS.reduce((sum, row) => sum + row.tokens, 0);
+  const aiUsageTotalCalls = AI_USAGE_COST_ROWS.reduce((sum, row) => sum + row.calls, 0);
+  const aiUsageDonutRadius =42;
+  const aiUsageDonutCircumference = 2 * Math.PI * aiUsageDonutRadius;
+  let aiUsageDonutOffset = 0;
+  const aiUsageDonutSegments = AI_USAGE_COST_ROWS.map((row, index) => {
+    const dash = aiUsageTotalCost > 0 ? (row.cost / aiUsageTotalCost) * aiUsageDonutCircumference : 0;
+    const segment = {
+      key: row.user,
+      row,
+      color: AI_USAGE_COST_COLORS[index % AI_USAGE_COST_COLORS.length],
+      dash,
+      offset: aiUsageDonutOffset,
+    };
+    aiUsageDonutOffset += dash;
     return segment;
   });
   const selectedReasonProject = projects.find((project) => project.id === selectedReasonProjectId) || projects[0];
@@ -590,6 +625,8 @@ export default function DashboardPage() {
       };
     });
   const maxReasonTrendValue = Math.max(1, ...displayedReasonTrendRows.flatMap((row) => [row.total, ...row.reasons.map((reason) => reason.count)]));
+  const reasonTrendAxisMax = Math.max(2, maxReasonTrendValue);
+  const reasonTrendAxisTicks = Array.from(new Set([reasonTrendAxisMax, Math.ceil(reasonTrendAxisMax / 2), 0]));
   const managerWorkloads = Array.from(
     projects.reduce((map, project) => {
       const projectManagers = project.participants.length > 0 ? project.participants : getProjectManagers(project);
@@ -730,9 +767,9 @@ export default function DashboardPage() {
 
       <div style={{ ...dashboardContentLayerStyle, width: 'min(100%, 1240px)', margin: '0 auto', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
-          <Card style={{ ...dashboardPanelStyle, padding: '18px 20px', overflow: 'visible' }}>
+          <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', overflow: 'visible' }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>최근 프로젝트 현황</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>프로젝트 현황</div>
               <Link href="/projects" style={{ fontSize: 12, fontWeight: 700, color: C.primary, textDecoration: 'none' }}>전체 프로젝트 보기 〉</Link>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(138px, 1.1fr) minmax(100px, .8fr) minmax(92px, .66fr) minmax(92px, .66fr) minmax(118px, .72fr)', gap: 8, marginBottom: 12 }}>
@@ -814,12 +851,12 @@ export default function DashboardPage() {
                   {projectTableHeaders.map((header) => {
                     const active = sortBy === header.field;
                     return (
-                      <th key={header.label} style={{ position: 'sticky', top: 0, zIndex: 1, width: header.width, height: 38, padding: 0, borderBottom: `1px solid ${C.g200}`, background: 'color-mix(in srgb, var(--c-bg) 28%, #F8F9F8)', color: C.g600, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', textAlign: 'left' }}>
+                      <th key={header.label} style={{ position: 'sticky', top: 0, zIndex: 1, width: header.width, height: 40, padding: 0, borderBottom: `1px solid ${C.g200}`, background: 'color-mix(in srgb, var(--c-bg) 28%, #F8F9F8)', color: C.g600, fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'left' }}>
                         <button
                           type="button"
                           onClick={() => toggleProjectTableSort(header.field)}
                           aria-sort={active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
-                          style={{ width: '100%', height: 38, border: 'none', background: 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, padding: header.field === 'startDate' ? '0 8px' : '0 12px', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}
+                          style={{ width: '100%', height: 40, border: 'none', background: 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, padding: header.field === 'startDate' ? '0 8px' : '0 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}
                         >
                           <span>{header.label}</span>
                           <span aria-hidden="true" style={{ opacity: active ? 1 : .25, fontSize: 10, lineHeight: 1 }}>{active ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
@@ -873,8 +910,8 @@ export default function DashboardPage() {
             </div>
           </Card>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16 }}>
-            <Card style={{ ...dashboardPanelStyle, padding: '18px 20px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, .90fr) minmax(0, 1.2fr) minmax(0, .90fr)', gap: 16 }}>
+            <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box' }}>
               <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 8 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>월별 보완 요청 사유</div>
@@ -892,21 +929,53 @@ export default function DashboardPage() {
                   ))}
                 </select>
               </div>
-              <div style={{ height: 132, display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, displayedReasonTrendRows.length)}, minmax(0, 1fr))`, gap: 10, alignItems: 'stretch', borderBottom: `1px solid ${C.g100}`, padding: '10px 2px 0' }}>
+              <div style={{ height: 132, display: 'grid', gridTemplateColumns: '24px minmax(0,1fr)', gap: 6, alignItems: 'stretch', padding: '8px 2px 0' }}>
+                <div style={{ position: 'relative', height: 106, borderBottom: `1px solid ${C.g100}` }}>
+                  {reasonTrendAxisTicks.map((tick) => (
+                    <span
+                      key={tick}
+                      style={{
+                        position: 'absolute',
+                        right: 2,
+                        top: `${100 - (tick / reasonTrendAxisMax) * 100}%`,
+                        transform: 'translateY(-50%)',
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: C.g400,
+                      }}
+                    >
+                      {tick}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, displayedReasonTrendRows.length)}, minmax(0, 1fr))`, gap: 0, alignItems: 'stretch', borderBottom: `1px solid ${C.g100}` }}>
                 {displayedReasonTrendRows.length === 0 ? (
                   <div style={{ gridColumn: '1 / -1', minHeight: 112, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 12, fontWeight: 700 }}>
                     표시할 보완 요청 사유가 없습니다.
                   </div>
-                ) : displayedReasonTrendRows.map((row) => (
-                  <div key={row.key} style={{ display: 'grid', gridTemplateRows: '1fr 18px', gap: 4, height: '100%' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${SUPPLEMENT_REASON_TYPES.length}, minmax(0, 1fr))`, gap: 2, alignItems: 'end', alignSelf: 'end', height: 94 }}>
+                ) : displayedReasonTrendRows.map((row, rowIndex) => (
+                  <div key={row.key} style={{ display: 'grid', gridTemplateRows: '1fr 18px', gap: 4, height: '100%', borderLeft: rowIndex > 0 ? `1px solid ${C.g100}` : 'none', padding: rowIndex > 0 ? '0 0 0 8px' : '0 0 0 2px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${SUPPLEMENT_REASON_TYPES.length}, minmax(0, 1fr))`, gap: 1, alignItems: 'end', justifyItems: 'center', alignSelf: 'end', height: 88 }}>
                       {row.reasons.map((reason) => (
-                        <span key={reason.id} title={`${row.label} ${reason.label} ${reason.count}건`} style={{ height: reason.count > 0 ? `${Math.max(8, (reason.count / maxReasonTrendValue) * 88)}px` : 0, background: reason.color, borderRadius: '4px 4px 0 0' }} />
+                        <span
+                          key={reason.id}
+                          onMouseEnter={(event) => showChartTooltip(event, `${row.label} ${reason.label}`, `${reason.count}건`)}
+                          onMouseMove={moveChartTooltip}
+                          onMouseLeave={hideChartTooltip}
+                          style={{
+                            width: 15,
+                            height: reason.count > 0 ? `${Math.max(7, (reason.count / reasonTrendAxisMax) * 84)}px` : 0,
+                            background: reason.color,
+                            borderRadius: '4px 4px 0 0',
+                            cursor: 'default',
+                          }}
+                        />
                       ))}
                     </div>
                     <div style={{ fontSize: 10, fontWeight: 700, color: C.g400, textAlign: 'center' }}>{row.label}</div>
                   </div>
                 ))}
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12, fontSize: 10, fontWeight: 700, color: C.g600 }}>
                 {SUPPLEMENT_REASON_TYPES.map((reason) => (
@@ -918,51 +987,107 @@ export default function DashboardPage() {
               </div>
             </Card>
 
-            <Card style={{ ...dashboardPanelStyle, padding: '18px 20px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box' }}>
-              <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>보완 요청 사유 분석</div>
-                <select
-                  aria-label="프로젝트"
-                  value={selectedSupplementReasonProjectId}
-                  onChange={(event) => setSelectedSupplementReasonProjectId(event.target.value)}
-                  style={{ width: 160, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 12, fontWeight: 700, padding: '0 10px' }}
-                >
-                  <option value="">전체</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>{project.constructionName}</option>
-                  ))}
-                </select>
+            <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 10 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>AI 사용 금액</div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <div role="group" aria-label="AI 사용 비용 기간" style={{ display: 'inline-flex', alignItems: 'center', height: 30, padding: 2, border: `1px solid ${C.g200}`, borderRadius: 999, background: '#F7F8F7', flexShrink: 0 }}>
+                    {[
+                      { key: 'all' as const, label: '전체' },
+                      { key: 'month' as const, label: '월 선택' },
+                    ].map((option) => {
+                      const active = aiUsagePeriodMode === option.key;
+                      return (
+                        <button
+                          key={option.key}
+                          type="button"
+                          onClick={() => setAiUsagePeriodMode(option.key)}
+                          style={{ height: 24, border: 'none', borderRadius: 999, background: active ? C.white : 'transparent', color: active ? C.primary : C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', boxShadow: active ? '0 1px 4px rgba(31,55,43,.08)' : 'none' }}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {aiUsagePeriodMode === 'month' && (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <select aria-label="AI 사용 비용 연도" value={aiUsageYear} onChange={(event) => setAiUsageYear(event.target.value)} style={{ width: 68, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
+                        <option value="2026">2026</option>
+                        <option value="2025">2025</option>
+                      </select>
+                      <select aria-label="AI 사용 비용 월" value={aiUsageMonth} onChange={(event) => setAiUsageMonth(event.target.value)} style={{ width: 54, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
+                        {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')).map((month) => (
+                          <option key={month} value={month}>{Number(month)}월</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '136px minmax(0, 1fr)', gap: 18, alignItems: 'center', minHeight: 150 }}>
-                <div style={{ position: 'relative', width: 136, height: 136 }}>
-                  <svg width="136" height="136" viewBox="0 0 136 136">
-                    <circle cx="68" cy="68" r={supplementReasonRadius} fill="none" stroke="var(--c-g100)" strokeWidth="18" />
-                    {supplementReasonSegments.map((segment) => segment.length > 0 && (
-                      <circle key={segment.id} cx="68" cy="68" r={supplementReasonRadius} fill="none" stroke={segment.color} strokeWidth="18" strokeDasharray={`${segment.length} ${supplementReasonCircumference}`} strokeDashoffset={-segment.offset} transform="rotate(-90 68 68)" />
-                    ))}
-                  </svg>
-                  <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, .9fr) minmax(0, 1.1fr)', gap: 12, flex: '1 1 auto', minHeight: 0 }}>
+                <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, padding: '12px 14px', background: 'color-mix(in srgb, var(--c-bg) 34%, #fff)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 0 }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.g600 }}>전체 사용 금액</div>
+                    <div style={{ display: 'grid', placeItems: 'center', marginTop: 6 }}>
+                      <div style={{ position: 'relative', width: 112, height: 112 }}>
+                        <svg width="112" height="112" viewBox="0 0 112 112" aria-hidden="true" style={{ display: 'block', transform: 'rotate(-90deg)' }}>
+                          <circle cx="56" cy="56" r={aiUsageDonutRadius} fill="none" stroke="color-mix(in srgb, var(--c-line) 76%, transparent)" strokeWidth="14" />
+                          {aiUsageDonutSegments.map((segment) => (
+                            <circle
+                              key={segment.key}
+                              cx="56"
+                              cy="56"
+                              r={aiUsageDonutRadius}
+                              fill="none"
+                              stroke={segment.color}
+                              strokeWidth="14"
+                              strokeLinecap="butt"
+                              strokeDasharray={`${segment.dash} ${aiUsageDonutCircumference}`}
+                              strokeDashoffset={-segment.offset}
+                              onMouseEnter={(event) => showChartTooltip(event, segment.row.user, `${segment.row.role} · ₩${segment.row.cost.toLocaleString('ko-KR')} · ${(segment.row.tokens / 1000).toFixed(0)}K tokens · ${segment.row.calls}회`)}
+                              onMouseMove={moveChartTooltip}
+                              onMouseLeave={hideChartTooltip}
+                              style={{ cursor: 'default' }}
+                            />
+                          ))}
+                        </svg>
+                        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', pointerEvents: 'none' }}>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: C.g800, lineHeight: 1 }}>₩{aiUsageTotalCost.toLocaleString('ko-KR')}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
                     <div>
-                      <div style={{ fontSize: 28, fontWeight: 700, color: C.g800, lineHeight: 1 }}>{supplementReasonTotal}</div>
-                      <div style={{ marginTop: 4, fontSize: 10, fontWeight: 700, color: C.g600 }}>총 요청</div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: C.g400 }}>총 토큰</div>
+                      <div style={{ marginTop: 2, fontSize: 12, fontWeight: 700, color: C.g800 }}>{(aiUsageTotalTokens / 1_000_000).toFixed(2)}M</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: C.g400 }}>호출 수</div>
+                      <div style={{ marginTop: 2, fontSize: 12, fontWeight: 700, color: C.g800 }}>{aiUsageTotalCalls.toLocaleString('ko-KR')}회</div>
                     </div>
                   </div>
                 </div>
-                <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
-                  {supplementReasonChartRows.map((row) => (
-                    <div key={row.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 20px', gap: 9, alignItems: 'center', fontSize: 11, fontWeight: 700, lineHeight: 1.35 }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0, color: C.g800 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 999, background: row.color, flexShrink: 0 }} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
-                      </span>
-                      <span style={{ color: row.color, textAlign: 'right' }}>{row.count}</span>
+                <div style={{ display: 'grid', gap: 0, minHeight: 0, overflowY: 'auto', paddingRight: 5, scrollbarGutter: 'stable' }}>
+                  {AI_USAGE_COST_ROWS.map((row) => (
+                    <div key={row.user} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 10, alignItems: 'center', borderTop: `1px solid ${C.g100}`, padding: '10px 10px' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.user}</span>
+                          <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: C.g500 }}>{row.role}</span>
+                        </div>
+                        <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>{(row.tokens / 1000).toFixed(0)}K tokens · {row.calls}회</div>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.g800, textAlign: 'right', whiteSpace: 'nowrap' }}>₩{row.cost.toLocaleString('ko-KR')}</div>
                     </div>
                   ))}
                 </div>
               </div>
             </Card>
 
-            <Card style={{ ...dashboardPanelStyle, padding: '18px 20px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>담당자별 검증 요청 현황</div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.primary }}>이번 달</div>
@@ -989,6 +1114,27 @@ export default function DashboardPage() {
         </div>
       </div>
       </div>
+      {chartTooltip && (
+        <div
+          style={{
+            position: 'fixed',
+            left: chartTooltip.x,
+            top: chartTooltip.y,
+            zIndex: 1200,
+            pointerEvents: 'none',
+            maxWidth: 220,
+            padding: '9px 11px',
+            borderRadius: 8,
+            border: `1px solid ${C.g200}`,
+            background: 'rgba(255,255,255,.96)',
+            boxShadow: '0 12px 28px rgba(31,47,39,.16)',
+            color: C.g800,
+          }}
+        >
+          <div style={{ fontSize: 11, fontWeight: 800, lineHeight: 1.35 }}>{chartTooltip.title}</div>
+          <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g500, lineHeight: 1.35 }}>{chartTooltip.body}</div>
+        </div>
+      )}
     </AppFrame>
   );
 }

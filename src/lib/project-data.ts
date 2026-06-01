@@ -78,7 +78,6 @@ export interface ProjectSummary {
   status: ProjectStatus;
   hasUploads: boolean;
   hasActionRequest: boolean;
-  uncheckedMatchedFileCount: number;
   actionRequestDetails?: {
     title: string;
     reason: string;
@@ -145,7 +144,6 @@ export const EMPTY_PROJECT: ProjectSummary = {
   status: PROJECT_STATUS.IN_PROGRESS,
   hasUploads: false,
   hasActionRequest: false,
-  uncheckedMatchedFileCount: 0,
   reportReady: false,
   recentActivity: '',
   participants: [],
