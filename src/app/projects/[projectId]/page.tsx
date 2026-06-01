@@ -886,7 +886,7 @@ export default function ProjectDetailPage() {
         <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
           <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>사용내역서 월 추가</div>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g400, lineHeight: 1.55, marginBottom: 16 }}>추가할 사용내역서의 연도와 월을 입력해 주세요.</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 18 }}>
             <label style={{ display: 'grid', gap: 6 }}>
               <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>년도</span>
               <input
@@ -1113,6 +1113,8 @@ export default function ProjectDetailPage() {
             const uploaded = Boolean(statement.sourceFileName && statement.sourceFileName !== '-');
             const archiveData = dbUsageStatementsByMonth[statement.month];
             const hasSupplementRequest = archiveData?.workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
+            const workflowStatus = archiveData?.workflowStatus || (uploaded ? USAGE_WORKFLOW_STATUS.DRAFT : undefined);
+            const workflowMeta = workflowStatus ? STATUS_META[workflowStatus] : undefined;
             const totalAmount = archiveData?.overviewRows?.find(([label]) => label === '계')?.[3] || statement.cumulativeAmount || '0';
             return (
               <button
@@ -1143,6 +1145,11 @@ export default function ProjectDetailPage() {
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 28 }}>
                     <div style={{ fontSize: 18, fontWeight: 900, color: hasSupplementRequest ? C.danger : C.g800 }}>{statement.label}</div>
+                    {workflowMeta && (
+                      <span style={{ border: `1px solid ${workflowMeta.color}`, borderRadius: 999, background: workflowMeta.bg, color: workflowMeta.color, padding: '3px 8px', fontSize: 10, fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap' }}>
+                        {workflowMeta.label}
+                      </span>
+                    )}
                   </div>
                   <div style={{ marginTop: 9, fontSize: 12, fontWeight: 900, color: hasSupplementRequest ? C.danger : uploaded ? C.primary : C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {hasSupplementRequest ? '보완 요청 있음' : uploaded ? '사용내역서 있음' : '사용내역서 없음'}

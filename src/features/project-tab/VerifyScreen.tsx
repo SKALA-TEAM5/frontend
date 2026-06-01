@@ -373,7 +373,6 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
             <span style={{ fontSize: 14, fontWeight: 900, color: C.g800 }}>9개 항목 판정</span>
             <span style={{ fontSize: 11, fontWeight: 900, color: C.ok, background: '#F4FBF6', border: '1px solid #D6EEDB', borderRadius: 999, padding: '4px 8px' }}>인정률 {recognizedRate}%</span>
           </div>
-          <div style={{ fontSize: 11, color: C.g400, marginTop: 2 }}>부적정 항목 우선 정렬</div>
         </div>
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
           {[
@@ -395,7 +394,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
             <col style={{ width: '17%' }} />
             <col style={{ width: '17%' }} />
             <col style={{ width: '11%' }} />
-            <col style={{ width: '11%' }} />
+            <col style={{ width: '10%' }} />
           </colgroup>
           <thead>
             <tr>
@@ -449,7 +448,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>{item.categoryId}. {item.categoryName}</div>
-          <div style={{ fontSize: 12, color: C.g400, marginTop: 5 }}>선택 항목 상세 판단</div>
+          <div style={{ fontSize: 12, color: C.g400, marginTop: 5 }}>항목 상세 판단</div>
         </div>
         <span style={chipStyle(meta.color, meta.bg, meta.border)}>{meta.label}</span>
       </div>
@@ -476,7 +475,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
         <div style={{ padding: '12px 13px', borderRadius: 12, background: '#ffffff', border: `1px solid ${meta.border}` }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             {item.evidenceSummary.problematicFiles.length > 0 && <div>
-              <div style={{ fontSize: 11, fontWeight: 900, color: C.g800, marginBottom: 5 }}>문제 파일</div>
+              <div style={{ fontSize: 11, fontWeight: 900, color: C.g800, marginBottom: 5 }}>부적정 자료</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {item.evidenceSummary.problematicFiles.map((file) => <div key={file.fileName} style={{ padding: '8px 9px', borderRadius: 8, background: C.white, border: `1px solid ${C.g100}` }}>
                   <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{file.fileName}</div>
@@ -510,7 +509,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>담당자 조치 목록</div>
-          <div style={{ fontSize: 12, color: C.g400, marginTop: 4 }}>현장에 바로 요청할 수 있는 보완 작업입니다.</div>
+          <div style={{ fontSize: 12, color: C.g400, marginTop: 4 }}>프로젝트 담당자의 보완 TODO에 표시됩니다.</div>
         </div>
         <span style={chipStyle(C.danger, C.dangerBg, '#FFCDD2')}>{list.length}건</span>
       </div>

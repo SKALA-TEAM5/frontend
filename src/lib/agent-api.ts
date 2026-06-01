@@ -1,15 +1,25 @@
 import { apiFetch } from './api-client';
 import { backendEvidenceTypeToCategory } from './archive-api';
-import type { AgentLogStatusCode, AgentTypeCode } from './project-data';
+import type { AgentLogStatusCode } from './project-data';
 import type { FolderEvidenceCategory } from '../types/domain';
 
-export type AgentType = AgentTypeCode;
-
 export interface AgentRunResponse {
-  agentType: string;
-  status: AgentLogStatusCode | string;
-  logIds: number[];
-  result: Record<string, unknown>;
+  agentType?: string;
+  agentTypeCode?: string;
+  status?: AgentLogStatusCode | string;
+  statusCode?: AgentLogStatusCode | string;
+  resultCode?: string;
+  reason?: string;
+  logIds?: number[];
+  result?: Record<string, unknown>;
+  reportDraft?: unknown;
+}
+
+export interface ReportDetailResponse {
+  agentTypeCode: string;
+  statusCode: AgentLogStatusCode | string;
+  details: string | Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface LawAgentRunResponse {
@@ -88,19 +98,18 @@ type EvidenceRequirementRecord = {
   isActive: boolean;
 };
 
-export const runAgent = async (
-  projectId: string,
-  agentType: AgentType,
-  input: { usageStatementId: number; usageStatementItemId?: number | string; options?: Record<string, unknown> },
-) => {
-  const response = await apiFetch<AgentRunResponse>(`/projects/${projectId}/agents/${agentType}/run`, {
+export const runReportAgent = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<AgentRunResponse>(`/projects/${projectId}/agents/report`, {
     method: 'POST',
-    body: {
-      usageStatementId: input.usageStatementId,
-      usageStatementItemId: input.usageStatementItemId == null ? undefined : Number(input.usageStatementItemId),
-      options: input.options,
-    },
+    body: { usageStatementId },
   });
+  return response.data;
+};
+
+export const getReportDetail = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<ReportDetailResponse>(
+    `/projects/${projectId}/agents/report?usageStatementId=${usageStatementId}`,
+  );
   return response.data;
 };
 

@@ -4,8 +4,7 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { runAgent } from '../../lib/agent-api';
-import { AGENT_TYPE_CODE } from '../../lib/project-data';
+import { getReportDetail, runReportAgent } from '../../lib/agent-api';
 import { buildReportDraftJson, type ReportDraft } from '../../lib/report-draft';
 import { C } from '../../lib/theme';
 import { VALIDATION_DASHBOARD_RESULT } from '../../lib/evidence-utils';
@@ -26,6 +25,19 @@ const isReportDraft = (value: unknown): value is ReportDraft => {
   if (!value || typeof value !== 'object') return false;
   const draft = value as Partial<ReportDraft>;
   return typeof draft.report_no === 'string' && Array.isArray(draft.report_sections);
+};
+
+const readReportDraftFromAgentResponse = (response: Awaited<ReturnType<typeof runReportAgent>>) => {
+  const result = response.result || {};
+  const report = result.report && typeof result.report === 'object' ? result.report as Record<string, unknown> : {};
+  const nestedResult = report.result && typeof report.result === 'object' ? report.result as Record<string, unknown> : {};
+  return response.reportDraft || result.reportDraft || nestedResult.reportDraft;
+};
+
+const readReportDraftFromDetail = (detail: Awaited<ReturnType<typeof getReportDetail>>) => {
+  const details = typeof detail.details === 'string' ? JSON.parse(detail.details) as Record<string, unknown> : detail.details;
+  const payload = details.payload && typeof details.payload === 'object' ? details.payload as Record<string, unknown> : {};
+  return payload.reportDraft || details.reportDraft;
 };
 
 const chipStyle = (color: string, bg: string, border?: string): CSSProperties => ({
@@ -93,8 +105,9 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
       setReportProgress(25);
       let nextDraft: ReportDraft;
       if (validationComplete && projectId && usageStatementId) {
-        const response = await runAgent(projectId, AGENT_TYPE_CODE.REPORT, { usageStatementId });
-        const reportDraft = response.result.reportDraft;
+        const response = await runReportAgent(projectId, usageStatementId);
+        const reportDraft = readReportDraftFromAgentResponse(response)
+          || readReportDraftFromDetail(await getReportDetail(projectId, usageStatementId));
         if (!isReportDraft(reportDraft)) throw new Error('보고서 Agent 응답에 reportDraft가 없습니다.');
         nextDraft = reportDraft;
       } else {

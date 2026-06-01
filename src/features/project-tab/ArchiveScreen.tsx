@@ -9,9 +9,8 @@ import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
 import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadProjectFile, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
-import { getOrchestratorStatus, listSafeLeeEvidenceRequirements, parseAndMatchEvidenceWithOcr, runAgent, runEvidenceReviewAgent, safeLeeRequirementsToMap, type OrchestratorTodo } from '../../lib/agent-api';
+import { getOrchestratorStatus, listSafeLeeEvidenceRequirements, parseAndMatchEvidenceWithOcr, runEvidenceReviewAgent, safeLeeRequirementsToMap, type OrchestratorTodo } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
-import { AGENT_TYPE_CODE } from '../../lib/project-data';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 type ArchiveValidationStatus = 'idle' | 'running' | 'done';
 interface ArchiveScreenProps {
@@ -392,8 +391,8 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                         categoryId: usageItem?.categoryId,
                         usageItemId,
                         detail: usageItem
-                            ? `${usageItem.name}은 ${categoryName || '해당 9개 항목'} 기준의 지출로 분류되어 ${evidenceName} 증빙이 필요합니다. 현재 연결된 ${EVIDENCE_KIND_LABELS[kind]} 증빙이 없거나 충족 처리되지 않아 보완 TODO로 표시했습니다.`
-                            : `${evidenceName} 증빙이 필요하지만 현재 충족 처리되지 않아 보완 TODO로 표시했습니다.`,
+                            ? `${usageItem.name}은/는 ${categoryName || '해당 9개 항목'} 기준의 지출로 분류되어 ${evidenceName} 증빙이 필요합니다.`
+                            : `${evidenceName} 증빙이 필요합니다.`,
                     });
                 });
             });
@@ -876,10 +875,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         setMatchingError('');
         setMatchingNotice('');
         try {
-            await Promise.all(resolvedUsageItems.map((item) => runAgent(projectId, AGENT_TYPE_CODE.SAFETY_DOC, {
-                usageStatementId,
-                usageStatementItemId: item.id,
-            })));
+            await runEvidenceReviewAgent(projectId, usageStatementId);
             const agentRequiredEvidence = await loadStoredRequirements();
             setRequiredEvidenceByLine(agentRequiredEvidence);
             setMatchingStatus('done');
@@ -992,10 +988,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         setPhotoValidationNotice(null);
         setPhotoValidationStatus('running');
         try {
-            await runAgent(projectId, AGENT_TYPE_CODE.VISION, {
-                usageStatementId,
-                options: { scope: 'site_photo' },
-            });
+            await runEvidenceReviewAgent(projectId, usageStatementId);
             setPhotoValidationStatus('done');
             setPhotoValidationNotice({ type: 'ok', message: '사진 검증 Agent 실행 결과가 저장되었습니다.' });
         } catch {

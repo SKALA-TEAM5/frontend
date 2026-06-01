@@ -76,6 +76,7 @@ export interface ProjectSummary {
   usageRate: string;
   projectStatusCode: ProjectStatusCode;
   status: ProjectStatus;
+  latestUsageStatementStatusCode?: string | null;
   hasUploads: boolean;
   hasActionRequest: boolean;
   actionRequestDetails?: {
@@ -142,6 +143,7 @@ export const EMPTY_PROJECT: ProjectSummary = {
   usageRate: '',
   projectStatusCode: PROJECT_STATUS_CODE.ACTIVE,
   status: PROJECT_STATUS.IN_PROGRESS,
+  latestUsageStatementStatusCode: null,
   hasUploads: false,
   hasActionRequest: false,
   reportReady: false,
@@ -180,6 +182,20 @@ export const PROJECT_STATUS_META: Record<ProjectStatusCode, { label: string; col
   [PROJECT_STATUS_CODE.SUSPENDED]: { label: '중단', color: C.g600, bg: C.g100 },
 };
 
+export const PROJECT_LIFECYCLE_STATUS_META: Record<ProjectStatus, { label: string; color: string; bg: string }> = {
+  [PROJECT_STATUS.OPEN]: { label: '생성됨', color: C.g600, bg: C.g100 },
+  [PROJECT_STATUS.IN_PROGRESS]: { label: '진행 중', color: C.primary, bg: C.bg },
+  [PROJECT_STATUS.CLOSED]: { label: '종료됨', color: C.ok, bg: '#F4FBF6' },
+};
+
+export const getProjectLifecycleStatus = (project: ProjectSummary): ProjectStatus => {
+  if (project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED || project.status === PROJECT_STATUS.CLOSED) return PROJECT_STATUS.CLOSED;
+  if (project.hasUploads || Boolean(project.latestUsageStatementStatusCode)) return PROJECT_STATUS.IN_PROGRESS;
+  return PROJECT_STATUS.OPEN;
+};
+
+export const getProjectLifecycleMeta = (project: ProjectSummary) => PROJECT_LIFECYCLE_STATUS_META[getProjectLifecycleStatus(project)];
+
 const splitManagerNames = (value: string) =>
   value.split(',').map((manager) => manager.trim()).filter(Boolean);
 
@@ -188,6 +204,6 @@ export const getProjectManagers = (project: ProjectSummary) => splitManagerNames
 export const getSheFilterOptionsFromProjects = (projects: ProjectSummary[]) => {
   return {
     managers: ['전체', ...Array.from(new Set(projects.flatMap((project) => getProjectManagers(project))))],
-    statuses: ['전체', ...Object.values(STATUS_META).map((meta) => meta.label)],
+    statuses: ['전체', ...Object.values(PROJECT_LIFECYCLE_STATUS_META).map((meta) => meta.label)],
   };
 };

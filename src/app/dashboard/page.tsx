@@ -462,73 +462,66 @@ export default function DashboardPage() {
     [USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED),
   };
   const currentMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-  const monthlyReviewedCount = projects.filter((project) => readUsageStatementMonth(project.id) === currentMonthKey).length;
-  const validationTargetCount = projects.filter((project) => {
+  const currentMonthUsageStatementCount = projects.filter((project) => readUsageStatementMonth(project.id) === currentMonthKey).length;
+  const validityValidationTargetCount = projects.filter((project) => {
     const workflow = getProjectMonthWorkflowStatus(project);
     return workflow && workflow !== USAGE_WORKFLOW_STATUS.DRAFT;
   }).length;
-  const validationCompletedCount = projects.filter((project) => {
+  const validityValidationDoneCount = projects.filter((project) => {
     const workflow = getProjectMonthWorkflowStatus(project);
     return workflow === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
   }).length;
-  const reviewCompletedCount = projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED).length;
-  const supplementRequiredCount = workflowProjects[USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED].length;
+  const approvalCompletedCount = projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED).length;
+  const supplementRequestCount = workflowProjects[USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED].length;
   const statusSummaryCards = [
     {
-      eyebrow: `${currentMonthKey.replace('-', '년 ')}월 기준`,
-      title: '월별 검토 현황',
+      eyebrow: `${currentMonthKey.replace('-', '년 ')}월`,
+      title: '사용내역서 업로드',
       icon: '◌',
       color: '#255B73',
       border: '#C9DFEA',
       soft: '#F6FBFD',
       metrics: [
-        { label: '완료', value: monthlyReviewedCount, color: '#255B73', border: '#C9DFEA', bg: '#F6FBFD' },
+        { label: '업로드됨', value: currentMonthUsageStatementCount, color: '#255B73', border: '#C9DFEA', bg: '#F6FBFD' },
         { label: '전체', value: projects.length, color: C.g800, border: '#CDE8D8', bg: C.white },
       ],
     },
     {
-      eyebrow: '유효성 검증',
-      title: '유효성 검증 완료',
+      eyebrow: '법령 검토',
+      title: '유효성 검증',
       icon: '✓',
       color: '#2F73B7',
       border: '#C6D9EE',
       soft: '#F5F9FF',
       metrics: [
-        { label: '완료', value: validationCompletedCount, color: '#2F73B7', border: '#C6D9EE', bg: '#F5F9FF' },
-        { label: '전체', value: validationTargetCount, color: C.g800, border: '#CDE8D8', bg: C.white },
+        { label: '완료', value: validityValidationDoneCount, color: '#2F73B7', border: '#C6D9EE', bg: '#F5F9FF' },
+        { label: '대상', value: validityValidationTargetCount, color: C.g800, border: '#CDE8D8', bg: C.white },
       ],
     },
     {
-      eyebrow: '증빙자료 보완 필요',
+      eyebrow: '증빙 보완',
       title: '보완 요청',
       icon: '!',
       color: '#D9485F',
       border: '#F0CDD4',
       soft: '#FFF8F9',
       metrics: [
-        { label: '건수', value: supplementRequiredCount, color: '#D9485F', border: '#F0CDD4', bg: '#FFF8F9', full: true },
+        { label: '요청', value: supplementRequestCount, color: '#D9485F', border: '#F0CDD4', bg: '#FFF8F9', full: true },
       ],
     },
     {
-      eyebrow: '전체 프로젝트 대비',
-      title: '검토 완료',
+      eyebrow: '최종 상태',
+      title: '승인 완료',
       icon: '◎',
       color: C.primary,
       border: C.g200,
       soft: C.bg,
       metrics: [
-        { label: '완료', value: reviewCompletedCount, color: C.primary, border: C.g200, bg: C.bg },
+        { label: '승인', value: approvalCompletedCount, color: C.primary, border: C.g200, bg: C.bg },
         { label: '전체', value: projects.length, color: C.g800, border: '#CDE8D8', bg: C.white },
       ],
     },
   ] as const;
-  const userInitials = useMemo(() => {
-    const trimmed = user.name.trim();
-    if (!trimmed) return 'U';
-    const parts = trimmed.split(/\s+/).filter(Boolean);
-    if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
-    return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase();
-  }, [user.name]);
   const queueProjects = projects
     .filter((project) => {
       const workflow = getProjectMonthWorkflowStatus(project);
@@ -700,13 +693,15 @@ export default function DashboardPage() {
             {logoutPending ? '로그아웃 중' : '로그아웃'}
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, paddingRight: 70 }}>
-            <div style={{ width: 48, height: 48, borderRadius: 999, background: '#F4C20D', color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, fontWeight: 700, flexShrink: 0 }}>
-              {userInitials}
+            <div style={{ width: 48, height: 48, borderRadius: 999, background: '#F4C20D', color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="25" height="25" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M4.5 20a7.5 7.5 0 0 1 15 0" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </div>
 	            <div style={{ minWidth: 0, flex: 1 }}>
 		              <div style={{ fontSize: 15, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name || '사용자'}</div>
 		              <div style={{ marginTop: 3, fontSize: 11, fontWeight: 700, color: C.g600 }}>{ROLE_LABELS[user.role]}</div>
-                  <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>평택 제조시설 증설 외 2건 담당</div>
 	            </div>
 	          </div>
 	          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
@@ -729,8 +724,8 @@ export default function DashboardPage() {
 		            </button>
 		            <button
 		              type="button"
-		              disabled
-			              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FAFBFA', color: C.g600, fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'not-allowed', opacity: .72 }}
+		              onClick={() => router.push('/admin/users')}
+			              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FAFBFA', color: C.g600, fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'pointer', opacity: .9 }}
 		            >
 		              담당자 관리
 		            </button>
@@ -775,8 +770,8 @@ export default function DashboardPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(138px, 1.1fr) minmax(100px, .8fr) minmax(92px, .66fr) minmax(92px, .66fr) minmax(118px, .72fr)', gap: 8, marginBottom: 12 }}>
               <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
               <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={compactFieldStyle} />
-              <select aria-label="관리자" value={manager} onChange={(event) => setManager(event.target.value)} style={compactFieldStyle}>
-                {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '관리자' : item}</option>)}
+              <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={compactFieldStyle}>
+                {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '담당자' : item}</option>)}
               </select>
               <select aria-label="상태" value={status} onChange={(event) => setStatus(event.target.value)} style={compactFieldStyle}>
                 {filterOptions.statuses.map((item) => <option key={item} value={item}>{item === filterOptions.statuses[0] ? '상태' : item}</option>)}
@@ -910,12 +905,11 @@ export default function DashboardPage() {
             </div>
           </Card>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, .90fr) minmax(0, 1.2fr) minmax(0, .90fr)', gap: 16 }}>
-            <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box' }}>
-              <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.0fr) minmax(0, 1.2fr) minmax(0, .70fr)', gap: 16 }}>
+            <Card style={{ ...dashboardPanelStyle, padding: '14px 16px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 20 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>월별 보완 요청 사유</div>
-                  {!hasReasonTrendData && <span style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.g100, color: C.g600, padding: '3px 7px', fontSize: 10, fontWeight: 900 }}>예시</span>}
                 </div>
                 <select
                   aria-label="프로젝트"
@@ -929,8 +923,8 @@ export default function DashboardPage() {
                   ))}
                 </select>
               </div>
-              <div style={{ height: 132, display: 'grid', gridTemplateColumns: '24px minmax(0,1fr)', gap: 6, alignItems: 'stretch', padding: '8px 2px 0' }}>
-                <div style={{ position: 'relative', height: 106, borderBottom: `1px solid ${C.g100}` }}>
+              <div style={{ height: 142, display: 'grid', gridTemplateColumns: '16px minmax(0,1fr)', gap: 3, alignItems: 'stretch', padding: '4px 0 0' }}>
+                <div style={{ position: 'relative', height: 122, borderBottom: `1px solid ${C.g100}` }}>
                   {reasonTrendAxisTicks.map((tick) => (
                     <span
                       key={tick}
@@ -948,37 +942,39 @@ export default function DashboardPage() {
                     </span>
                   ))}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, displayedReasonTrendRows.length)}, minmax(0, 1fr))`, gap: 0, alignItems: 'stretch', borderBottom: `1px solid ${C.g100}` }}>
-                {displayedReasonTrendRows.length === 0 ? (
-                  <div style={{ gridColumn: '1 / -1', minHeight: 112, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 12, fontWeight: 700 }}>
-                    표시할 보완 요청 사유가 없습니다.
-                  </div>
-                ) : displayedReasonTrendRows.map((row, rowIndex) => (
-                  <div key={row.key} style={{ position: 'relative', display: 'grid', gridTemplateRows: '1fr 18px', gap: 4, height: '100%', padding: '0 7px' }}>
-                    {rowIndex > 0 && <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 2, bottom: 22, width: 1, background: C.g100, transform: 'translateX(-.5px)' }} />}
-                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${SUPPLEMENT_REASON_TYPES.length}, minmax(0, 1fr))`, gap: 1, alignItems: 'end', justifyItems: 'center', alignSelf: 'end', height: 88 }}>
-                      {row.reasons.map((reason) => (
-                        <span
-                          key={reason.id}
-                          onMouseEnter={(event) => showChartTooltip(event, `${row.label} ${reason.label}`, `${reason.count}건`)}
-                          onMouseMove={moveChartTooltip}
-                          onMouseLeave={hideChartTooltip}
-                          style={{
-                            width: 15,
-                            height: reason.count > 0 ? `${Math.max(7, (reason.count / reasonTrendAxisMax) * 84)}px` : 0,
-                            background: reason.color,
-                            borderRadius: '4px 4px 0 0',
-                            cursor: 'default',
-                          }}
-                        />
-                      ))}
+                <div style={{ overflowX: 'auto', overflowY: 'hidden', borderBottom: `1px solid ${C.g100}`, scrollbarWidth: 'thin' }}>
+                <div style={{ minWidth: displayedReasonTrendRows.length ? Math.max(displayedReasonTrendRows.length * 84, 220) : 220, height: '100%', display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, displayedReasonTrendRows.length)}, 84px)`, gap: 0, alignItems: 'stretch' }}>
+                  {displayedReasonTrendRows.length === 0 ? (
+                    <div style={{ gridColumn: '1 / -1', minHeight: 102, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 12, fontWeight: 700 }}>
+                      표시할 보완 요청 사유가 없습니다.
                     </div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: C.g400, textAlign: 'center' }}>{row.label}</div>
-                  </div>
-                ))}
+                  ) : displayedReasonTrendRows.map((row, rowIndex) => (
+                    <div key={row.key} style={{ position: 'relative', display: 'grid', gridTemplateRows: '1fr 16px', gap: 3, height: '100%', padding: '0 5px' }}>
+                      {rowIndex > 0 && <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 2, bottom: 20, width: 1, background: C.g100, transform: 'translateX(-.5px)' }} />}
+                      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${SUPPLEMENT_REASON_TYPES.length}, minmax(0, 1fr))`, gap: 1, alignItems: 'end', justifyItems: 'center', alignSelf: 'end', height: 106 }}>
+                        {row.reasons.map((reason) => (
+                          <span
+                            key={reason.id}
+                            onMouseEnter={(event) => showChartTooltip(event, `${row.label} ${reason.label}`, `${reason.count}건`)}
+                            onMouseMove={moveChartTooltip}
+                            onMouseLeave={hideChartTooltip}
+                            style={{
+                              width: 14,
+                              height: reason.count > 0 ? `${Math.max(7, (reason.count / reasonTrendAxisMax) * 102)}px` : 0,
+                              background: reason.color,
+                              borderRadius: '4px 4px 0 0',
+                              cursor: 'default',
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: C.g400, textAlign: 'center' }}>{row.label}</div>
+                    </div>
+                  ))}
+                </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12, fontSize: 10, fontWeight: 700, color: C.g600 }}>
+              <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginTop: 14, fontSize: 10, fontWeight: 700, color: C.g600 }}>
                 {SUPPLEMENT_REASON_TYPES.map((reason) => (
                   <span key={reason.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ width: 8, height: 8, borderRadius: 999, background: reason.color }} />
@@ -1045,7 +1041,7 @@ export default function DashboardPage() {
                               strokeLinecap="butt"
                               strokeDasharray={`${segment.dash} ${aiUsageDonutCircumference}`}
                               strokeDashoffset={-segment.offset}
-                              onMouseEnter={(event) => showChartTooltip(event, segment.row.user, `${segment.row.role} · ₩${segment.row.cost.toLocaleString('ko-KR')} · ${(segment.row.tokens / 1000).toFixed(0)}K tokens · ${segment.row.calls}회`)}
+                              onMouseEnter={(event) => showChartTooltip(event, `${segment.row.user} · ${segment.row.role}`, `₩${segment.row.cost.toLocaleString('ko-KR')} · ${(segment.row.tokens / 1000).toFixed(0)}K tokens · ${segment.row.calls}회`)}
                               onMouseMove={moveChartTooltip}
                               onMouseLeave={hideChartTooltip}
                               style={{ cursor: 'default' }}
@@ -1091,7 +1087,7 @@ export default function DashboardPage() {
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>담당자별 검증 요청 현황</div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.primary }}>이번 달</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.primary }}>{currentMonthKey.replace('-', '년 ')}월</div>
             </div>
             <div style={{ display: 'grid', gap: 10, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', paddingRight: 6, scrollbarGutter: 'stable', overscrollBehavior: 'contain' }}>
               {managerWorkloads.length === 0 && (
@@ -1101,7 +1097,12 @@ export default function DashboardPage() {
               )}
               {managerWorkloads.map(([managerName, workload]) => (
                 <div key={managerName} style={{ display: 'grid', gridTemplateColumns: '34px minmax(0,1fr) auto', gap: 10, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${C.g100}` }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 999, background: C.primary, color: C.white, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 700 }}>{managerName.slice(0, 1)}</div>
+                  <div style={{ width: 34, height: 34, borderRadius: 999, background: C.primary, color: C.white, display: 'grid', placeItems: 'center' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M4.5 20a7.5 7.5 0 0 1 15 0" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{managerName}</div>
                     <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>완료 {Math.max(0, workload.projectCount - workload.actionRequired)}건 · 진행 {workload.actionRequired}건</div>
