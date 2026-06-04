@@ -16,6 +16,14 @@
     --c-ok: #247257;
     --c-primary-shadow: rgba(20,90,59,.13);
     --app-header-height: 56px;
+    --ui-radius-card: 14px;
+    --ui-radius-panel: 12px;
+    --ui-radius-control: 10px;
+    --ui-shadow-card: 0 1px 2px rgba(31,47,39,.04), 0 10px 26px rgba(31,47,39,.045);
+    --ui-shadow-card-hover: 0 2px 6px rgba(31,47,39,.07), 0 16px 34px rgba(31,47,39,.075);
+    --ui-shadow-panel: 0 1px 2px rgba(31,47,39,.05), 0 16px 36px rgba(31,47,39,.055);
+    --ui-shadow-modal: 0 18px 44px rgba(31,55,43,.14);
+    --dashboard-surface-bg: radial-gradient(circle at 12% 4%, color-mix(in srgb, var(--c-bg) 78%, transparent) 0, transparent 34%), linear-gradient(135deg, var(--c-soft) 0%, color-mix(in srgb, var(--c-bg) 64%, #fff) 100%);
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { scrollbar-gutter: stable; }
@@ -24,11 +32,10 @@
     height: 100%;
     overflow-x: hidden;
     font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    background:
-      radial-gradient(circle at 16% 0%, color-mix(in srgb, var(--c-bg) 90%, transparent) 0, transparent 38%),
-      linear-gradient(135deg, color-mix(in srgb, var(--c-soft) 82%, var(--c-bg)) 0%, color-mix(in srgb, var(--c-bg) 72%, #fff) 100%);
+    background: var(--dashboard-surface-bg);
     color: var(--c-g800);
     letter-spacing: 0;
+    font-synthesis-weight: none;
   }
   #root { height: 100%; }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -44,6 +51,12 @@
   input:focus, select:focus, textarea:focus {
     border-color: var(--c-light) !important;
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-bg) 72%, transparent);
+  }
+  button:focus-visible,
+  a:focus-visible,
+  [role="button"]:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--c-primary) 78%, #fff);
+    outline-offset: 3px;
   }
   .thin-x-scroll {
     display: block;
@@ -64,6 +77,37 @@
   .thin-x-scroll::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--c-light) 54%, #BBDCC7);
     border-radius: 99px;
+  }
+  .date-range-year-grid::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  .validation-lane-scroll {
+    scrollbar-width: none;
+  }
+  .validation-lane-scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  .validation-lane-grid {
+    min-width: 0;
+  }
+  @media (max-width: 900px) {
+    .validation-lane-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in srgb, var(--c-light) 54%, #BBDCC7) transparent;
+    }
+    .validation-lane-scroll::-webkit-scrollbar {
+      width: 3px;
+      height: 3px;
+    }
+    .validation-lane-scroll::-webkit-scrollbar-thumb {
+      background: color-mix(in srgb, var(--c-light) 54%, #BBDCC7);
+      border-radius: 99px;
+    }
+    .validation-lane-grid {
+      min-width: 760px;
+    }
   }
   .action-request-pulse {
     animation: actionRequestPulse 1.05s ease-in-out infinite;
@@ -245,8 +289,8 @@
     overflow-x: hidden;
     min-height: calc(100vh - 64px);
     background:
-      radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--c-bg) 84%, transparent) 0, transparent 36%),
-      linear-gradient(135deg, color-mix(in srgb, var(--c-bg) 72%, #fff) 0%, color-mix(in srgb, var(--c-soft) 72%, var(--c-bg)) 100%);
+      radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--c-bg) 54%, transparent) 0, transparent 32%),
+      linear-gradient(135deg, color-mix(in srgb, #fff 82%, var(--c-bg)) 0%, color-mix(in srgb, var(--c-soft) 88%, var(--c-bg)) 100%);
   }
   .app-main.dashboard-main {
     width: 100vw;
@@ -254,7 +298,8 @@
     margin-left: 0;
     margin-right: 0;
     padding: var(--app-header-height) 0 40px;
-    background: transparent;
+    background: var(--dashboard-surface-bg);
+    background-attachment: fixed;
     min-height: 100vh;
     box-shadow: none;
   }
@@ -264,8 +309,22 @@
     padding-left: clamp(132px, 8vw, 172px);
     padding-right: clamp(132px, 8vw, 172px);
     background:
-      radial-gradient(circle at 10% 2%, color-mix(in srgb, var(--c-bg) 88%, transparent) 0, transparent 34%),
-      linear-gradient(135deg, color-mix(in srgb, var(--c-bg) 76%, #fff) 0%, color-mix(in srgb, var(--c-soft) 66%, var(--c-bg)) 100%);
+      radial-gradient(circle at 10% 2%, color-mix(in srgb, var(--c-bg) 58%, transparent) 0, transparent 34%),
+      linear-gradient(135deg, color-mix(in srgb, #fff 84%, var(--c-bg)) 0%, color-mix(in srgb, var(--c-soft) 88%, var(--c-bg)) 100%);
+  }
+  .interactive-card {
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease;
+  }
+  .interactive-card:hover {
+    border-color: color-mix(in srgb, var(--c-light) 72%, var(--c-g200)) !important;
+    box-shadow: var(--ui-shadow-card-hover) !important;
+    transform: translateY(-1px);
+  }
+  .interactive-card--supplement:hover {
+    border-color: #E78998 !important;
+  }
+  .interactive-card:active {
+    transform: translateY(0);
   }
   .app-footer {
     box-sizing: border-box;
@@ -283,10 +342,12 @@
     gap: 24px;
   }
   .app-footer.dashboard-main-footer {
-    width: min(100%, 1240px);
-    max-width: 1240px;
-    padding-left: 0;
-    padding-right: 0;
+    width: 100vw;
+    max-width: none;
+    padding-left: max(40px, calc((100vw - 1240px) / 2));
+    padding-right: max(40px, calc((100vw - 1240px) / 2));
+    background: var(--dashboard-surface-bg);
+    background-attachment: fixed;
   }
   .app-footer.project-detail-main-footer {
     width: 100%;

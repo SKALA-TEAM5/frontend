@@ -18,6 +18,22 @@ const formatDatePart = (value: string) => {
   return `${Number(year)} . ${Number(month)} . ${Number(day)} .`;
 };
 
+const parseDateRangeText = (value: string) => {
+  const numbers = value.match(/\d+/g) || [];
+  if (numbers.length < 3) return { start: '', end: '' };
+  const toDateValue = (offset: number) => {
+    const year = Number(numbers[offset]);
+    const month = Number(numbers[offset + 1]);
+    const day = Number(numbers[offset + 2]);
+    if (!year || !month || !day || month < 1 || month > 12 || day < 1 || day > 31) return '';
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+  return {
+    start: toDateValue(0),
+    end: numbers.length >= 6 ? toDateValue(3) : '',
+  };
+};
+
 const buildCalendarCells = (monthDate: Date) => {
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -32,6 +48,17 @@ const buildCalendarCells = (monthDate: Date) => {
       currentMonth: date.getMonth() === month,
     };
   });
+};
+
+const yearPickerScrollStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, 1fr)',
+  gap: 6,
+  maxHeight: 188,
+  overflowY: 'auto',
+  padding: '2px 1px 2px 0',
+  scrollbarWidth: 'none',
+  msOverflowStyle: 'none',
 };
 
 interface DateRangePickerProps {
@@ -59,6 +86,8 @@ export default function DateRangePicker({
   const [mounted, setMounted] = useState(false);
   const [popupStyle, setPopupStyle] = useState<CSSProperties>({});
   const [month, setMonth] = useState(() => start ? new Date(`${start}T00:00:00`) : new Date());
+  const [rangeText, setRangeText] = useState('');
+  const [yearPickerOpen, setYearPickerOpen] = useState(false);
   const label = start && end
     ? `${formatDatePart(start)} - ${formatDatePart(end)}`
     : start
@@ -69,6 +98,10 @@ export default function DateRangePicker({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    setRangeText(label);
+  }, [label, open]);
 
   useLayoutEffect(() => {
     if (!open || !mounted || !rootRef.current) return;
@@ -122,6 +155,22 @@ export default function DateRangePicker({
     onChange(start, value);
   };
 
+  const applyRangeText = () => {
+    const parsed = parseDateRangeText(rangeText);
+    if (!parsed.start) {
+      setRangeText(label);
+      return;
+    }
+    onChange(parsed.start, parsed.end);
+    setMonth(new Date(`${parsed.start}T00:00:00`));
+  };
+
+  const yearOptions = useMemo(() => {
+    const currentYear = month.getFullYear();
+    const startYear = currentYear - 12;
+    return Array.from({ length: 25 }, (_, index) => startYear + index);
+  }, [month]);
+
   return (
     <div ref={rootRef} style={{ position: 'relative', minWidth: 0 }}>
       <button
@@ -161,41 +210,92 @@ export default function DateRangePicker({
       {open && mounted && createPortal((
         <div ref={popupRef} style={{ ...popupStyle, width: 252, borderRadius: 14, border: `1px solid ${C.g100}`, background: C.white, boxShadow: '0 18px 38px rgba(31,47,39,.14)', padding: 10 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, padding: '7px 9px', color: C.g800, fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-            <button type="button" onClick={() => { onChange('', ''); setOpen(false); }} style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 8px', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, cursor: 'pointer' }}>초기화</button>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 10 }}>
-            <input aria-label="시작일" type="date" value={start} onChange={(event) => { onChange(event.target.value, end); if (event.target.value) setMonth(new Date(`${event.target.value}T00:00:00`)); }} style={{ height: 30, minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '0 8px', color: C.g800, fontSize: 10, fontWeight: 800 }} />
-            <input aria-label="종료일" type="date" value={end} onChange={(event) => { onChange(start, event.target.value); if (event.target.value) setMonth(new Date(`${event.target.value}T00:00:00`)); }} style={{ height: 30, minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '0 8px', color: C.g800, fontSize: 10, fontWeight: 800 }} />
+            <input
+              aria-label="기간 직접 입력"
+              value={rangeText}
+              onChange={(event) => setRangeText(event.target.value)}
+              onBlur={applyRangeText}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                applyRangeText();
+              }}
+              placeholder="2026. 6. 4. - 2026. 6. 19."
+              style={{ width: '100%', height: 34, minWidth: 0, border: `1px solid ${C.g100}`, borderRadius: 10, padding: '0 10px', color: C.g800, background: C.white, fontFamily: 'inherit', fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap' }}
+            />
+            <button type="button" onClick={() => { onChange('', ''); setRangeText(placeholder); setYearPickerOpen(false); }} style={{ height: 32, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, cursor: 'pointer' }}>초기화</button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} aria-label="이전 달" style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: '#1683F2', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>‹</button>
-            <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>{month.getFullYear()}년 {month.getMonth() + 1}월</div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              <button
+                type="button"
+                onClick={() => setYearPickerOpen((current) => !current)}
+                aria-expanded={yearPickerOpen}
+                aria-label="연도 선택"
+                style={{
+                  height: 30,
+                  border: `1px solid ${yearPickerOpen ? C.light : C.g200}`,
+                  borderRadius: 9,
+                  background: yearPickerOpen ? C.bg : C.white,
+                  color: yearPickerOpen ? C.primary : C.g800,
+                  padding: '0 10px',
+                  fontFamily: 'inherit',
+                  fontSize: 15,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  boxShadow: yearPickerOpen ? `0 0 0 3px color-mix(in srgb, ${C.bg} 70%, transparent)` : 'none',
+                }}
+              >
+                {month.getFullYear()}년
+              </button>
+              <span style={{ fontSize: 15, fontWeight: 900, color: C.g800, lineHeight: 1 }}>{month.getMonth() + 1}월</span>
+            </div>
             <button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} aria-label="다음 달" style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: '#1683F2', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>›</button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 4 }}>
-            {['일', '월', '화', '수', '목', '금', '토'].map((day) => <div key={day} style={{ height: 20, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 10, fontWeight: 900 }}>{day}</div>)}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
-            {cells.map((cell) => {
-              const startTime = start ? new Date(`${start}T00:00:00`).getTime() : 0;
-              const endTime = end ? new Date(`${end}T00:00:00`).getTime() : 0;
-              const cellTime = cell.date.getTime();
-              const selectedStart = cell.value === start;
-              const selectedEnd = cell.value === end;
-              const inRange = Boolean(startTime && endTime && cellTime >= startTime && cellTime <= endTime);
-              return (
+          {yearPickerOpen ? (
+            <div className="date-range-year-grid" style={yearPickerScrollStyle}>
+              {yearOptions.map((year) => (
                 <button
-                  key={cell.value}
+                  key={year}
                   type="button"
-                  onClick={() => selectDay(cell.value)}
-                  style={{ height: 27, border: 'none', borderRadius: selectedStart || selectedEnd ? 999 : 8, background: selectedStart || selectedEnd ? '#1683F2' : inRange ? '#DCEBFF' : 'transparent', color: selectedStart || selectedEnd ? C.white : cell.currentMonth ? C.g800 : '#9AA19D', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: selectedStart || selectedEnd ? 900 : 800 }}
+                  onClick={() => {
+                    setMonth((current) => new Date(year, current.getMonth(), 1));
+                    setYearPickerOpen(false);
+                  }}
+                  style={{ height: 30, border: `1px solid ${year === month.getFullYear() ? C.light : C.g100}`, borderRadius: 8, background: year === month.getFullYear() ? C.bg : C.white, color: year === month.getFullYear() ? C.primary : C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 900 }}
                 >
-                  {cell.date.getDate()}
+                  {year}
                 </button>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 4 }}>
+                {['일', '월', '화', '수', '목', '금', '토'].map((day) => <div key={day} style={{ height: 20, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 10, fontWeight: 900 }}>{day}</div>)}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+                {cells.map((cell) => {
+                  const startTime = start ? new Date(`${start}T00:00:00`).getTime() : 0;
+                  const endTime = end ? new Date(`${end}T00:00:00`).getTime() : 0;
+                  const cellTime = cell.date.getTime();
+                  const selectedStart = cell.value === start;
+                  const selectedEnd = cell.value === end;
+                  const inRange = Boolean(startTime && endTime && cellTime >= startTime && cellTime <= endTime);
+                  return (
+                    <button
+                      key={cell.value}
+                      type="button"
+                      onClick={() => selectDay(cell.value)}
+                      style={{ height: 27, border: 'none', borderRadius: selectedStart || selectedEnd ? 999 : 8, background: selectedStart || selectedEnd ? '#1683F2' : inRange ? '#DCEBFF' : 'transparent', color: selectedStart || selectedEnd ? C.white : cell.currentMonth ? C.g800 : '#9AA19D', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: selectedStart || selectedEnd ? 900 : 800 }}
+                    >
+                      {cell.date.getDate()}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       ), document.body)}
     </div>

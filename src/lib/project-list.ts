@@ -1,4 +1,4 @@
-import { getProjectManagers, PROJECT_STATUS_META, type ProjectSummary } from './project-data';
+import { getProjectLifecycleMeta, getProjectManagers, type ProjectSummary } from './project-data';
 
 export type ProjectSortField = 'name' | 'contractNumber' | 'startDate' | 'endDate' | 'progress' | 'usageRate' | 'manager';
 export type SortDirection = 'asc' | 'desc';
@@ -133,7 +133,7 @@ export const filterProjects = (projects: ProjectSummary[], options: ProjectFilte
       !includeManagerStatus ||
       !options.status ||
       options.status === allStatusLabel ||
-      PROJECT_STATUS_META[project.projectStatusCode].label === options.status;
+      getProjectLifecycleMeta(project).label === options.status;
 
     return matchesKeyword && matchesProjectName && matchesContractNumber && matchesPeriod && matchesManager && matchesStatus;
   });
