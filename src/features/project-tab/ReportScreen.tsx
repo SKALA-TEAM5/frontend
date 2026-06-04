@@ -4,8 +4,7 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { runAgent } from '../../lib/agent-api';
-import { AGENT_TYPE_CODE } from '../../lib/project-data';
+import { getReportDetail, runReportAgent } from '../../lib/agent-api';
 import { buildReportDraftJson, type ReportDraft } from '../../lib/report-draft';
 import { C } from '../../lib/theme';
 import { VALIDATION_DASHBOARD_RESULT } from '../../lib/evidence-utils';
@@ -26,6 +25,19 @@ const isReportDraft = (value: unknown): value is ReportDraft => {
   if (!value || typeof value !== 'object') return false;
   const draft = value as Partial<ReportDraft>;
   return typeof draft.report_no === 'string' && Array.isArray(draft.report_sections);
+};
+
+const readReportDraftFromAgentResponse = (response: Awaited<ReturnType<typeof runReportAgent>>) => {
+  const result = response.result || {};
+  const report = result.report && typeof result.report === 'object' ? result.report as Record<string, unknown> : {};
+  const nestedResult = report.result && typeof report.result === 'object' ? report.result as Record<string, unknown> : {};
+  return response.reportDraft || result.reportDraft || nestedResult.reportDraft;
+};
+
+const readReportDraftFromDetail = (detail: Awaited<ReturnType<typeof getReportDetail>>) => {
+  const details = typeof detail.details === 'string' ? JSON.parse(detail.details) as Record<string, unknown> : detail.details;
+  const payload = details.payload && typeof details.payload === 'object' ? details.payload as Record<string, unknown> : {};
+  return payload.reportDraft || details.reportDraft;
 };
 
 const chipStyle = (color: string, bg: string, border?: string): CSSProperties => ({
@@ -93,8 +105,9 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
       setReportProgress(25);
       let nextDraft: ReportDraft;
       if (validationComplete && projectId && usageStatementId) {
-        const response = await runAgent(projectId, AGENT_TYPE_CODE.REPORT, { usageStatementId });
-        const reportDraft = response.result.reportDraft;
+        const response = await runReportAgent(projectId, usageStatementId);
+        const reportDraft = readReportDraftFromAgentResponse(response)
+          || readReportDraftFromDetail(await getReportDetail(projectId, usageStatementId));
         if (!isReportDraft(reportDraft)) throw new Error('보고서 Agent 응답에 reportDraft가 없습니다.');
         nextDraft = reportDraft;
       } else {
@@ -253,7 +266,7 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
   };
 
   const reportWorkflowMeta = {
-    editing: { label: '초안 편집 가능', color: C.warn, bg: C.warnBg, description: '검증 결과를 기반으로 생성된 초안입니다. 담당자 검토 후 저장해 주세요.' },
+    editing: { label: '초안 편집 가능', color: C.warn, bg: C.warnBg, description: '법령 검증 결과를 기반으로 생성된 초안입니다. 담당자 검토 후 저장해 주세요.' },
     saved: { label: '저장됨', color: C.ok, bg: '#F4FBF6', description: savedAt ? `마지막 저장: ${savedAt}` : '저장된 초안입니다.' },
   }[reportWorkflowStatus];
   const reportActionButtonStyle: CSSProperties = {
@@ -267,7 +280,7 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 생성</div>
-          <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{validationComplete ? '유효성 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '유효성 검증 결과가 없으면 예시 검증 결과로 보고서 초안을 생성합니다.'}</div>
+          <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{validationComplete ? '법령 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '법령 검증 결과가 없으면 예시 검증 결과로 보고서 초안을 생성합니다.'}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
           <Button size="sm" onClick={handleReportGenerate} disabled={reportStatus === 'generating'} style={reportActionButtonStyle}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
