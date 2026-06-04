@@ -16,23 +16,6 @@ interface AppFrameProps {
   children: React.ReactNode;
 }
 
-const menuButtonStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  width: '100%',
-  padding: '10px 8px',
-  border: 'none',
-  background: 'transparent',
-  borderRadius: 10,
-  color: C.g800,
-  fontSize: 14,
-  fontWeight: 800,
-  fontFamily: 'inherit',
-  textAlign: 'left',
-  cursor: 'pointer',
-};
-
 type HeaderIconName = 'dashboard' | 'projects' | 'users' | 'user';
 
 const HeaderIcon = ({ name, color }: { name: HeaderIconName; color: string }) => {
@@ -118,13 +101,6 @@ export default function AppFrame({ description, actions, mainClassName, children
     alignItems: 'center',
     gap: 7,
   });
-  const userInitials = useMemo(() => {
-    const trimmed = user.name.trim();
-    if (!trimmed) return 'U';
-    const parts = trimmed.split(/\s+/).filter(Boolean);
-    if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
-    return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase();
-  }, [user.name]);
   const themeOptions = useMemo(() => Object.entries(APP_THEMES) as Array<[AppThemeId, (typeof APP_THEMES)[AppThemeId]]>, []);
   const activeThemeGradient = APP_THEMES[themeId].gradient;
 
@@ -216,15 +192,26 @@ export default function AppFrame({ description, actions, mainClassName, children
                   zIndex: 980,
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 8px 12px' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 999, background: C.primary, color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 900, flexShrink: 0 }}>
-                    {userInitials}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 8px 12px', position: 'relative', paddingRight: 84 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 999, background: C.primary, color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M4.5 20a7.5 7.5 0 0 1 15 0" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 900, color: C.g800, lineHeight: 1.3 }}>{user.name || '사용자'}</div>
                     <div style={{ fontSize: 11, fontWeight: 800, color: C.g400, marginTop: 3 }}>{ROLE_LABELS[user.role]}</div>
                   </div>
-                  <div aria-hidden="true" style={{ color: C.g400, fontSize: 22, lineHeight: 1 }}>›</div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={handleLogout}
+                    disabled={logoutPending}
+                    style={{ position: 'absolute', top: 7, right: 8, height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 12px', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1 }}
+                  >
+                    {logoutPending ? '로그아웃 중' : '로그아웃'}
+                  </button>
                 </div>
 
                 <div style={{ height: 1, background: C.g100, margin: '0 8px 8px' }} />
@@ -257,20 +244,6 @@ export default function AppFrame({ description, actions, mainClassName, children
                   </div>
                 </div>
 
-                <div style={{ height: 1, background: C.g100, margin: '0 8px 8px' }} />
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={handleLogout}
-                    disabled={logoutPending}
-                    style={{ ...menuButtonStyle, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? 0.45 : 1 }}
-                  >
-                    <span aria-hidden="true" style={{ width: 24, textAlign: 'center', fontSize: 18, lineHeight: 1 }}>↪</span>
-                    <span>{logoutPending ? '로그아웃 중' : '로그아웃'}</span>
-                  </button>
-                </div>
               </div>
             )}
           </div>
@@ -294,7 +267,7 @@ export default function AppFrame({ description, actions, mainClassName, children
           <span>이용약관</span>
           <span>개인정보처리방침</span>
           <span style={{ width: 1, height: 14, background: C.g200 }} />
-          <span>v1.2.0</span>
+          <span>v1.0.0</span>
         </div>
       </footer>
     </div>

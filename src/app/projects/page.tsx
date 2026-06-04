@@ -9,8 +9,8 @@ import ProjectInfoEditorModal from '../../components/project/ProjectInfoEditorMo
 import { AppFrame, DateRangePicker } from '../../components/common';
 import { type BackendUserProfile } from '../../lib/auth-api';
 import { C } from '../../lib/theme';
-import { USAGE_WORKFLOW_STATUS, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectSummary } from '../../lib/project-data';
-import { createProject, deleteProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees } from '../../lib/project-api';
+import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectLifecycleStatus, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
+import { createProject, deleteProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees, updateProject } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getVisibleProjects, type PeriodMode } from '../../lib/project-list';
@@ -28,6 +28,23 @@ const inputStyle: React.CSSProperties = {
   lineHeight: '20px',
   color: C.g800,
   background: C.white,
+};
+
+const supplementRequestBadgeStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flexShrink: 0,
+  height: 22,
+  padding: '0 8px',
+  borderRadius: 999,
+  border: `1px solid #EFAEB7`,
+  background: '#FFF4F5',
+  color: C.danger,
+  fontSize: 11,
+  fontWeight: 900,
+  lineHeight: 1,
+  whiteSpace: 'nowrap',
 };
 
 const LOCAL_USAGE_STATEMENT_PREFIX = 'iveri-mvp-usage-statement:';
@@ -62,6 +79,12 @@ const createRequiredFields: Array<keyof NewProjectInput> = [
 
 const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActionRequest;
 
+const projectAccordionSections: ProjectStatus[] = [
+  PROJECT_STATUS.OPEN,
+  PROJECT_STATUS.IN_PROGRESS,
+  PROJECT_STATUS.CLOSED,
+];
+
 export default function ProjectsPage() {
   const router = useRouter();
   const { user } = useCurrentUser();
@@ -75,6 +98,9 @@ export default function ProjectsPage() {
   const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [closeTarget, setCloseTarget] = useState<ProjectSummary | null>(null);
+  const [closeError, setCloseError] = useState('');
+  const [closingProjectId, setClosingProjectId] = useState('');
   const [managerCandidates, setManagerCandidates] = useState<BackendUserProfile[]>([]);
   const filterOptions = useMemo(() => getSheFilterOptionsFromProjects(projects), [projects]);
   const [projectName, setProjectName] = useState('');
@@ -83,6 +109,11 @@ export default function ProjectsPage() {
   const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
   const [manager, setManager] = useState(filterOptions.managers[0] || '전체');
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
+  const [openSections, setOpenSections] = useState<Record<ProjectStatus, boolean>>({
+    [PROJECT_STATUS.OPEN]: false,
+    [PROJECT_STATUS.IN_PROGRESS]: true,
+    [PROJECT_STATUS.CLOSED]: false,
+  });
 
   const loadProjects = useCallback(() => {
     let alive = true;
@@ -102,6 +133,8 @@ export default function ProjectsPage() {
             if (!workflowStatus) return project;
             return {
               ...project,
+              latestUsageStatementStatusCode: workflowStatus,
+              hasUploads: true,
               hasActionRequest: workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
               actionRequestDetails: workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? parsed.actionRequestDetails : undefined,
               reportReady: workflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
@@ -146,6 +179,50 @@ export default function ProjectsPage() {
       includeManagerStatus: true,
     }, 'name', 'asc');
   }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, status]);
+  const statusFilterActive = status !== (filterOptions.statuses[0] || '전체');
+
+  const groupedVisibleProjects = useMemo(() => {
+    return projectAccordionSections.reduce<Record<ProjectStatus, ProjectSummary[]>>((groups, section) => ({
+      ...groups,
+      [section]: visibleProjects.filter((project) => getProjectLifecycleStatus(project) === section),
+    }), {
+      [PROJECT_STATUS.OPEN]: [],
+      [PROJECT_STATUS.IN_PROGRESS]: [],
+      [PROJECT_STATUS.CLOSED]: [],
+    });
+  }, [visibleProjects]);
+
+  const toggleSection = (section: ProjectStatus) => {
+    setOpenSections((current) => ({ ...current, [section]: !current[section] }));
+  };
+
+  const closeCloseModal = () => {
+    if (closingProjectId) return;
+    setCloseTarget(null);
+    setCloseError('');
+  };
+
+  const confirmCloseProject = async () => {
+    if (!closeTarget || closingProjectId) return;
+    setClosingProjectId(closeTarget.id);
+    setCloseError('');
+    try {
+      const savedProject = await updateProject(closeTarget.id, { projectStatusCode: PROJECT_STATUS_CODE.COMPLETED });
+      setProjects((current) => current.map((item) => item.id === closeTarget.id
+        ? {
+            ...item,
+            ...savedProject,
+            projectStatusCode: PROJECT_STATUS_CODE.COMPLETED,
+            status: savedProject.status,
+          }
+        : item));
+      setCloseTarget(null);
+    } catch (error) {
+      setCloseError(error instanceof Error ? error.message : '프로젝트 종료 처리에 실패했습니다.');
+    } finally {
+      setClosingProjectId('');
+    }
+  };
 
   const updateCreateField = (key: keyof NewProjectInput, value: string) => {
     setCreateForm((current) => ({ ...current, [key]: value }));
@@ -187,6 +264,111 @@ export default function ProjectsPage() {
     } finally {
       setCreating(false);
     }
+  };
+
+  const renderProjectCard = (project: ProjectSummary) => {
+    const progress = Math.min(100, Math.max(0, Number.parseInt(project.progressRate, 10) || 0));
+    const safetyBudgetUsage = Number.parseFloat(String(project.usageRate).replace(/[^\d.]/g, '')) || 0.1;
+    const hasSupplement = hasSupplementRequiredMonth(project);
+    const projectClosed = project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED;
+    return (
+      <div
+        key={project.id}
+        className={`interactive-card${hasSupplement ? ' interactive-card--supplement' : ''}`}
+        role="button"
+        tabIndex={0}
+        onClick={() => router.push(`/projects/${project.id}`)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          router.push(`/projects/${project.id}`);
+        }}
+        style={{ position: 'relative', minHeight: 198, padding: 14, border: `1px solid ${hasSupplement ? '#EFAEB7' : C.g200}`, borderRadius: 'var(--ui-radius-card)', background: hasSupplement ? '#FFFBFC' : C.white, boxShadow: 'var(--ui-shadow-card)', textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 12 }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <div title={project.constructionName} style={{ minWidth: 0, fontSize: 16, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.constructionName}</div>
+            {hasSupplement && <span style={supplementRequestBadgeStyle}>보완 요청</span>}
+          </div>
+          <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, color: C.g600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.contractNumber}</div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '9px 10px', background: 'transparent' }}>
+            <div style={{ fontSize: 11, fontWeight: 750, color: C.g600 }}>담당자</div>
+            <div title={project.manager} style={{ marginTop: 4, fontSize: 13, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</div>
+          </div>
+          <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '9px 10px', background: 'transparent' }}>
+            <div style={{ fontSize: 11, fontWeight: 750, color: C.g600 }}>공사 기간</div>
+            <div title={project.period || '-'} style={{ marginTop: 4, fontSize: 13, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</div>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gap: 9 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, fontSize: 12, fontWeight: 900, color: C.g600 }}>
+              <span>공정률</span>
+              <span style={{ color: C.g800 }}>{progress}%</span>
+            </div>
+            <div style={{ height: 8, borderRadius: 999, background: '#E8EEEB', overflow: 'hidden' }}>
+              <div style={{ width: `${progress}%`, height: '100%', background: progress >= 70 ? C.primary : progress >= 30 ? '#2F73B7' : '#C9545E' }} />
+            </div>
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, fontSize: 12, fontWeight: 900, color: C.g600 }}>
+              <span>안전관리비 사용률</span>
+              <span style={{ color: C.g800 }}>{safetyBudgetUsage}%</span>
+            </div>
+            <div style={{ height: 8, borderRadius: 999, background: '#E8EEEB', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.max(2, Math.min(100, safetyBudgetUsage))}%`, height: '100%', background: safetyBudgetUsage >= 80 ? '#C9545E' : safetyBudgetUsage >= 50 ? '#F0A22E' : C.primary }} />
+            </div>
+          </div>
+        </div>
+        {user.role !== 'project_manager' && (
+          <div style={{ alignSelf: 'flex-end', marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              role="button"
+              tabIndex={projectClosed ? -1 : 0}
+              aria-disabled={projectClosed || closingProjectId === project.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (projectClosed || closingProjectId === project.id) return;
+                setCloseError('');
+                setCloseTarget(project);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (projectClosed || closingProjectId === project.id) return;
+                setCloseError('');
+                setCloseTarget(project);
+              }}
+              style={{ border: `1px solid ${projectClosed ? C.g200 : C.ok}`, borderRadius: 999, background: projectClosed ? C.g100 : '#F4FBF6', color: projectClosed ? C.g400 : C.ok, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: projectClosed || closingProjectId === project.id ? 'not-allowed' : 'pointer', boxSizing: 'border-box', opacity: closingProjectId === project.id ? .65 : 1 }}
+            >
+              {closingProjectId === project.id ? '종료 중' : projectClosed ? '종료됨' : '프로젝트 종료'}
+            </span>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(event) => {
+                event.stopPropagation();
+                setDeleteError('');
+                setDeleteTarget(project);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                event.stopPropagation();
+                setDeleteError('');
+                setDeleteTarget(project);
+              }}
+              style={{ border: `1px solid #FFCDD2`, borderRadius: 999, background: C.dangerBg, color: C.danger, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: 'pointer', boxSizing: 'border-box' }}
+            >
+              삭제
+            </span>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const closeDeleteModal = () => {
@@ -234,13 +416,33 @@ export default function ProjectsPage() {
     />
   );
 
+  const closeProjectModal = (
+    <Modal open={Boolean(closeTarget)} onClose={closeCloseModal} zIndex={975} maxWidth={480}>
+      <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(31,55,43,.14)', overflow: 'hidden' }}>
+        <div style={{ padding: '20px 22px 12px' }}>
+          <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 종료</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
+            {closeTarget?.constructionName || closeTarget?.name} 프로젝트를 종료됨 상태로 변경합니다. <br/> 종료 후에는 전체 프로젝트 목록에서 종료됨으로 표시됩니다.
+          </div>
+        </div>
+        <div style={{ padding: '16px 22px 18px' }}>
+          {closeError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 900, lineHeight: 1.5, marginBottom: 14 }}>{closeError}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={closeCloseModal} disabled={Boolean(closingProjectId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: closingProjectId ? 'not-allowed' : 'pointer', opacity: closingProjectId ? 0.45 : 1 }}>취소</button>
+            <button type="button" onClick={confirmCloseProject} disabled={Boolean(closingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: closingProjectId ? C.g200 : C.ok, color: closingProjectId ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: closingProjectId ? 'wait' : 'pointer' }}>{closingProjectId ? '종료 중' : '종료'}</button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+
   const deleteProjectModal = (
     <Modal open={Boolean(deleteTarget)} onClose={closeDeleteModal} zIndex={980} maxWidth={480}>
       <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(31,55,43,.14)', overflow: 'hidden' }}>
         <div style={{ padding: '20px 22px 12px' }}>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 삭제</div>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
-            {deleteTarget?.constructionName || deleteTarget?.name} 프로젝트를 완전히 삭제합니다. 삭제 후에는 프로젝트 목록과 상세 화면에서 더 이상 확인할 수 없습니다.
+            {deleteTarget?.constructionName || deleteTarget?.name} 프로젝트를 완전히 삭제합니다. <br/> 삭제 후에는 프로젝트 목록과 상세 화면에서 더 이상 확인할 수 없습니다.
           </div>
         </div>
         <div style={{ padding: '16px 22px 18px' }}>
@@ -271,8 +473,8 @@ export default function ProjectsPage() {
         <div data-ui="projects.1" style={{ display: 'grid', gridTemplateColumns: 'minmax(145px, 1.1fr) minmax(110px, .85fr) minmax(105px, .78fr) minmax(105px, .78fr) minmax(190px, 1.25fr)', gap: 8, marginBottom: 24 }}>
           <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={inputStyle} />
           <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={inputStyle} />
-          <select aria-label="관리자" value={manager} onChange={(event) => setManager(event.target.value)} style={inputStyle}>
-            {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '관리자' : item}</option>)}
+          <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={inputStyle}>
+            {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '담당자' : item}</option>)}
           </select>
           <select aria-label="상태" value={status} onChange={(event) => setStatus(event.target.value)} style={inputStyle}>
             {filterOptions.statuses.map((item) => <option key={item} value={item}>{item === filterOptions.statuses[0] ? '상태' : item}</option>)}
@@ -288,92 +490,57 @@ export default function ProjectsPage() {
           />
         </div>
 
-          <div data-ui="projects.card-grid" className="projects-card-grid" style={{ minHeight: 320 }}>
-            {loading && <div style={{ gridColumn: '1 / -1', minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 13, fontWeight: 900 }}>프로젝트 목록을 불러오는 중입니다.</div>}
-            {!loading && loadError && <div style={{ gridColumn: '1 / -1', minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.danger, fontSize: 13, fontWeight: 900 }}>{loadError}</div>}
-            {!loading && !loadError && visibleProjects.length === 0 && <div style={{ gridColumn: '1 / -1', minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 13, fontWeight: 900 }}>조회된 프로젝트가 없습니다.</div>}
-            {!loading && !loadError && visibleProjects.map((project) => {
-              const progress = Math.min(100, Math.max(0, Number.parseInt(project.progressRate, 10) || 0));
-              const safetyBudgetUsage = Number.parseFloat(String(project.usageRate).replace(/[^\d.]/g, '')) || 0.1;
-              const hasSupplement = hasSupplementRequiredMonth(project);
-              return (
-                <div
-                  key={project.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => router.push(`/projects/${project.id}`)}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter' && event.key !== ' ') return;
-                    event.preventDefault();
-                    router.push(`/projects/${project.id}`);
-                  }}
-                  style={{ position: 'relative', minHeight: 218, padding: 16, border: `1px solid ${hasSupplement ? '#EFAEB7' : C.g200}`, borderRadius: 14, background: hasSupplement ? '#FFF5F6' : C.white, boxShadow: '0 12px 28px rgba(31,55,43,.08)', textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 14 }}
+        <div style={{ display: 'grid', gap: 10, alignItems: 'start' }}>
+          {loading && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 13, fontWeight: 900 }}>프로젝트 목록을 불러오는 중입니다.</div>}
+          {!loading && loadError && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.danger, fontSize: 13, fontWeight: 900 }}>{loadError}</div>}
+          {!loading && !loadError && visibleProjects.length === 0 && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 13, fontWeight: 900 }}>조회된 프로젝트가 없습니다.</div>}
+          {!loading && !loadError && visibleProjects.length > 0 && statusFilterActive && (
+            <div data-ui="projects.filtered-card-grid" className="projects-card-grid">
+              {visibleProjects.map(renderProjectCard)}
+            </div>
+          )}
+          {!loading && !loadError && visibleProjects.length > 0 && !statusFilterActive && projectAccordionSections.map((section) => {
+            const sectionProjects = groupedVisibleProjects[section];
+            const sectionMeta = PROJECT_LIFECYCLE_STATUS_META[section];
+            const open = openSections[section];
+            return (
+              <section key={section} style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, overflow: 'hidden' }}>
+                <button
+                  type="button"
+                  onClick={() => toggleSection(section)}
+                  aria-expanded={open}
+                  style={{ width: '100%', height: 48, border: 'none', background: open ? 'color-mix(in srgb, var(--c-bg) 34%, #fff)' : C.white, padding: '0 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontFamily: 'inherit', cursor: 'pointer' }}
                 >
-                  {hasSupplement && <span aria-hidden="true" style={{ position: 'absolute', top: 16, right: 16, width: 9, height: 9, borderRadius: 999, background: C.danger, boxShadow: '0 0 0 4px rgba(229,57,53,.13)' }} />}
-                  <div style={{ minWidth: 0, paddingRight: hasSupplement ? 16 : 0 }}>
-                    <div title={project.constructionName} style={{ fontSize: 16, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.constructionName}</div>
-                    <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, color: C.g600 }}>{project.contractNumber}</div>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                    <span aria-hidden="true" style={{ color: sectionMeta.color, fontSize: 15, fontWeight: 900, transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .16s ease' }}>›</span>
+                    <span style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>{sectionMeta.label}</span>
+                    <span style={{ height: 22, minWidth: 28, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: C.g600, fontSize: 12, fontWeight: 900 }}>{sectionProjects.length}건</span>
+                  </span>
+                  <span style={{ color: C.g500, fontSize: 12, fontWeight: 800 }}>{open ? '접기' : '펼치기'}</span>
+                </button>
+                {open && (
+                  <div style={{ borderTop: `1px solid ${C.g100}`, padding: 12 }}>
+                    {sectionProjects.length > 0 ? (
+                      <div data-ui={`projects.card-grid.${section}`} className="projects-card-grid">
+                        {sectionProjects.map(renderProjectCard)}
+                      </div>
+                    ) : (
+                      <div style={{ minHeight: 92, display: 'grid', placeItems: 'center', border: `1px dashed ${C.g200}`, borderRadius: 10, color: C.g400, fontSize: 13, fontWeight: 900 }}>
+                        표시할 프로젝트가 없습니다.
+                      </div>
+                    )}
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <div style={{ border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 11px', background: 'transparent' }}>
-                      <div style={{ fontSize: 11, fontWeight: 900, color: C.g600 }}>담당자</div>
-                      <div title={project.manager} style={{ marginTop: 5, fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</div>
-                    </div>
-                    <div style={{ border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 11px', background: 'transparent' }}>
-                      <div style={{ fontSize: 11, fontWeight: 900, color: C.g600 }}>공사 기간</div>
-                      <div title={project.period || '-'} style={{ marginTop: 5, fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gap: 10 }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, fontSize: 12, fontWeight: 900, color: C.g600 }}>
-                        <span>공정률</span>
-                        <span style={{ color: C.g800 }}>{progress}%</span>
-                      </div>
-                      <div style={{ height: 8, borderRadius: 999, background: '#E8EEEB', overflow: 'hidden' }}>
-                        <div style={{ width: `${progress}%`, height: '100%', background: progress >= 70 ? C.primary : progress >= 30 ? '#2F73B7' : '#C9545E' }} />
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, fontSize: 12, fontWeight: 900, color: C.g600 }}>
-                        <span>안전관리비 사용률</span>
-                        <span style={{ color: C.g800 }}>{safetyBudgetUsage}%</span>
-                      </div>
-                      <div style={{ height: 8, borderRadius: 999, background: '#E8EEEB', overflow: 'hidden' }}>
-                        <div style={{ width: `${Math.max(2, Math.min(100, safetyBudgetUsage))}%`, height: '100%', background: safetyBudgetUsage >= 80 ? '#C9545E' : safetyBudgetUsage >= 50 ? '#F0A22E' : C.primary }} />
-                      </div>
-                    </div>
-                  </div>
-                  {user.role !== 'project_manager' && (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setDeleteError('');
-                        setDeleteTarget(project);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key !== 'Enter' && event.key !== ' ') return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setDeleteError('');
-                        setDeleteTarget(project);
-                      }}
-                      style={{ alignSelf: 'flex-end', marginTop: 'auto', border: `1px solid #FFCDD2`, borderRadius: 999, background: C.dangerBg, color: C.danger, height: 30, padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: 'pointer', boxSizing: 'border-box' }}
-                    >
-                      삭제
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, color: C.g600, fontSize: 12, fontWeight: 800 }}>
           <span>전체 {projects.length}건</span>
         </div>
       </Card>
       {createProjectModal}
+      {closeProjectModal}
       {deleteProjectModal}
     </AppFrame>
   );

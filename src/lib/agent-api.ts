@@ -1,15 +1,25 @@
 import { apiFetch } from './api-client';
 import { backendEvidenceTypeToCategory } from './archive-api';
-import type { AgentLogStatusCode, AgentTypeCode } from './project-data';
+import type { AgentLogStatusCode } from './project-data';
 import type { FolderEvidenceCategory } from '../types/domain';
 
-export type AgentType = AgentTypeCode;
-
 export interface AgentRunResponse {
-  agentType: string;
-  status: AgentLogStatusCode | string;
-  logIds: number[];
-  result: Record<string, unknown>;
+  agentType?: string;
+  agentTypeCode?: string;
+  status?: AgentLogStatusCode | string;
+  statusCode?: AgentLogStatusCode | string;
+  resultCode?: string;
+  reason?: string;
+  logIds?: number[];
+  result?: Record<string, unknown>;
+  reportDraft?: unknown;
+}
+
+export interface ReportDetailResponse {
+  agentTypeCode: string;
+  statusCode: AgentLogStatusCode | string;
+  details: string | Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface LawAgentRunResponse {
@@ -20,13 +30,14 @@ export interface LawAgentRunResponse {
 }
 
 export interface OcrWorkflowResponse {
-  requestId: string;
-  workflow: string;
-  status: AgentLogStatusCode | string;
-  validationLogIds: number[];
+  requestId?: string;
+  workflow?: string;
+  status?: AgentLogStatusCode | string;
+  validationLogIds?: number[];
   usageStatementId: number | null;
-  evidenceFileLinkId: number | null;
-  result: Record<string, unknown>;
+  itemCount?: number;
+  evidenceFileLinkId?: number | null;
+  result?: Record<string, unknown>;
 }
 
 export interface OrchestratorTodo {
@@ -49,6 +60,26 @@ export interface OrchestratorStatusResponse {
   reportReady: boolean;
   logs: Array<Record<string, unknown>>;
   todos: OrchestratorTodo[];
+}
+
+export interface OrchestratorDashboardAgent {
+  agentTypeCode: string;
+  statusCode?: string | null;
+  resultCode?: string | null;
+  usageStatementId?: number | null;
+  token: number;
+  reason?: string | null;
+}
+
+export interface OrchestratorDashboardResponse {
+  projectId: number;
+  usageStatementId?: number | null;
+  totalLogs: number;
+  totalToken: number;
+  statusCounts: Record<string, number>;
+  resultCounts: Record<string, number>;
+  hilAgents: string[];
+  agents: OrchestratorDashboardAgent[];
 }
 
 const readField = <T = unknown>(source: Record<string, unknown>, camelKey: string, snakeKey: string): T | undefined =>
@@ -80,6 +111,32 @@ const normalizeOrchestratorStatus = (raw: unknown): OrchestratorStatusResponse =
   };
 };
 
+const normalizeOrchestratorDashboard = (raw: unknown): OrchestratorDashboardResponse => {
+  const source = (raw || {}) as Record<string, unknown>;
+  const rawAgents = (readField<unknown[]>(source, 'agents', 'agents') || []) as Array<Record<string, unknown>>;
+  return {
+    projectId: Number(readField(source, 'projectId', 'project_id') || 0),
+    usageStatementId: readField(source, 'usageStatementId', 'usage_statement_id') == null
+      ? null
+      : Number(readField(source, 'usageStatementId', 'usage_statement_id')),
+    totalLogs: Number(readField(source, 'totalLogs', 'total_logs') || 0),
+    totalToken: Number(readField(source, 'totalToken', 'total_token') || 0),
+    statusCounts: (readField<Record<string, number>>(source, 'statusCounts', 'status_counts') || {}),
+    resultCounts: (readField<Record<string, number>>(source, 'resultCounts', 'result_counts') || {}),
+    hilAgents: (readField<string[]>(source, 'hilAgents', 'hil_agents') || []),
+    agents: rawAgents.map((agent) => ({
+      agentTypeCode: String(readField(agent, 'agentTypeCode', 'agent_type_code') || ''),
+      statusCode: readField(agent, 'statusCode', 'status_code') ?? null,
+      resultCode: readField(agent, 'resultCode', 'result_code') ?? null,
+      usageStatementId: readField(agent, 'usageStatementId', 'usage_statement_id') == null
+        ? null
+        : Number(readField(agent, 'usageStatementId', 'usage_statement_id')),
+      token: Number(readField(agent, 'token', 'token') || 0),
+      reason: (readField(agent, 'reason', 'reason') as string | undefined) ?? null,
+    })),
+  };
+};
+
 export type RequiredEvidenceMap = Record<string, Partial<Record<FolderEvidenceCategory, string[]>>>;
 
 type EvidenceRequirementRecord = {
@@ -88,24 +145,23 @@ type EvidenceRequirementRecord = {
   isActive: boolean;
 };
 
-export const runAgent = async (
-  projectId: string,
-  agentType: AgentType,
-  input: { usageStatementId: number; usageStatementItemId?: number | string; options?: Record<string, unknown> },
-) => {
-  const response = await apiFetch<AgentRunResponse>(`/projects/${projectId}/agents/${agentType}/run`, {
+export const runReportAgent = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<AgentRunResponse>(`/projects/${projectId}/agents/report`, {
     method: 'POST',
-    body: {
-      usageStatementId: input.usageStatementId,
-      usageStatementItemId: input.usageStatementItemId == null ? undefined : Number(input.usageStatementItemId),
-      options: input.options,
-    },
+    body: { usageStatementId },
   });
   return response.data;
 };
 
+export const getReportDetail = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<ReportDetailResponse>(
+    `/projects/${projectId}/agents/report?usageStatementId=${usageStatementId}`,
+  );
+  return response.data;
+};
+
 export const parseUsageStatementWithOcr = async (projectId: string, fileId: number | string) => {
-  const response = await apiFetch<OcrWorkflowResponse>(`/projects/${projectId}/agents/ocr/usage-statements/parse`, {
+  const response = await apiFetch<OcrWorkflowResponse>(`/projects/${projectId}/agents/parse`, {
     method: 'POST',
     body: { fileId: Number(fileId) },
   });
@@ -143,11 +199,25 @@ export const runEvidenceReviewAgent = async (projectId: string, usageStatementId
   return response.data;
 };
 
+export const runLegalAgent = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<AgentRunResponse>(`/projects/${projectId}/agents/legal`, {
+    method: 'POST',
+    body: { usageStatementId },
+  });
+  return response.data;
+};
+
 export const getOrchestratorStatus = async (projectId: string, usageStatementId: number) => {
   const response = await apiFetch<unknown>(
     `/projects/${projectId}/agents/orchestrator/status?usageStatementId=${usageStatementId}`,
   );
   return normalizeOrchestratorStatus(response.data);
+};
+
+export const getOrchestratorDashboard = async (projectId: string, usageStatementId?: number) => {
+  const query = usageStatementId == null ? '' : `?usageStatementId=${usageStatementId}`;
+  const response = await apiFetch<unknown>(`/projects/${projectId}/agents/orchestrator/dashboard${query}`);
+  return normalizeOrchestratorDashboard(response.data);
 };
 
 export const getLatestValidation = async (projectId: string) => {
