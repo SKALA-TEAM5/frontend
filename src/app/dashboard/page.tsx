@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import Card from '../../components/ui/Card';
-import { AppFrame } from '../../components/common';
+import { AppFrame, DateRangePicker } from '../../components/common';
 import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getOrchestratorDashboard } from '../../lib/agent-api';
@@ -26,6 +26,23 @@ const DASHBOARD_CHART_COLORS = [
   '#A463F2FF',
   '#97BBF5FF',
 ] as const;
+
+const supplementRequestBadgeStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flexShrink: 0,
+  height: 22,
+  padding: '0 8px',
+  borderRadius: 999,
+  border: `1px solid #EFAEB7`,
+  background: '#FFF4F5',
+  color: C.danger,
+  fontSize: 11,
+  fontWeight: 800,
+  lineHeight: 1,
+  whiteSpace: 'nowrap',
+};
 
 const SUPPLEMENT_REASON_TYPES = [
   {
@@ -225,8 +242,7 @@ const dashboardPageStyle: CSSProperties = {
   padding: '24px clamp(76px, 7vw, 108px) 56px',
   minHeight: 'calc(100vh - 64px)',
   overflow: 'hidden',
-  background:
-    'radial-gradient(circle at 12% 4%, color-mix(in srgb, var(--c-bg) 78%, transparent) 0, transparent 34%), linear-gradient(135deg, var(--c-soft) 0%, color-mix(in srgb, var(--c-bg) 64%, #fff) 100%)',
+  background: 'var(--dashboard-surface-bg)',
 };
 
 const dashboardPhotoBackdropStyle: CSSProperties = {
@@ -275,13 +291,6 @@ const dashboardTopInnerStyle: CSSProperties = {
   minWidth: 0,
 };
 
-const dashboardStatusGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-  gap: 16,
-  minWidth: 0,
-};
-
 const dashboardPanelStyle: CSSProperties = {
   borderRadius: 'var(--ui-radius-card)',
   border: `1px solid ${C.g200}`,
@@ -307,36 +316,6 @@ const dashboardPanelHeaderStyle: CSSProperties = {
   background: 'transparent',
 };
 
-const toDateInputValue = (date: Date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const formatKoreanDateRangePart = (value: string) => {
-  if (!value) return '';
-  const [year, month, day] = value.split('-');
-  if (!year || !month || !day) return value;
-  return `${Number(year)} . ${Number(month)} . ${Number(day)} .`;
-};
-
-const buildCalendarCells = (monthDate: Date) => {
-  const year = monthDate.getFullYear();
-  const month = monthDate.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const startDate = new Date(year, month, 1 - firstDay.getDay());
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(startDate);
-    date.setDate(startDate.getDate() + index);
-    return {
-      date,
-      value: toDateInputValue(date),
-      currentMonth: date.getMonth() === month,
-    };
-  });
-};
-
 export default function DashboardPage() {
   const router = useRouter();
   const { user, clearCurrentUser } = useCurrentUser();
@@ -346,8 +325,6 @@ export default function DashboardPage() {
   const [contractNumber, setContractNumber] = useState('');
   const [period, setPeriod] = useState('');
   const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
-  const [dateRangeOpen, setDateRangeOpen] = useState(false);
-  const [datePickerMonth, setDatePickerMonth] = useState(() => new Date());
   const [manager, setManager] = useState(filterOptions.managers[0] || '전체');
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
   const [sortBy, setSortBy] = useState<ProjectSortField>('name');
@@ -360,7 +337,6 @@ export default function DashboardPage() {
   const [logoutPending, setLogoutPending] = useState(false);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const [chartTooltip, setChartTooltip] = useState<{ x: number; y: number; title: string; body: string } | null>(null);
-  const dateRangeRef = useRef<HTMLDivElement | null>(null);
 
   const showChartTooltip = (event: ReactMouseEvent, title: string, body: string) => {
     setChartTooltip({ x: event.clientX + 14, y: event.clientY + 14, title, body });
@@ -387,23 +363,6 @@ export default function DashboardPage() {
       setDashboardRefreshing(false);
     }
   }, []);
-
-  useEffect(() => {
-    if (!dateRangeOpen) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      if (dateRangeRef.current?.contains(event.target as Node)) return;
-      setDateRangeOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setDateRangeOpen(false);
-    };
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [dateRangeOpen]);
 
   useEffect(() => {
     let alive = true;
@@ -487,24 +446,6 @@ export default function DashboardPage() {
     }, sortBy, sortDirection);
   }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, sortDirection, status]);
   const [rangeStart = '', rangeEnd = ''] = period.split('~');
-  const dateRangeLabel = rangeStart && rangeEnd
-    ? `${formatKoreanDateRangePart(rangeStart)} - ${formatKoreanDateRangePart(rangeEnd)}`
-    : rangeStart
-      ? `${formatKoreanDateRangePart(rangeStart)} -`
-      : '기간 선택';
-  const calendarCells = buildCalendarCells(datePickerMonth);
-  const selectDateRangeDay = (value: string) => {
-    if (!rangeStart || rangeEnd || new Date(value).getTime() < new Date(rangeStart).getTime()) {
-      setPeriod(`${value}~`);
-      setPeriodMode('custom');
-      return;
-    }
-    setPeriod(`${rangeStart}~${value}`);
-    setPeriodMode('custom');
-  };
-  const moveDatePickerMonth = (amount: number) => {
-    setDatePickerMonth((current) => new Date(current.getFullYear(), current.getMonth() + amount, 1));
-  };
 
   const workflowProjects = {
     [USAGE_WORKFLOW_STATUS.DRAFT]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.DRAFT),
@@ -513,66 +454,6 @@ export default function DashboardPage() {
     [USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED),
   };
   const currentMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-  const currentMonthUsageStatementCount = projects.filter((project) => readUsageStatementMonth(project.id) === currentMonthKey).length;
-  const validityValidationTargetCount = projects.filter((project) => {
-    const workflow = getProjectMonthWorkflowStatus(project);
-    return workflow && workflow !== USAGE_WORKFLOW_STATUS.DRAFT;
-  }).length;
-  const validityValidationDoneCount = projects.filter((project) => {
-    const workflow = getProjectMonthWorkflowStatus(project);
-    return workflow === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
-  }).length;
-  const approvalCompletedCount = projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED).length;
-  const supplementRequestCount = workflowProjects[USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED].length;
-  const statusSummaryCards = [
-    {
-      eyebrow: `${currentMonthKey.replace('-', '년 ')}월`,
-      title: '사용내역서 업로드',
-      icon: '◌',
-      color: '#255B73',
-      border: '#C9DFEA',
-      soft: '#F6FBFD',
-      metrics: [
-        { label: '업로드됨', value: currentMonthUsageStatementCount, color: '#255B73', border: '#C9DFEA', bg: '#F6FBFD' },
-        { label: '전체', value: projects.length, color: C.g800, border: '#CDE8D8', bg: C.white },
-      ],
-    },
-    {
-      eyebrow: '법령 검토',
-      title: '법령 검증',
-      icon: '✓',
-      color: '#2F73B7',
-      border: '#C6D9EE',
-      soft: '#F5F9FF',
-      metrics: [
-        { label: '완료', value: validityValidationDoneCount, color: '#2F73B7', border: '#C6D9EE', bg: '#F5F9FF' },
-        { label: '대상', value: validityValidationTargetCount, color: C.g800, border: '#CDE8D8', bg: C.white },
-      ],
-    },
-    {
-      eyebrow: '증빙 보완',
-      title: '보완 요청',
-      icon: '!',
-      color: '#D9485F',
-      border: '#F0CDD4',
-      soft: '#FFF8F9',
-      metrics: [
-        { label: '요청', value: supplementRequestCount, color: '#D9485F', border: '#F0CDD4', bg: '#FFF8F9', full: true },
-      ],
-    },
-    {
-      eyebrow: '최종 상태',
-      title: '승인 완료',
-      icon: '◎',
-      color: C.primary,
-      border: C.g200,
-      soft: C.bg,
-      metrics: [
-        { label: '승인', value: approvalCompletedCount, color: C.primary, border: C.g200, bg: C.bg },
-        { label: '전체', value: projects.length, color: C.g800, border: '#CDE8D8', bg: C.white },
-      ],
-    },
-  ] as const;
   const queueProjects = projects
     .filter((project) => {
       const workflow = getProjectMonthWorkflowStatus(project);
@@ -779,32 +660,6 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <div style={{ ...dashboardContentLayerStyle, width: 'min(100%, 1240px)', margin: '0 auto' }}>
-        <div style={dashboardStatusGridStyle}>
-          {statusSummaryCards.map((item) => (
-            <div key={item.title} style={{ border: `1px solid ${item.border}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: '14px 16px', minWidth: 0, minHeight: 116, boxShadow: 'var(--ui-shadow-card)' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, minWidth: 0 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: item.color, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.eyebrow}</div>
-                  <div style={{ marginTop: 6, fontSize: 17, fontWeight: 700, color: C.g800, lineHeight: 1.25, wordBreak: 'keep-all' }}>{item.title}</div>
-                </div>
-                <div aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 9, border: `1px solid ${item.border}`, background: item.soft, color: item.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
-                  {item.icon}
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: item.metrics.length === 1 ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 14 }}>
-                {item.metrics.map((metric) => (
-                  <div key={metric.label} style={{ border: `1px solid ${metric.border}`, borderRadius: 9, background: metric.bg, padding: '9px 10px', minWidth: 0 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: metric.color, lineHeight: 1 }}>{metric.label}</div>
-                    <div style={{ marginTop: 5, fontSize: 21, fontWeight: 700, color: metric.color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{metric.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       <div style={{ ...dashboardContentLayerStyle, width: 'min(100%, 1240px)', margin: '0 auto', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', overflow: 'visible' }}>
@@ -821,63 +676,17 @@ export default function DashboardPage() {
               <select aria-label="상태" value={status} onChange={(event) => setStatus(event.target.value)} style={compactFieldStyle}>
                 {filterOptions.statuses.map((item) => <option key={item} value={item}>{item === filterOptions.statuses[0] ? '상태' : item}</option>)}
               </select>
-              <div ref={dateRangeRef} style={{ position: 'relative', minWidth: 0 }}>
-                <button
-                  type="button"
-                  aria-label="기간 설정"
-                  onClick={() => {
-                    setDateRangeOpen((open) => !open);
-                    if (rangeStart) setDatePickerMonth(new Date(`${rangeStart}T00:00:00`));
-                  }}
-                  style={{ ...compactFieldStyle, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, cursor: 'pointer', textAlign: 'left', color: rangeStart ? C.g800 : C.g400 }}
-                >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dateRangeLabel}</span>
-                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.g600} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <rect x="3" y="4" width="18" height="18" rx="2" />
-                    <path d="M16 2v4M8 2v4M3 10h18" />
-                  </svg>
-                </button>
-                {dateRangeOpen && (
-                  <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 120, width: 252, borderRadius: 14, border: `1px solid ${C.g100}`, background: C.white, boxShadow: '0 18px 38px rgba(31,47,39,.14)', padding: 10 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                      <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, padding: '7px 9px', color: C.g800, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{dateRangeLabel}</div>
-                      <button type="button" onClick={() => { setPeriod(''); setPeriodMode('all'); setDateRangeOpen(false); }} style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 8px', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>초기화</button>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 10 }}>
-                      <input aria-label="시작일" type="date" value={rangeStart} onChange={(event) => { setPeriodMode('custom'); setPeriod(`${event.target.value}~${rangeEnd}`); if (event.target.value) setDatePickerMonth(new Date(`${event.target.value}T00:00:00`)); }} style={{ ...compactFieldStyle, height: 30, fontSize: 10 }} />
-                      <input aria-label="종료일" type="date" value={rangeEnd} onChange={(event) => { setPeriodMode('custom'); setPeriod(`${rangeStart}~${event.target.value}`); if (event.target.value) setDatePickerMonth(new Date(`${event.target.value}T00:00:00`)); }} style={{ ...compactFieldStyle, height: 30, fontSize: 10 }} />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <button type="button" onClick={() => moveDatePickerMonth(-1)} aria-label="이전 달" style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: '#1683F2', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>‹</button>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>{datePickerMonth.getFullYear()}년 {datePickerMonth.getMonth() + 1}월</div>
-                      <button type="button" onClick={() => moveDatePickerMonth(1)} aria-label="다음 달" style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: '#1683F2', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>›</button>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 4 }}>
-                      {['일', '월', '화', '수', '목', '금', '토'].map((day) => <div key={day} style={{ height: 20, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 10, fontWeight: 700 }}>{day}</div>)}
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
-                      {calendarCells.map((cell) => {
-                        const startTime = rangeStart ? new Date(`${rangeStart}T00:00:00`).getTime() : 0;
-                        const endTime = rangeEnd ? new Date(`${rangeEnd}T00:00:00`).getTime() : 0;
-                        const cellTime = cell.date.getTime();
-                        const selectedStart = cell.value === rangeStart;
-                        const selectedEnd = cell.value === rangeEnd;
-                        const inRange = startTime && endTime && cellTime >= startTime && cellTime <= endTime;
-                        return (
-                          <button
-                            key={cell.value}
-                            type="button"
-                            onClick={() => selectDateRangeDay(cell.value)}
-                            style={{ height: 27, border: 'none', borderRadius: selectedStart || selectedEnd ? 999 : 8, background: selectedStart || selectedEnd ? '#1683F2' : inRange ? '#DCEBFF' : 'transparent', color: selectedStart || selectedEnd ? C.white : cell.currentMonth ? C.g800 : '#9AA19D', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: selectedStart || selectedEnd ? 900 : 800 }}
-                          >
-                            {cell.date.getDate()}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <DateRangePicker
+                start={rangeStart}
+                end={rangeEnd}
+                onChange={(nextStart, nextEnd) => {
+                  setPeriodMode(nextStart || nextEnd ? 'custom' : 'all');
+                  setPeriod(nextStart || nextEnd ? `${nextStart}~${nextEnd}` : '');
+                }}
+                buttonStyle={{ ...compactFieldStyle, width: '100%' }}
+                popupAlign="right"
+                placeholder="기간 선택"
+              />
             </div>
             <div style={{ overflow: 'auto', maxHeight: 278, minHeight: 0, border: `1px solid ${C.g100}`, borderRadius: 8 }}>
               <table style={{ minWidth: 720, tableLayout: 'fixed', borderCollapse: 'collapse' }}>
@@ -911,13 +720,13 @@ export default function DashboardPage() {
                   const progress = Math.min(100, Math.max(0, Number.parseInt(project.progressRate, 10) || 0));
                   const safetyBudgetUsage = 0.1;
                   const workflow = getProjectMonthWorkflowStatus(project);
-                  const hasSupplementDot = workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
+                  const hasSupplementRequest = workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
                   return (
                     <tr key={project.id} onClick={() => router.push(`/projects/${project.id}`)} style={{ cursor: 'pointer' }}>
                       <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g800, fontSize: 13, fontWeight: 700 }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                          {hasSupplementDot && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: C.danger, boxShadow: '0 0 0 3px rgba(194,65,63,.12)', flexShrink: 0 }} />}
                           <span style={{ whiteSpace: 'nowrap' }}>{project.constructionName}</span>
+                          {hasSupplementRequest && <span style={supplementRequestBadgeStyle}>보완 요청</span>}
                         </span>
                       </td>
                       <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g600, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{project.contractNumber}</td>
