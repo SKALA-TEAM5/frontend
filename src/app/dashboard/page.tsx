@@ -7,6 +7,7 @@ import Card from '../../components/ui/Card';
 import { AppFrame } from '../../components/common';
 import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
+import { getOrchestratorDashboard } from '../../lib/agent-api';
 import { C } from '../../lib/theme';
 import { USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
 import { listProjects } from '../../lib/project-api';
@@ -91,6 +92,14 @@ const AI_USAGE_COST_ROWS = [
 ] as const;
 
 const AI_USAGE_COST_COLORS = DASHBOARD_CHART_COLORS;
+
+type AiUsageCostRow = {
+  user: string;
+  role: string;
+  tokens: number;
+  calls: number;
+  cost: number;
+};
 
 const mergeWorkflowStatus = (project: ProjectSummary) => {
   if (typeof window === 'undefined') return project;
@@ -230,7 +239,7 @@ const dashboardPhotoBackdropStyle: CSSProperties = {
   overflow: 'hidden',
   border: '1px solid color-mix(in srgb, var(--c-primary) 22%, #fff)',
   backgroundClip: 'padding-box',
-  boxShadow: '0 18px 42px var(--c-primary-shadow)',
+  boxShadow: 'var(--ui-shadow-panel)',
 };
 
 const dashboardTopStyle: CSSProperties = {
@@ -270,9 +279,9 @@ const dashboardStatusGridStyle: CSSProperties = {
 };
 
 const dashboardPanelStyle: CSSProperties = {
-  borderRadius: 12,
+  borderRadius: 'var(--ui-radius-card)',
   border: `1px solid ${C.g200}`,
-  boxShadow: '0 1px 2px rgba(31,47,39,.05), 0 14px 34px rgba(31,47,39,.05)',
+  boxShadow: 'var(--ui-shadow-card)',
   background: C.white,
 };
 
@@ -343,6 +352,7 @@ export default function DashboardPage() {
   const [aiUsagePeriodMode, setAiUsagePeriodMode] = useState<'all' | 'month'>('all');
   const [aiUsageYear, setAiUsageYear] = useState('2026');
   const [aiUsageMonth, setAiUsageMonth] = useState('05');
+  const [orchestratorAiUsageRows, setOrchestratorAiUsageRows] = useState<AiUsageCostRow[]>([]);
   const [logoutPending, setLogoutPending] = useState(false);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const [chartTooltip, setChartTooltip] = useState<{ x: number; y: number; title: string; body: string } | null>(null);
@@ -408,6 +418,43 @@ export default function DashboardPage() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (projects.length === 0) {
+      setOrchestratorAiUsageRows([]);
+      return;
+    }
+    let alive = true;
+    Promise.all(projects.map((project) => getOrchestratorDashboard(project.id).catch(() => null)))
+      .then((dashboards) => {
+        if (!alive) return;
+        const agentTotals = dashboards.reduce((map, dashboard) => {
+          if (!dashboard) return map;
+          dashboard.agents.forEach((agent) => {
+            const key = agent.agentTypeCode || 'unknown';
+            const current = map.get(key) || { tokens: 0, calls: 0 };
+            map.set(key, {
+              tokens: current.tokens + agent.token,
+              calls: current.calls + 1,
+            });
+          });
+          return map;
+        }, new Map<string, { tokens: number; calls: number }>());
+        setOrchestratorAiUsageRows(Array.from(agentTotals.entries())
+          .filter(([, value]) => value.tokens > 0 || value.calls > 0)
+          .sort((a, b) => b[1].tokens - a[1].tokens || a[0].localeCompare(b[0]))
+          .map(([agentTypeCode, value]) => ({
+            user: agentTypeCode,
+            role: 'AI Agent',
+            tokens: value.tokens,
+            calls: value.calls,
+            cost: 0,
+          })));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projects]);
 
   const handleDashboardLogout = async () => {
     if (logoutPending) return;
@@ -544,14 +591,14 @@ export default function DashboardPage() {
       status: getProjectMonthWorkflowStatus(project) || USAGE_WORKFLOW_STATUS.DRAFT,
     }))
     .slice(0, 6);
-  const aiUsageTotalCost = AI_USAGE_COST_ROWS.reduce((sum, row) => sum + row.cost, 0);
-  const aiUsageTotalTokens = AI_USAGE_COST_ROWS.reduce((sum, row) => sum + row.tokens, 0);
-  const aiUsageTotalCalls = AI_USAGE_COST_ROWS.reduce((sum, row) => sum + row.calls, 0);
+  const aiUsageRows: readonly AiUsageCostRow[] = orchestratorAiUsageRows.length > 0 ? orchestratorAiUsageRows : AI_USAGE_COST_ROWS;
+  const aiUsageTotalTokens = aiUsageRows.reduce((sum, row) => sum + row.tokens, 0);
+  const aiUsageTotalCalls = aiUsageRows.reduce((sum, row) => sum + row.calls, 0);
   const aiUsageDonutRadius =42;
   const aiUsageDonutCircumference = 2 * Math.PI * aiUsageDonutRadius;
   let aiUsageDonutOffset = 0;
-  const aiUsageDonutSegments = AI_USAGE_COST_ROWS.map((row, index) => {
-    const dash = aiUsageTotalCost > 0 ? (row.cost / aiUsageTotalCost) * aiUsageDonutCircumference : 0;
+  const aiUsageDonutSegments = aiUsageRows.map((row, index) => {
+    const dash = aiUsageTotalTokens > 0 ? (row.tokens / aiUsageTotalTokens) * aiUsageDonutCircumference : 0;
     const segment = {
       key: row.user,
       row,
@@ -688,7 +735,7 @@ export default function DashboardPage() {
               </div>
             </section>
           </div>
-        <aside style={{ alignSelf: 'start', position: 'relative', border: `1px solid ${C.g200}`, borderRadius: 10, background: C.white, padding: 14, boxShadow: '0 1px 2px rgba(31,47,39,.04), 0 14px 34px rgba(31,47,39,.05)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
+        <aside style={{ alignSelf: 'start', position: 'relative', border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: 14, boxShadow: 'var(--ui-shadow-card)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
           <button type="button" onClick={handleDashboardLogout} disabled={logoutPending} style={{ position: 'absolute', top: 13, right: 13, height: 24, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1 }}>
             {logoutPending ? '로그아웃 중' : '로그아웃'}
           </button>
@@ -737,7 +784,7 @@ export default function DashboardPage() {
       <div style={{ ...dashboardContentLayerStyle, width: 'min(100%, 1240px)', margin: '0 auto' }}>
         <div style={dashboardStatusGridStyle}>
           {statusSummaryCards.map((item) => (
-            <div key={item.title} style={{ border: `1px solid ${item.border}`, borderRadius: 12, background: C.white, padding: '14px 16px', minWidth: 0, minHeight: 116, boxShadow: '0 1px 2px rgba(31,47,39,.04), 0 10px 20px rgba(31,47,39,.04)' }}>
+            <div key={item.title} style={{ border: `1px solid ${item.border}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: '14px 16px', minWidth: 0, minHeight: 116, boxShadow: 'var(--ui-shadow-card)' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, minWidth: 0 }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: item.color, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.eyebrow}</div>
@@ -986,9 +1033,9 @@ export default function DashboardPage() {
 
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 10 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>AI 사용 금액</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>AI 사용량</div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                  <div role="group" aria-label="AI 사용 비용 기간" style={{ display: 'inline-flex', alignItems: 'center', height: 30, padding: 2, border: `1px solid ${C.g200}`, borderRadius: 999, background: '#F7F8F7', flexShrink: 0 }}>
+                  <div role="group" aria-label="AI 사용량 기간" style={{ display: 'inline-flex', alignItems: 'center', height: 30, padding: 2, border: `1px solid ${C.g200}`, borderRadius: 999, background: '#F7F8F7', flexShrink: 0 }}>
                     {[
                       { key: 'all' as const, label: '전체' },
                       { key: 'month' as const, label: '월 선택' },
@@ -1008,11 +1055,11 @@ export default function DashboardPage() {
                   </div>
                   {aiUsagePeriodMode === 'month' && (
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      <select aria-label="AI 사용 비용 연도" value={aiUsageYear} onChange={(event) => setAiUsageYear(event.target.value)} style={{ width: 68, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
+                      <select aria-label="AI 사용량 연도" value={aiUsageYear} onChange={(event) => setAiUsageYear(event.target.value)} style={{ width: 68, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
                         <option value="2026">2026</option>
                         <option value="2025">2025</option>
                       </select>
-                      <select aria-label="AI 사용 비용 월" value={aiUsageMonth} onChange={(event) => setAiUsageMonth(event.target.value)} style={{ width: 54, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
+                      <select aria-label="AI 사용량 월" value={aiUsageMonth} onChange={(event) => setAiUsageMonth(event.target.value)} style={{ width: 54, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
                         {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')).map((month) => (
                           <option key={month} value={month}>{Number(month)}월</option>
                         ))}
@@ -1024,7 +1071,7 @@ export default function DashboardPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, .9fr) minmax(0, 1.1fr)', gap: 12, flex: '1 1 auto', minHeight: 0 }}>
                 <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, padding: '12px 14px', background: 'color-mix(in srgb, var(--c-bg) 34%, #fff)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 0 }}>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.g600 }}>전체 사용 금액</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.g600 }}>전체 토큰</div>
                     <div style={{ display: 'grid', placeItems: 'center', marginTop: 6 }}>
                       <div style={{ position: 'relative', width: 112, height: 112 }}>
                         <svg width="112" height="112" viewBox="0 0 112 112" aria-hidden="true" style={{ display: 'block', transform: 'rotate(-90deg)' }}>
@@ -1041,7 +1088,7 @@ export default function DashboardPage() {
                               strokeLinecap="butt"
                               strokeDasharray={`${segment.dash} ${aiUsageDonutCircumference}`}
                               strokeDashoffset={-segment.offset}
-                              onMouseEnter={(event) => showChartTooltip(event, `${segment.row.user} · ${segment.row.role}`, `₩${segment.row.cost.toLocaleString('ko-KR')} · ${(segment.row.tokens / 1000).toFixed(0)}K tokens · ${segment.row.calls}회`)}
+                              onMouseEnter={(event) => showChartTooltip(event, `${segment.row.user} · ${segment.row.role}`, `${(segment.row.tokens / 1000).toFixed(0)}K tokens · ${segment.row.calls}회`)}
                               onMouseMove={moveChartTooltip}
                               onMouseLeave={hideChartTooltip}
                               style={{ cursor: 'default' }}
@@ -1050,7 +1097,7 @@ export default function DashboardPage() {
                         </svg>
                         <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', pointerEvents: 'none' }}>
                           <div>
-                            <div style={{ fontSize: 12, fontWeight: 800, color: C.g800, lineHeight: 1 }}>₩{aiUsageTotalCost.toLocaleString('ko-KR')}</div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: C.g800, lineHeight: 1 }}>{(aiUsageTotalTokens / 1_000_000).toFixed(2)}M</div>
                           </div>
                         </div>
                       </div>
@@ -1068,7 +1115,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div style={{ display: 'grid', gap: 0, minHeight: 0, overflowY: 'auto', paddingRight: 5, scrollbarGutter: 'stable' }}>
-                  {AI_USAGE_COST_ROWS.map((row) => (
+                  {aiUsageRows.map((row) => (
                     <div key={row.user} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 10, alignItems: 'center', borderTop: `1px solid ${C.g100}`, padding: '10px 10px' }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0 }}>
@@ -1077,7 +1124,7 @@ export default function DashboardPage() {
                         </div>
                         <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>{(row.tokens / 1000).toFixed(0)}K tokens · {row.calls}회</div>
                       </div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: C.g800, textAlign: 'right', whiteSpace: 'nowrap' }}>₩{row.cost.toLocaleString('ko-KR')}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.g800, textAlign: 'right', whiteSpace: 'nowrap' }}>{(row.tokens / 1000).toFixed(0)}K</div>
                     </div>
                   ))}
                 </div>

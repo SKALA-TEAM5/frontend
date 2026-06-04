@@ -273,7 +273,7 @@ export default function ProjectsPage() {
         <div style={{ padding: '20px 22px 12px' }}>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 종료</div>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
-            {closeTarget?.constructionName || closeTarget?.name} 프로젝트를 종료됨 상태로 변경합니다. 종료 후에는 전체 프로젝트 목록에서 종료됨으로 표시됩니다.
+            {closeTarget?.constructionName || closeTarget?.name} 프로젝트를 종료됨 상태로 변경합니다. <br/> 종료 후에는 전체 프로젝트 목록에서 종료됨으로 표시됩니다.
           </div>
         </div>
         <div style={{ padding: '16px 22px 18px' }}>
@@ -293,7 +293,7 @@ export default function ProjectsPage() {
         <div style={{ padding: '20px 22px 12px' }}>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 삭제</div>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
-            {deleteTarget?.constructionName || deleteTarget?.name} 프로젝트를 완전히 삭제합니다. 삭제 후에는 프로젝트 목록과 상세 화면에서 더 이상 확인할 수 없습니다.
+            {deleteTarget?.constructionName || deleteTarget?.name} 프로젝트를 완전히 삭제합니다. <br/> 삭제 후에는 프로젝트 목록과 상세 화면에서 더 이상 확인할 수 없습니다.
           </div>
         </div>
         <div style={{ padding: '16px 22px 18px' }}>
@@ -354,6 +354,7 @@ export default function ProjectsPage() {
               return (
                 <div
                   key={project.id}
+                  className="interactive-card"
                   role="button"
                   tabIndex={0}
                   onClick={() => router.push(`/projects/${project.id}`)}
@@ -362,7 +363,7 @@ export default function ProjectsPage() {
                     event.preventDefault();
                     router.push(`/projects/${project.id}`);
                   }}
-                  style={{ position: 'relative', minHeight: 218, padding: 16, border: `1px solid ${hasSupplement ? '#EFAEB7' : C.g200}`, borderRadius: 14, background: hasSupplement ? '#FFFBFC' : C.white, boxShadow: '0 12px 28px rgba(31,55,43,.08)', textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 14 }}
+                  style={{ position: 'relative', minHeight: 218, padding: 16, border: `1px solid ${hasSupplement ? '#EFAEB7' : C.g200}`, borderRadius: 'var(--ui-radius-card)', background: hasSupplement ? '#FFFBFC' : C.white, boxShadow: 'var(--ui-shadow-card)', textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 14 }}
                 >
                   {hasSupplement && <span aria-hidden="true" style={{ position: 'absolute', top: 16, right: 16, width: 9, height: 9, borderRadius: 999, background: C.danger, boxShadow: '0 0 0 4px rgba(229,57,53,.13)' }} />}
                   <div style={{ minWidth: 0, paddingRight: hasSupplement ? 16 : 0 }}>
@@ -373,13 +374,13 @@ export default function ProjectsPage() {
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <div style={{ border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 11px', background: 'transparent' }}>
-                      <div style={{ fontSize: 11, fontWeight: 900, color: C.g600 }}>담당자</div>
-                      <div title={project.manager} style={{ marginTop: 5, fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</div>
+                    <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '10px 11px', background: 'transparent' }}>
+                      <div style={{ fontSize: 11, fontWeight: 750, color: C.g600 }}>담당자</div>
+                      <div title={project.manager} style={{ marginTop: 5, fontSize: 13, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</div>
                     </div>
-                    <div style={{ border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 11px', background: 'transparent' }}>
-                      <div style={{ fontSize: 11, fontWeight: 900, color: C.g600 }}>공사 기간</div>
-                      <div title={project.period || '-'} style={{ marginTop: 5, fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</div>
+                    <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '10px 11px', background: 'transparent' }}>
+                      <div style={{ fontSize: 11, fontWeight: 750, color: C.g600 }}>공사 기간</div>
+                      <div title={project.period || '-'} style={{ marginTop: 5, fontSize: 13, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</div>
                     </div>
                   </div>
                   <div style={{ display: 'grid', gap: 10 }}>

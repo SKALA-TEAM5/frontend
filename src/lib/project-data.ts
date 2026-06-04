@@ -184,7 +184,7 @@ export const PROJECT_STATUS_META: Record<ProjectStatusCode, { label: string; col
 
 export const PROJECT_LIFECYCLE_STATUS_META: Record<ProjectStatus, { label: string; color: string; bg: string }> = {
   [PROJECT_STATUS.OPEN]: { label: '생성됨', color: C.g600, bg: C.g100 },
-  [PROJECT_STATUS.IN_PROGRESS]: { label: '진행 중', color: C.primary, bg: C.bg },
+  [PROJECT_STATUS.IN_PROGRESS]: { label: '진행 중', color: C.primary, bg: C.white },
   [PROJECT_STATUS.CLOSED]: { label: '종료됨', color: C.ok, bg: '#F4FBF6' },
 };
 

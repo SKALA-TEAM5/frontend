@@ -662,11 +662,11 @@ export default function ProjectDetailPage() {
         if (!availableTabIds.has(tab))
             return;
         setActiveTab(tab);
-        router.replace(`/projects/${project.id}?tab=${tab}`);
+        router.replace(`/projects/${project.id}?tab=${tab}`, { scroll: false });
     };
     const openArchiveView = () => {
         setActiveTab('details');
-        router.replace(`/projects/${project.id}?tab=details`);
+        router.replace(`/projects/${project.id}?tab=details`, { scroll: false });
     };
     const revertReviewedProjectToDraft = () => {
         patchMonthWorkflow(selectedStatement.month, USAGE_WORKFLOW_STATUS.DRAFT);
@@ -1022,7 +1022,7 @@ export default function ProjectDetailPage() {
           </div>
         </Modal>
     ) : null;
-    const projectDetailCardShadow = '0 1px 2px rgba(31,47,39,.05), 0 14px 34px rgba(31,47,39,.05)';
+    const projectDetailCardShadow = 'var(--ui-shadow-card)';
     const overviewUsageRows = selectedStatementArchive?.overviewRows || EMPTY_OVERVIEW_ROWS;
     const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '120px minmax(170px, 1fr) 120px minmax(170px, 1fr)', minWidth: 620 } as const;
     const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 150px 130px', minWidth: 670 } as const;
@@ -1107,7 +1107,7 @@ export default function ProjectDetailPage() {
             {monthlyStatements.length}개월
           </div>
         </div>
-        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: 18, boxShadow: projectDetailCardShadow }}>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: 18, boxShadow: projectDetailCardShadow }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
           {monthlyStatements.map((statement) => {
             const uploaded = Boolean(statement.sourceFileName && statement.sourceFileName !== '-');
@@ -1121,7 +1121,8 @@ export default function ProjectDetailPage() {
                 key={statement.month}
                 type="button"
                 onClick={() => selectUsageMonth(statement.month)}
-                style={{ position: 'relative', border: `1px solid ${hasSupplementRequest ? '#FFB7BC' : uploaded ? C.light : C.g200}`, borderRadius: 12, background: hasSupplementRequest ? '#FFF6F7' : uploaded ? 'color-mix(in srgb, var(--c-bg) 62%, #fff)' : C.white, padding: '17px 16px', minHeight: 142, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14, boxShadow: hasSupplementRequest ? '0 12px 24px rgba(229, 57, 53, .12)' : '0 10px 22px var(--c-primary-shadow)' }}
+                className="interactive-card"
+                style={{ position: 'relative', border: `1px solid ${hasSupplementRequest ? '#FFB7BC' : uploaded ? C.light : C.g200}`, borderRadius: 'var(--ui-radius-card)', background: hasSupplementRequest ? '#FFF6F7' : uploaded ? 'color-mix(in srgb, var(--c-bg) 42%, #fff)' : C.white, padding: '17px 16px', minHeight: 142, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14, boxShadow: hasSupplementRequest ? '0 10px 22px rgba(229, 57, 53, .10)' : 'var(--ui-shadow-card)' }}
               >
                 <span
                   role="button"
@@ -1145,14 +1146,13 @@ export default function ProjectDetailPage() {
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 28 }}>
                     <div style={{ fontSize: 18, fontWeight: 900, color: hasSupplementRequest ? C.danger : C.g800 }}>{statement.label}</div>
+                  </div>
+                  <div style={{ marginTop: 9, minHeight: 19, display: 'flex', alignItems: 'center' }}>
                     {workflowMeta && (
-                      <span style={{ border: `1px solid ${workflowMeta.color}`, borderRadius: 999, background: workflowMeta.bg, color: workflowMeta.color, padding: '3px 8px', fontSize: 10, fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap' }}>
+                      <span style={{ color: workflowMeta.color, fontSize: 12, fontWeight: 900, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
                         {workflowMeta.label}
                       </span>
                     )}
-                  </div>
-                  <div style={{ marginTop: 9, fontSize: 12, fontWeight: 900, color: hasSupplementRequest ? C.danger : uploaded ? C.primary : C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {hasSupplementRequest ? '보완 요청 있음' : uploaded ? '사용내역서 있음' : '사용내역서 없음'}
                   </div>
                 </div>
                 <div style={{ borderTop: `1px solid ${hasSupplementRequest ? '#FFE1E4' : C.g100}`, paddingTop: 12, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'end', gap: 10 }}>
@@ -1168,7 +1168,8 @@ export default function ProjectDetailPage() {
           <button
             type="button"
             onClick={openMonthCreateModal}
-            style={{ border: `1px dashed ${C.light}`, borderRadius: 12, background: 'color-mix(in srgb, var(--c-bg) 36%, #fff)', minHeight: 142, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', color: C.primary, boxShadow: '0 10px 22px var(--c-primary-shadow)' }}
+            className="interactive-card"
+            style={{ border: `1px dashed ${C.light}`, borderRadius: 'var(--ui-radius-card)', background: 'color-mix(in srgb, var(--c-bg) 28%, #fff)', minHeight: 142, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', color: C.primary, boxShadow: 'var(--ui-shadow-card)' }}
           >
             <span aria-hidden="true" style={{ position: 'relative', width: 40, height: 40, borderRadius: 999, border: `1px solid ${C.primary}`, background: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ position: 'absolute', width: 16, height: 2, borderRadius: 999, background: C.primary }} />
