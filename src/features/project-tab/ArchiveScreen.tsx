@@ -487,7 +487,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
     }, [activeTodoCount, onTodoCountChange]);
     const archiveVerificationRunning = Boolean(archiveVerificationStep) || matchingStatus === 'running' || photoValidationStatus === 'running';
     const archiveVerificationDone = matchingStatus === 'done' || photoValidationStatus === 'done';
-    const archiveVerificationLabel = archiveVerificationRunning ? '검증 중...' : '검증';
+    const archiveVerificationLabel = archiveVerificationRunning ? '검증 중...' : '유효성 검증';
     const isSupplementTarget = (catId: number, usageItemId?: string) => {
         if (usageItemId)
             return archiveTodoItems.some((todo) => {
@@ -990,11 +990,11 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         try {
             await runEvidenceReviewAgent(projectId, usageStatementId);
             setPhotoValidationStatus('done');
-            setPhotoValidationNotice({ type: 'ok', message: '사진 검증 Agent 실행 결과가 저장되었습니다.' });
+            setPhotoValidationNotice({ type: 'ok', message: 'Vision 실행 결과가 저장되었습니다.' });
         } catch {
             applyExampleVisionValidation();
             setPhotoValidationStatus('done');
-            setPhotoValidationNotice({ type: 'ok', message: '사진 검증 Agent 응답을 받지 못해 예시 검증 결과를 표시합니다.' });
+            setPhotoValidationNotice({ type: 'ok', message: 'Vision 응답을 받지 못해 예시 검증 결과를 표시합니다.' });
         }
     };
     const waitForVerificationStep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1045,7 +1045,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             await refreshOrchestratorStatusTodos();
             setMatchingStatus('done');
             setPhotoValidationStatus('done');
-            setMatchingNotice('증빙 검증 결과를 보완 TODO에 반영했습니다.');
+            setMatchingNotice('증빙 유효성 검증 결과를 보완 TODO에 반영했습니다.');
             setPhotoValidationNotice({ type: 'ok', message: '현장사진 검증 결과를 확인했습니다.' });
         } catch {
             await Promise.allSettled([

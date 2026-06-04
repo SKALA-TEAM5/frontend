@@ -92,6 +92,10 @@ const AI_USAGE_COST_ROWS = [
 ] as const;
 
 const AI_USAGE_COST_COLORS = DASHBOARD_CHART_COLORS;
+const AI_TOKEN_COST_KRW = 0.0715;
+
+const estimateAiUsageCost = (tokens: number) =>
+  Math.round((tokens * AI_TOKEN_COST_KRW) / 100) * 100;
 
 type AiUsageCostRow = {
   user: string;
@@ -448,7 +452,7 @@ export default function DashboardPage() {
             role: 'AI Agent',
             tokens: value.tokens,
             calls: value.calls,
-            cost: 0,
+            cost: estimateAiUsageCost(value.tokens),
           })));
       });
     return () => {
@@ -535,7 +539,7 @@ export default function DashboardPage() {
     },
     {
       eyebrow: '법령 검토',
-      title: '유효성 검증',
+      title: '법령 검증',
       icon: '✓',
       color: '#2F73B7',
       border: '#C6D9EE',
@@ -585,20 +589,21 @@ export default function DashboardPage() {
       message:
         getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
           ? (project.actionRequestDetails?.reason || '프로젝트 담당자가 사용내역서 또는 증빙 자료를 수정해야 합니다.')
-          : '프로젝트 담당자가 업로드를 완료했습니다. SHE 담당자의 유효성 검증이 필요합니다.',
+          : '프로젝트 담당자가 업로드를 완료했습니다. SHE 담당자의 법령 검증이 필요합니다.',
       assignee: project.manager || '프로젝트 담당자',
       createdAt: getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? (project.actionRequestDetails?.requestedAt || '-') : '-',
       status: getProjectMonthWorkflowStatus(project) || USAGE_WORKFLOW_STATUS.DRAFT,
     }))
     .slice(0, 6);
   const aiUsageRows: readonly AiUsageCostRow[] = orchestratorAiUsageRows.length > 0 ? orchestratorAiUsageRows : AI_USAGE_COST_ROWS;
+  const aiUsageTotalCost = aiUsageRows.reduce((sum, row) => sum + row.cost, 0);
   const aiUsageTotalTokens = aiUsageRows.reduce((sum, row) => sum + row.tokens, 0);
   const aiUsageTotalCalls = aiUsageRows.reduce((sum, row) => sum + row.calls, 0);
   const aiUsageDonutRadius =42;
   const aiUsageDonutCircumference = 2 * Math.PI * aiUsageDonutRadius;
   let aiUsageDonutOffset = 0;
   const aiUsageDonutSegments = aiUsageRows.map((row, index) => {
-    const dash = aiUsageTotalTokens > 0 ? (row.tokens / aiUsageTotalTokens) * aiUsageDonutCircumference : 0;
+    const dash = aiUsageTotalCost > 0 ? (row.cost / aiUsageTotalCost) * aiUsageDonutCircumference : 0;
     const segment = {
       key: row.user,
       row,
@@ -761,14 +766,7 @@ export default function DashboardPage() {
 		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{queueProjects.length}</div>
 	            </div>
 	          </div>
-	          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-		            <button
-		              type="button"
-		              disabled
-			              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FAFBFA', color: C.g600, fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'not-allowed', opacity: .72 }}
-		            >
-		              내 프로필
-		            </button>
+	          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>
 		            <button
 		              type="button"
 		              onClick={() => router.push('/admin/users')}
@@ -1033,9 +1031,9 @@ export default function DashboardPage() {
 
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 10 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>AI 사용량</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>AI 사용 금액</div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                  <div role="group" aria-label="AI 사용량 기간" style={{ display: 'inline-flex', alignItems: 'center', height: 30, padding: 2, border: `1px solid ${C.g200}`, borderRadius: 999, background: '#F7F8F7', flexShrink: 0 }}>
+                  <div role="group" aria-label="AI 사용 금액 기간" style={{ display: 'inline-flex', alignItems: 'center', height: 30, padding: 2, border: `1px solid ${C.g200}`, borderRadius: 999, background: '#F7F8F7', flexShrink: 0 }}>
                     {[
                       { key: 'all' as const, label: '전체' },
                       { key: 'month' as const, label: '월 선택' },
@@ -1055,11 +1053,11 @@ export default function DashboardPage() {
                   </div>
                   {aiUsagePeriodMode === 'month' && (
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      <select aria-label="AI 사용량 연도" value={aiUsageYear} onChange={(event) => setAiUsageYear(event.target.value)} style={{ width: 68, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
+                      <select aria-label="AI 사용 금액 연도" value={aiUsageYear} onChange={(event) => setAiUsageYear(event.target.value)} style={{ width: 68, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
                         <option value="2026">2026</option>
                         <option value="2025">2025</option>
                       </select>
-                      <select aria-label="AI 사용량 월" value={aiUsageMonth} onChange={(event) => setAiUsageMonth(event.target.value)} style={{ width: 54, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
+                      <select aria-label="AI 사용 금액 월" value={aiUsageMonth} onChange={(event) => setAiUsageMonth(event.target.value)} style={{ width: 54, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
                         {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')).map((month) => (
                           <option key={month} value={month}>{Number(month)}월</option>
                         ))}
@@ -1071,7 +1069,7 @@ export default function DashboardPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, .9fr) minmax(0, 1.1fr)', gap: 12, flex: '1 1 auto', minHeight: 0 }}>
                 <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, padding: '12px 14px', background: 'color-mix(in srgb, var(--c-bg) 34%, #fff)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 0 }}>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.g600 }}>전체 토큰</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.g600 }}>전체 사용 금액</div>
                     <div style={{ display: 'grid', placeItems: 'center', marginTop: 6 }}>
                       <div style={{ position: 'relative', width: 112, height: 112 }}>
                         <svg width="112" height="112" viewBox="0 0 112 112" aria-hidden="true" style={{ display: 'block', transform: 'rotate(-90deg)' }}>
@@ -1088,7 +1086,7 @@ export default function DashboardPage() {
                               strokeLinecap="butt"
                               strokeDasharray={`${segment.dash} ${aiUsageDonutCircumference}`}
                               strokeDashoffset={-segment.offset}
-                              onMouseEnter={(event) => showChartTooltip(event, `${segment.row.user} · ${segment.row.role}`, `${(segment.row.tokens / 1000).toFixed(0)}K tokens · ${segment.row.calls}회`)}
+                              onMouseEnter={(event) => showChartTooltip(event, `${segment.row.user} · ${segment.row.role}`, `₩ ${segment.row.cost.toLocaleString('ko-KR')} · ${segment.row.calls}회`)}
                               onMouseMove={moveChartTooltip}
                               onMouseLeave={hideChartTooltip}
                               style={{ cursor: 'default' }}
@@ -1097,7 +1095,10 @@ export default function DashboardPage() {
                         </svg>
                         <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', pointerEvents: 'none' }}>
                           <div>
-                            <div style={{ fontSize: 12, fontWeight: 800, color: C.g800, lineHeight: 1 }}>{(aiUsageTotalTokens / 1_000_000).toFixed(2)}M</div>
+                            <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 2, fontSize: 12, fontWeight: 800, color: C.g800, lineHeight: 1 }}>
+                              <span>₩</span>
+                              <span>{aiUsageTotalCost.toLocaleString('ko-KR')}</span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1105,8 +1106,11 @@ export default function DashboardPage() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
                     <div>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: C.g400 }}>총 토큰</div>
-                      <div style={{ marginTop: 2, fontSize: 12, fontWeight: 700, color: C.g800 }}>{(aiUsageTotalTokens / 1_000_000).toFixed(2)}M</div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: C.g400 }}>평균 비용</div>
+                      <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 2, marginTop: 2, fontSize: 12, fontWeight: 700, color: C.g800 }}>
+                        <span>₩</span>
+                        <span>{Math.round(aiUsageTotalCost / Math.max(aiUsageTotalCalls, 1)).toLocaleString('ko-KR')}</span>
+                      </div>
                     </div>
                     <div>
                       <div style={{ fontSize: 9, fontWeight: 700, color: C.g400 }}>호출 수</div>
@@ -1122,9 +1126,19 @@ export default function DashboardPage() {
                           <span style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.user}</span>
                           <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: C.g500 }}>{row.role}</span>
                         </div>
-                        <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>{(row.tokens / 1000).toFixed(0)}K tokens · {row.calls}회</div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>
+                          <span>평균</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 2 }}>
+                            <span>₩</span>
+                            <span>{Math.round(row.cost / Math.max(row.calls, 1)).toLocaleString('ko-KR')}</span>
+                          </span>
+                          <span>· {row.calls}회</span>
+                        </div>
                       </div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: C.g800, textAlign: 'right', whiteSpace: 'nowrap' }}>{(row.tokens / 1000).toFixed(0)}K</div>
+                      <div style={{ display: 'inline-flex', alignItems: 'baseline', justifyContent: 'flex-end', gap: 2, fontSize: 14, fontWeight: 700, color: C.g800, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <span>₩</span>
+                        <span>{row.cost.toLocaleString('ko-KR')}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1133,7 +1147,7 @@ export default function DashboardPage() {
 
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>담당자별 검증 요청 현황</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>담당자별 프로젝트 현황</div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.primary }}>{currentMonthKey.replace('-', '년 ')}월</div>
             </div>
             <div style={{ display: 'grid', gap: 10, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', paddingRight: 6, scrollbarGutter: 'stable', overscrollBehavior: 'contain' }}>

@@ -171,6 +171,17 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
     if (initialStatus === 'done') setStatus('done');
   }, [initialStatus]);
 
+  useEffect(() => {
+    if (openEvidenceFileCategoryIds.length === 0) return;
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-validation-evidence-tooltip]')) return;
+      setOpenEvidenceFileCategoryIds([]);
+    };
+    document.addEventListener('pointerdown', handleOutsidePointerDown);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
+  }, [openEvidenceFileCategoryIds.length]);
+
   const handleVerify = async () => {
     if (!canStartValidation) return;
     try {
@@ -262,7 +273,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
   };
 
   const renderProgress = () => (
-    <InlineLoader title="유효성 검증을 진행하고 있어요" body={validationStatusText || '사용내역서와 증빙 자료를 항목별로 맞춰 보고, 법령 기준과 인정 가능 금액을 함께 계산하고 있습니다.'} />
+    <InlineLoader title="법령 검증을 진행하고 있어요" body={validationStatusText || '사용내역서와 증빙 자료를 항목별로 맞춰 보고, 법령 기준과 인정 가능 금액을 함께 계산하고 있습니다.'} />
   );
 
   const renderIntro = () => (
@@ -274,15 +285,15 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
           <div style={{ fontSize: 13, color: C.g400, marginTop: 4 }}>9개 항목별 증빙, 문제 파일, 법령 근거, 인정 가능 금액을 함께 확인합니다.</div>
         </div>
       </div>
-      <Button size="lg" onClick={handleVerify} disabled={status === 'loading'} style={{ flexShrink: 0, alignSelf: 'center' }}>{status === 'loading' ? '분석 중...' : status === 'done' ? '재검증하기' : '검증하기'}</Button>
+      <Button size="lg" onClick={handleVerify} disabled={status === 'loading'} style={{ flexShrink: 0, alignSelf: 'center' }}>{status === 'loading' ? '검증 중...' : status === 'done' ? '재검증하기' : '검증하기'}</Button>
     </div>
   );
 
   const renderEmpty = () => (
     <div style={{ padding: '48px 32px', borderRadius: 18, border: `2px dashed ${C.g200}`, textAlign: 'center', background: C.white }}>
       <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, marginBottom: 6 }}>{canStartValidation ? (hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료') : '업로드 완료 대기'}</div>
-      <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>{canStartValidation ? '업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.' : '프로젝트 담당자가 업로드 완료를 눌러야 유효성 검증을 시작할 수 있습니다.'}</div>
-      <button type="button" onClick={handleVerify} disabled={status === 'loading' || !canStartValidation} style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: canStartValidation ? C.primary : C.g200, color: canStartValidation ? C.white : C.g400, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: status === 'loading' ? 'wait' : canStartValidation ? 'pointer' : 'not-allowed', boxShadow: canStartValidation ? '0 10px 22px rgba(27, 94, 59, .24)' : 'none' }}>{status === 'loading' ? '분석 중...' : '유효성 검증'}</button>
+      <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>{canStartValidation ? '업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.' : '프로젝트 담당자가 업로드 완료를 눌러야 법령 검증을 시작할 수 있습니다.'}</div>
+      <button type="button" onClick={handleVerify} disabled={status === 'loading' || !canStartValidation} style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: canStartValidation ? C.primary : C.g200, color: canStartValidation ? C.white : C.g400, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: status === 'loading' ? 'wait' : canStartValidation ? 'pointer' : 'not-allowed', boxShadow: canStartValidation ? '0 10px 22px rgba(27, 94, 59, .24)' : 'none' }}>{status === 'loading' ? '검증 중...' : '법령 검증'}</button>
     </div>
   );
 
@@ -382,7 +393,8 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       setOpenEvidenceFileCategoryIds((prev) => prev.includes(item.categoryId) ? prev.filter((id) => id !== item.categoryId) : [...prev, item.categoryId]);
     };
 
-    return <Card style={{ ...validationShellStyle, padding: 0, overflow: 'hidden', border: `1px solid ${meta.border}` }}>
+    return <div style={{ position: 'relative', borderRadius: 'var(--ui-radius-card)' }}>
+      <Card style={{ ...validationShellStyle, padding: 0, overflow: 'hidden', border: `1px solid ${meta.border}` }}>
       <div style={{ padding: '16px 18px', background: meta.bg, borderBottom: `1px solid ${meta.border}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0 }}>
@@ -406,19 +418,15 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
           </div>)}
         </div>
 
-        <div style={{ border: `1px solid ${C.g100}`, borderRadius: 'var(--ui-radius-panel)', overflow: 'hidden' }}>
+        <div data-validation-evidence-tooltip style={{ position: 'relative', border: `1px solid ${C.g100}`, borderRadius: 'var(--ui-radius-panel)' }}>
           <div style={{ padding: '11px 12px', background: '#F7F9F8', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>증빙 상태</div>
+            <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>문제 및 누락 자료</div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 850, color: C.g500 }}>제출 {submittedCount} · 문제 {problemCount} · 누락 {missingCount}</div>
-              <button type="button" onClick={toggleEvidenceFilesOpen} disabled={submittedCount === 0} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: submittedCount === 0 ? C.g400 : C.primary, padding: '4px 8px', fontSize: 10, fontWeight: 900, fontFamily: 'inherit', cursor: submittedCount === 0 ? 'not-allowed' : 'pointer' }}>{evidenceFilesOpen ? '접기' : '파일명'}</button>
+              <button type="button" onClick={toggleEvidenceFilesOpen} disabled={submittedCount === 0} style={{ border: `1px solid ${evidenceFilesOpen ? C.primary : C.g200}`, borderRadius: 999, background: evidenceFilesOpen ? C.primary : C.white, color: submittedCount === 0 ? C.g400 : evidenceFilesOpen ? C.white : C.primary, padding: '4px 8px', fontSize: 10, fontWeight: 900, fontFamily: 'inherit', cursor: submittedCount === 0 ? 'not-allowed' : 'pointer' }}>제출 자료 보기</button>
             </div>
           </div>
           <div style={{ padding: 12, display: 'grid', gap: 9 }}>
-            {evidenceFilesOpen && <div style={{ display: 'grid', gap: 6 }}>
-              {item.evidenceSummary.submittedFiles.map((file) => <div key={`${file.kind}-${file.name}`} title={file.name} style={{ minWidth: 0, border: `1px solid ${C.g100}`, borderRadius: 6, background: C.white, padding: '7px 9px', fontSize: 12, fontWeight: 850, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>)}
-              {submittedCount === 0 && <span style={{ fontSize: 12, color: C.g500, fontWeight: 800 }}>제출된 증빙이 없습니다.</span>}
-            </div>}
             {(problemCount > 0 || missingCount > 0) && <div style={{ display: 'grid', gap: 7 }}>
               {item.evidenceSummary.problematicFiles.map((file) => <div key={file.fileName} style={{ fontSize: 12, fontWeight: 800, color: C.danger, lineHeight: 1.5 }}>{file.fileName} : <span style={{ color: C.g600 }}>{file.reason}</span></div>)}
               {missingCount > 0 && <div style={{ fontSize: 12, fontWeight: 800, color: C.warn, lineHeight: 1.5 }}>누락 자료 : <span style={{ color: C.g600 }}>{item.evidenceSummary.missingTypes.join(', ')}</span></div>}
@@ -436,7 +444,23 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
           </div>
         </div>
       </div>
-    </Card>;
+      </Card>
+      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none', border: `1px solid ${meta.border}`, borderRadius: 'var(--ui-radius-card)' }} />
+      {evidenceFilesOpen && (
+        <div data-validation-evidence-tooltip role="tooltip" style={{ position: 'absolute', top: 196, right: 24, zIndex: 30, width: 200, maxWidth: 'min(200px, calc(100vw - 48px))', border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-panel)', background: C.white, boxShadow: '0 14px 34px rgba(31,47,39,.16)', padding: 9 }}>
+          <div style={{ position: 'absolute', top: -6, right: 24, width: 10, height: 10, borderTop: `1px solid ${C.g200}`, borderLeft: `1px solid ${C.g200}`, background: C.white, transform: 'rotate(45deg)' }} />
+          <div style={{ fontSize: 11, fontWeight: 900, color: C.g600, marginBottom: 7 }}>제출된 파일명</div>
+          <div style={{ display: 'grid', gap: 6, maxHeight: 180, overflowY: 'auto', paddingRight: 2 }}>
+            {item.evidenceSummary.submittedFiles.map((file) => (
+              <div key={`${file.kind}-${file.name}`} title={file.name} style={{ minWidth: 0, border: `1px solid ${C.g100}`, borderRadius: 6, background: '#FBFCFB', padding: '7px 9px', fontSize: 12, fontWeight: 850, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {file.name}
+              </div>
+            ))}
+            {submittedCount === 0 && <span style={{ fontSize: 12, color: C.g500, fontWeight: 800 }}>제출된 증빙이 없습니다.</span>}
+          </div>
+        </div>
+      )}
+    </div>;
   };
 
   const renderSupplementQueue = (list: (ValidationIssue & { categoryName: string; decision: ValidationDecision; riskLevel: ValidationRiskLevel })[]) => (
@@ -519,14 +543,12 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
         <Card style={{ padding: '24px 26px' }}>
           <div style={{ fontSize: 16, fontWeight: 900, color: C.g800 }}>검증 결과가 없습니다</div>
           <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginTop: 8 }}>표시할 항목별 검증 결과가 없습니다. 사용내역서와 증빙 자료를 확인한 뒤 다시 검증해 주세요.</div>
-          <Button size="sm" onClick={handleVerify} disabled={status === 'loading'} style={{ marginTop: 16 }}>{status === 'loading' ? '분석 중...' : '재검증하기'}</Button>
+          <Button size="sm" onClick={handleVerify} disabled={status === 'loading'} style={{ marginTop: 16 }}>{status === 'loading' ? '검증 중...' : '재검증하기'}</Button>
         </Card>
       </div>;
     }
 
     const inappropriateCount = categories.filter((item) => item.decision === 'inappropriate').length;
-    const conditionalCount = categories.filter((item) => item.decision === 'conditional').length;
-    const highRiskCount = categories.filter((item) => item.riskLevel === 'high').length;
     const disputedTotal = sumBy(categories, 'disputedAmount');
 
     return <div className="screen-enter">
@@ -535,25 +557,23 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
         <div style={{ padding: '18px 20px', borderBottom: `1px solid ${C.g100}`, background: 'linear-gradient(135deg, #FFFFFF 0%, #F7FAF8 100%)', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 16, alignItems: 'start' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.28 }}>유효성 검증</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.28 }}>법령 검증</div>
               <span style={compactChipStyle(C.g600, C.white)}>{result.checkedAt}</span>
             </div>
-            <div style={{ ...validationMutedTextStyle, marginTop: 6 }}>사용내역서, 증빙 서류의 법령 근거에 따른 유효성 검증 결과입니다.</div>
+            <div style={{ ...validationMutedTextStyle, marginTop: 6 }}>사용내역서, 증빙 서류의 법령 근거에 따른 검증 결과입니다.</div>
             {validationStatusText && <div style={{ marginTop: 10 }}><span style={compactChipStyle(C.ok, '#F4FBF6', '#D6EEDB')}>{validationStatusText}</span></div>}
           </div>
-          <Button size="sm" onClick={handleVerify} disabled={status === 'loading'} style={{ alignSelf: 'start' }}>{status === 'loading' ? '분석 중...' : '재검증하기'}</Button>
+          <Button size="sm" onClick={handleVerify} disabled={status === 'loading'} style={{ alignSelf: 'start' }}>{status === 'loading' ? '검증 중...' : '재검증하기'}</Button>
         </div>
         <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, background: C.white }}>
           {[
-            { label: '전체 항목', value: `${categories.length}개`, color: C.g800, hint: '검증 대상' },
-            { label: '부적정/조건부', value: `${inappropriateCount + conditionalCount}개`, color: inappropriateCount > 0 ? C.danger : C.warn, hint: '확인 필요' },
-            { label: '높은 리스크', value: `${highRiskCount}개`, color: highRiskCount > 0 ? C.danger : C.ok, hint: '법령 리스크' },
-            { label: '쟁점 금액', value: disputedTotal > 0 ? fmt(disputedTotal) : '-', color: disputedTotal > 0 ? C.danger : C.g500, hint: '불인정 가능' },
+            { label: '검증 총액', value: fmt(totalUsage), color: C.g800 },
+            { label: '쟁점 금액', value: disputedTotal > 0 ? fmt(disputedTotal) : '-', color: disputedTotal > 0 ? C.danger : C.g500 },
+            { label: '부적정 항목', value: `${inappropriateCount}개`, color: inappropriateCount > 0 ? C.danger : C.g500 },
           ].map((metric) => (
             <div key={metric.label} style={{ ...validationStatTileStyle, minWidth: 0, background: '#FFFFFF' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                 <div style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>{metric.label}</div>
-                <div style={{ fontSize: 10, fontWeight: 900, color: C.g400 }}>{metric.hint}</div>
               </div>
               <div style={{ fontSize: 19, fontWeight: 900, color: metric.color, fontVariantNumeric: 'tabular-nums' }}>{metric.value}</div>
             </div>

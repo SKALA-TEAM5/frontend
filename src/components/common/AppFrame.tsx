@@ -267,7 +267,7 @@ export default function AppFrame({ description, actions, mainClassName, children
           <span>이용약관</span>
           <span>개인정보처리방침</span>
           <span style={{ width: 1, height: 14, background: C.g200 }} />
-          <span>v1.2.0</span>
+          <span>v1.0.0</span>
         </div>
       </footer>
     </div>

@@ -59,7 +59,7 @@ const TABS: Array<{
 }> = [
     { id: 'overview', label: '사용내역서' },
     { id: 'details', label: '세부 내역' },
-    { id: 'validation', label: '유효성 검증' },
+    { id: 'validation', label: '법령 검증' },
     { id: 'report', label: '보고서' },
 ];
 const DETAIL_TABS = new Set<DetailTab>(['overview', 'details', 'validation', 'report']);
@@ -1368,6 +1368,15 @@ export default function ProjectDetailPage() {
               </button>}
               <span>{project.constructionName} 계약 정산</span>
               <span style={{ fontSize: 12, fontWeight: 900, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>{project.contractNumber}</span>
+              {selectedMonthShouldDisplayWorkflowStatus && selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED && (canViewActionGuide ? (
+                <button type="button" ref={actionRequestBadgeRef} data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer', lineHeight: 1, whiteSpace: 'nowrap' }}>
+                  {STATUS_META[selectedMonthWorkflowStatus].label}
+                </button>
+              ) : (
+                <span data-ui="project-detail.27" style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap', lineHeight: 1 }}>
+                  {STATUS_META[selectedMonthWorkflowStatus].label}
+                </span>
+              ))}
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flex: '1 1 260px', maxWidth: '100%', minWidth: 0, flexWrap: 'wrap' }}>
               {showUsageStatementHeaderInfo && <button type="button" onClick={() => setProjectHeaderOpen((open) => !open)} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, height: 34, padding: '0 11px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 7px 16px rgba(31, 55, 43, .08)' }}>
@@ -1381,7 +1390,7 @@ export default function ProjectDetailPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {selectedMonth && <span style={{ fontSize: 13, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>{selectedStatement.label}</span>}
               <span style={{ fontSize: 13, fontWeight: 900, color: C.g400 }}>사용내역서 기본 정보</span>
-              {selectedMonthShouldDisplayWorkflowStatus && (canViewActionGuide ? (
+              {selectedMonthShouldDisplayWorkflowStatus && selectedMonthWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED && (canViewActionGuide ? (
                 <button type="button" ref={actionRequestBadgeRef} data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }}>
                   {STATUS_META[selectedMonthWorkflowStatus].label}
                 </button>

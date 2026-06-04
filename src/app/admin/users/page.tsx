@@ -261,7 +261,7 @@ export default function AdminUsersPage() {
   return (
     <AppFrame
       title={canManageAllUsers ? '사용자 관리' : '프로젝트 담당자 관리'}
-      description={canManageAllUsers ? '전체 사용자 계정과 역할을 관리합니다.' : '프로젝트 담당자 계정만 조회하고 관리합니다.'}
+      description={canManageAllUsers ? '전체 사용자 계정과 역할을 관리합니다.' : '프로젝트 담당자 계정을 조회하고 관리합니다.'}
       actions={<Button size="sm" onClick={openCreateModal} style={{ boxShadow: 'none' }}>{canManageAllUsers ? '사용자 생성' : '담당자 생성'}</Button>}
     >
       <Card style={{ padding: 18, marginBottom: 14 }}>

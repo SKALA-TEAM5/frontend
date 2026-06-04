@@ -266,7 +266,7 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
   };
 
   const reportWorkflowMeta = {
-    editing: { label: '초안 편집 가능', color: C.warn, bg: C.warnBg, description: '검증 결과를 기반으로 생성된 초안입니다. 담당자 검토 후 저장해 주세요.' },
+    editing: { label: '초안 편집 가능', color: C.warn, bg: C.warnBg, description: '법령 검증 결과를 기반으로 생성된 초안입니다. 담당자 검토 후 저장해 주세요.' },
     saved: { label: '저장됨', color: C.ok, bg: '#F4FBF6', description: savedAt ? `마지막 저장: ${savedAt}` : '저장된 초안입니다.' },
   }[reportWorkflowStatus];
   const reportActionButtonStyle: CSSProperties = {
@@ -280,7 +280,7 @@ const ReportScreen = ({ contractName, projectId, usageStatementId, validationCom
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>보고서 생성</div>
-          <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{validationComplete ? '유효성 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '유효성 검증 결과가 없으면 예시 검증 결과로 보고서 초안을 생성합니다.'}</div>
+          <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{validationComplete ? '법령 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '법령 검증 결과가 없으면 예시 검증 결과로 보고서 초안을 생성합니다.'}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
           <Button size="sm" onClick={handleReportGenerate} disabled={reportStatus === 'generating'} style={reportActionButtonStyle}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
