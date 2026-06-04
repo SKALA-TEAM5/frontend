@@ -9,15 +9,14 @@ import ProjectInfoEditorModal from '../../../components/project/ProjectInfoEdito
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
-import { ACTION_REQUEST_STATUS, EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
-import { createActionRequest, getProject, listActionRequests, listProjectManagerCandidates, updateActionRequestStatus, updateProject, type ProjectActionRequest, type UpdateProjectInput } from '../../../lib/project-api';
-import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, requestUsageStatementSupplement, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
-import type { BackendUserProfile } from '../../../lib/auth-api';
+import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
+import { getProject, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
+import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
-import { parseUsageStatementWithOcr } from '../../../lib/agent-api';
+import { getOrchestratorStatus, parseUsageStatementWithOcr, type OrchestratorTodo } from '../../../lib/agent-api';
 import { can } from '../../../lib/permissions';
 import { useCurrentUser } from '../../../lib/dev-user';
-import ArchiveScreen from '../../../features/project-tab/ArchiveScreen';
+import UsageStatementDetailScreen from '../../../features/project-tab/UsageStatementDetailScreen';
 import VerifyScreen from '../../../features/project-tab/VerifyScreen';
 import ReportScreen from '../../../features/project-tab/ReportScreen';
 import { CATS, VALIDATION_DASHBOARD_RESULT, type UsageLineItem } from '../../../lib/evidence-utils';
@@ -51,8 +50,8 @@ type SharedWorkflowStatus = UsageWorkflowStatus;
 type MonthUsageStatementArchiveData = UsageStatementArchiveData & {
     workflowStatus?: SharedWorkflowStatus;
     actionRequestDetails?: ProjectSummary['actionRequestDetails'];
+    orchestratorTodos?: OrchestratorTodo[];
 };
-const OPEN_ACTION_REQUEST_STATUSES: ReadonlySet<string> = new Set([ACTION_REQUEST_STATUS.OPEN, ACTION_REQUEST_STATUS.IN_PROGRESS]);
 const TABS: Array<{
     id: DetailTab;
     label: string;
@@ -199,15 +198,18 @@ const withActionRequestMonth = (details: ProjectSummary['actionRequestDetails'] 
         return details;
     return details.month || !month ? details : { ...details, month };
 };
-const actionRequestToDetails = (request: ProjectActionRequest | undefined, month?: string, assigneeName?: string): ProjectSummary['actionRequestDetails'] | undefined => {
-    if (!request)
+const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string): ProjectSummary['actionRequestDetails'] | undefined => {
+    const openTodos = todos.filter((todo) => todo.statusCode !== 'closed');
+    if (!openTodos.length)
         return undefined;
+    const firstTodo = openTodos[0];
+    const reason = openTodos.map((todo, index) => `${index + 1}. ${todo.reason}`).join('\n');
     return {
-        title: request.title || '보완 요청',
-        reason: request.reason || '',
-        assignee: assigneeName || (request.assigneeUserId ? `담당자 #${request.assigneeUserId}` : '-'),
-        dueDate: request.dueDate || '',
-        requestedAt: request.createdAt?.slice(0, 10) || '-',
+        title: firstTodo.reason || '보완 요청',
+        reason,
+        assignee: '프로젝트 담당자',
+        dueDate: '',
+        requestedAt: '-',
         month,
     };
 };
@@ -236,9 +238,7 @@ export default function ProjectDetailPage() {
     const [project, setProject] = useState<ProjectSummary>(EMPTY_PROJECT);
     const [projectLoading, setProjectLoading] = useState(true);
     const [projectError, setProjectError] = useState('');
-    const [managerCandidateProfiles, setManagerCandidateProfiles] = useState<BackendUserProfile[]>([]);
     const [dbUsageStatementsByMonth, setDbUsageStatementsByMonth] = useState<Record<string, MonthUsageStatementArchiveData>>({});
-    const [actionRequests, setActionRequests] = useState<ProjectActionRequest[]>([]);
     const latestFallbackStatement = EMPTY_USAGE_STATEMENT;
     const canUploadEvidence = can(user, 'uploadEvidence');
     const canRunValidation = can(user, 'runValidation');
@@ -332,41 +332,41 @@ export default function ProjectDetailPage() {
             };
         });
     };
-    const getActionRequestAssigneeName = (request?: ProjectActionRequest) => {
-        if (!request?.assigneeUserId)
-            return '';
-        const candidateName = managerCandidateProfiles.find((manager) => manager.id === request.assigneeUserId)?.realName;
-        if (candidateName)
-            return candidateName;
-        const projectAssigneeIndex = project.assigneeUserIds?.findIndex((id) => id === request.assigneeUserId) ?? -1;
-        return projectAssigneeIndex >= 0 ? project.participants[projectAssigneeIndex] || '' : '';
+    const attachOrchestratorState = async (item: UsageStatementArchiveData): Promise<MonthUsageStatementArchiveData> => {
+        const month = normalizeMonthKey(item.statementSummary.month);
+        if (!item.usageStatementId) {
+            return { ...item, statementSummary: { ...item.statementSummary, month, label: formatMonthLabel(month) } };
+        }
+        try {
+            const status = await getOrchestratorStatus(project.id || projectId, item.usageStatementId);
+            const todos = status.todos || [];
+            const actionRequestDetails = orchestratorTodosToDetails(todos, month);
+            return {
+                ...item,
+                statementSummary: { ...item.statementSummary, month, label: formatMonthLabel(month) },
+                workflowStatus: actionRequestDetails ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : item.workflowStatus,
+                actionRequestDetails,
+                orchestratorTodos: todos,
+            };
+        } catch {
+            return { ...item, statementSummary: { ...item.statementSummary, month, label: formatMonthLabel(month) } };
+        }
     };
     const refreshArchiveData = async (targetProjectId: string) => {
         const localData = readLocalUsageStatementData(targetProjectId);
-        const [statementArchives, latestData, archiveData, latestActionRequests] = await Promise.all([
+        const [statementArchives, latestData, archiveData] = await Promise.all([
             listUsageStatementArchives(targetProjectId).catch(() => []),
             getLatestUsageStatementArchive(targetProjectId).catch(() => null),
             getProjectArchiveFromCategories(targetProjectId).catch(() => null),
-            listActionRequests(targetProjectId).catch(() => []),
         ]);
-        setActionRequests(latestActionRequests);
         const mergedStatementArchives = [...statementArchives];
         const localDataMonth = normalizeMonthKey(localData?.statementSummary.month);
         if (localData && !mergedStatementArchives.some((item) => normalizeMonthKey(item.statementSummary.month) === localDataMonth)) {
             mergedStatementArchives.push(localData);
         }
-        const mergedWithActionRequests = mergedStatementArchives.map((item) => {
-            const openRequest = latestActionRequests.find((request) => request.usageStatementId === item.usageStatementId && OPEN_ACTION_REQUEST_STATUSES.has(request.statusCode));
-            if (!openRequest)
-                return item;
-            return {
-                ...item,
-                workflowStatus: USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
-                actionRequestDetails: actionRequestToDetails(openRequest, item.statementSummary.month, getActionRequestAssigneeName(openRequest)),
-            };
-        });
-        if (mergedWithActionRequests.length) {
-            setDbUsageStatementsByMonth(Object.fromEntries(mergedWithActionRequests.map((item) => {
+        const mergedWithOrchestrator = await Promise.all(mergedStatementArchives.map(attachOrchestratorState));
+        if (mergedWithOrchestrator.length) {
+            setDbUsageStatementsByMonth(Object.fromEntries(mergedWithOrchestrator.map((item) => {
                 const month = normalizeMonthKey(item.statementSummary.month);
                 return [month, {
                     ...item,
@@ -380,9 +380,10 @@ export default function ProjectDetailPage() {
             })) as Record<string, MonthUsageStatementArchiveData>);
         }
         if (latestData) {
-            const latestOpenRequest = latestActionRequests.find((request) => request.usageStatementId === latestData.usageStatementId && OPEN_ACTION_REQUEST_STATUSES.has(request.statusCode));
-            const latestWorkflowStatus = latestOpenRequest ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : latestData.workflowStatus || USAGE_WORKFLOW_STATUS.DRAFT;
-            const latestActionRequestDetails = actionRequestToDetails(latestOpenRequest, latestData.statementSummary.month, getActionRequestAssigneeName(latestOpenRequest));
+            const latestMonth = normalizeMonthKey(latestData.statementSummary.month);
+            const latestWithOrchestrator = mergedWithOrchestrator.find((item) => normalizeMonthKey(item.statementSummary.month) === latestMonth) || await attachOrchestratorState(latestData);
+            const latestWorkflowStatus = latestWithOrchestrator.workflowStatus || latestData.workflowStatus || USAGE_WORKFLOW_STATUS.DRAFT;
+            const latestActionRequestDetails = latestWithOrchestrator.actionRequestDetails;
             const mergedArchiveSeed = archiveData?.archiveSeed || latestData.archiveSeed;
             setArchiveSeed({
                 usage_statement: latestData.archiveSeed.usage_statement.length ? latestData.archiveSeed.usage_statement : mergedArchiveSeed.usage_statement,
@@ -407,15 +408,13 @@ export default function ProjectDetailPage() {
     };
     const selectedStatement = monthlyStatements.find((statement) => statement.month === selectedMonth) || latestStatement;
     const selectedStatementArchive = selectedStatement.month ? dbUsageStatementsByMonth[selectedStatement.month] : undefined;
-    const selectedActionRequest = selectedStatementArchive?.usageStatementId
-        ? actionRequests.find((request) => request.usageStatementId === selectedStatementArchive.usageStatementId && OPEN_ACTION_REQUEST_STATUSES.has(request.statusCode))
-        : undefined;
     const selectedMonthHasUploadedStatement = Boolean(selectedStatement.sourceFileName && selectedStatement.sourceFileName !== '-');
     const hasUsageStatement = monthlyStatements.length > 0 || Boolean(archiveSeed?.usage_statement?.length || archiveUsageItems.length);
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
+    const selectedOpenOrchestratorTodos = selectedStatementArchive?.orchestratorTodos?.filter((todo) => todo.statusCode !== 'closed') || [];
     const selectedMonthHasActionRequest = Boolean(
         selectedStatementArchive?.workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-        || selectedActionRequest
+        || selectedOpenOrchestratorTodos.length
     );
     const selectedMonthWorkflowStatus: SharedWorkflowStatus = selectedStatementArchive?.workflowStatus
         || (selectedMonthHasActionRequest
@@ -425,9 +424,9 @@ export default function ProjectDetailPage() {
                 : selectedMonthHasUploadedStatement
                     ? USAGE_WORKFLOW_STATUS.DRAFT
                     : USAGE_WORKFLOW_STATUS.DRAFT);
-    const selectedMonthShouldDisplayWorkflowStatus = selectedMonthHasUploadedStatement || Boolean(selectedStatementArchive?.workflowStatus || selectedActionRequest);
-    const selectedMonthActionRequestDetails = actionRequestToDetails(selectedActionRequest, selectedStatement.month, getActionRequestAssigneeName(selectedActionRequest))
-        || selectedStatementArchive?.actionRequestDetails
+    const selectedMonthShouldDisplayWorkflowStatus = selectedMonthHasUploadedStatement || Boolean(selectedStatementArchive?.workflowStatus || selectedOpenOrchestratorTodos.length);
+    const selectedMonthActionRequestDetails = selectedStatementArchive?.actionRequestDetails
+        || orchestratorTodosToDetails(selectedOpenOrchestratorTodos, selectedStatement.month)
         || (selectedMonthHasActionRequest ? withActionRequestMonth(project.actionRequestDetails, selectedStatement.month) : undefined);
     const validationSampleReady = VALIDATION_DASHBOARD_RESULT.categories.length > 0;
     const canStartValidationForCurrentView = Boolean(selectedStatementArchive?.usageStatementId)
@@ -550,13 +549,6 @@ export default function ProjectDetailPage() {
         };
     }, [projectId]);
     useEffect(() => {
-        if (!canEditManagers)
-            return;
-        listProjectManagerCandidates()
-            .then(setManagerCandidateProfiles)
-            .catch(() => setManagerCandidateProfiles([]));
-    }, [canEditManagers]);
-    useEffect(() => {
         if (!project.id)
             return;
         let alive = true;
@@ -678,21 +670,15 @@ export default function ProjectDetailPage() {
             return;
         const usageStatementId = selectedStatementArchive?.usageStatementId;
         try {
-            if (selectedActionRequest) {
-                let updatedRequest = selectedActionRequest;
-                if (updatedRequest.statusCode === ACTION_REQUEST_STATUS.OPEN) {
-                    updatedRequest = await updateActionRequestStatus(project.id, updatedRequest.id, ACTION_REQUEST_STATUS.IN_PROGRESS);
-                }
-                setActionRequests((current) => current.map((request) => request.id === updatedRequest.id ? updatedRequest : request));
-            } else if (usageStatementId && selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT) {
+            if (usageStatementId && selectedMonthWorkflowStatus !== USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED) {
                 await submitUsageStatement(project.id, usageStatementId);
             }
-            const nextWorkflowStatus: SharedWorkflowStatus = selectedActionRequest ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED;
-            patchMonthWorkflow(selectedStatement.month, nextWorkflowStatus, selectedActionRequest ? selectedMonthActionRequestDetails : undefined);
+            const nextWorkflowStatus: SharedWorkflowStatus = USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED;
+            patchMonthWorkflow(selectedStatement.month, nextWorkflowStatus);
             setProject((current) => applyWorkflowToProject({
                 ...current,
                 hasUploads: true,
-            }, nextWorkflowStatus, selectedActionRequest ? selectedMonthActionRequestDetails : undefined));
+            }, nextWorkflowStatus));
             setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'idle' }));
             setActionCompletionSent(true);
             setActionGuideOpen(false);
@@ -1121,7 +1107,7 @@ export default function ProjectDetailPage() {
                 key={statement.month}
                 type="button"
                 onClick={() => selectUsageMonth(statement.month)}
-                className="interactive-card"
+                className={`interactive-card${hasSupplementRequest ? ' interactive-card--supplement' : ''}`}
                 style={{ position: 'relative', border: `1px solid ${hasSupplementRequest ? '#FFB7BC' : uploaded ? C.light : C.g200}`, borderRadius: 'var(--ui-radius-card)', background: hasSupplementRequest ? '#FFF6F7' : uploaded ? 'color-mix(in srgb, var(--c-bg) 42%, #fff)' : C.white, padding: '17px 16px', minHeight: 142, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14, boxShadow: hasSupplementRequest ? '0 10px 22px rgba(229, 57, 53, .10)' : 'var(--ui-shadow-card)' }}
               >
                 <span
@@ -1286,14 +1272,10 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         </> : null}
-        {selectedMonthHasUploadedStatement && <ArchiveScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} archiveSeed={archiveSeed} usageItems={archiveUsageItems} actionRequest={canViewActionGuide ? {
-                title: actionGuideTitle,
-                message: actionGuideMessage,
-                dueDate: selectedMonthActionRequestDetails?.dueDate,
-            } : undefined} onUsageItemsChange={(items) => {
+        {selectedMonthHasUploadedStatement && <UsageStatementDetailScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} usageDetailSeed={archiveSeed} usageItems={archiveUsageItems} onUsageItemsChange={(items) => {
                 setArchiveUsageItems(items);
                 revertReviewedProjectToDraft();
-            }} onArchiveContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveArchiveTodoCount} onBackToOverview={() => updateTab('overview')} uploadCompleteAction={reviewRequestHeaderButton}/>}
+            }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveArchiveTodoCount} onBackToOverview={() => updateTab('overview')} uploadCompleteAction={reviewRequestHeaderButton}/>}
         </>}
       </div>),
         validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} onValidationComplete={() => {
@@ -1309,10 +1291,6 @@ export default function ProjectDetailPage() {
                         await submitUsageStatement(project.id, usageStatementId);
                     }
                     await completeUsageStatementReview(project.id, usageStatementId);
-                    if (selectedActionRequest?.statusCode === ACTION_REQUEST_STATUS.IN_PROGRESS) {
-                        const closedRequest = await updateActionRequestStatus(project.id, selectedActionRequest.id, ACTION_REQUEST_STATUS.CLOSED);
-                        setActionRequests((current) => current.map((request) => request.id === closedRequest.id ? closedRequest : request));
-                    }
                     setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
                     patchMonthWorkflow(selectedStatement.month, USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED);
                     setProject((current) => applyWorkflowToProject(current, USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED));
@@ -1321,10 +1299,9 @@ export default function ProjectDetailPage() {
                 } catch {
                     setAgentFailureTarget('server-request');
                 }
-            }} onActionRequested={async (details) => {
+            }} onActionRequested={async () => {
                 const usageStatementId = selectedStatementArchive?.usageStatementId;
-                const assigneeUserId = project.assigneeUserIds?.[0];
-                if (!usageStatementId || !assigneeUserId) {
+                if (!usageStatementId) {
                     setAgentFailureTarget('server-request');
                     return;
                 }
@@ -1332,22 +1309,7 @@ export default function ProjectDetailPage() {
                     if (selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT) {
                         await submitUsageStatement(project.id, usageStatementId);
                     }
-                    if (selectedMonthWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) {
-                        await requestUsageStatementSupplement(project.id, usageStatementId);
-                    }
-                    const dueDate = details.dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-                    const actionRequest = await createActionRequest(project.id, {
-                        title: details.title || '보완 요청',
-                        reason: details.reason,
-                        assigneeUserId,
-                        usageStatementId,
-                        dueDate,
-                    });
-                    const backendDetails = actionRequestToDetails(actionRequest, selectedStatement.month, getActionRequestAssigneeName(actionRequest)) || { ...details, month: selectedStatement.month };
-                    setActionRequests((current) => [actionRequest, ...current.filter((request) => request.id !== actionRequest.id)]);
                     setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
-                    patchMonthWorkflow(selectedStatement.month, USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED, backendDetails);
-                    setProject((current) => applyWorkflowToProject(current, USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED, backendDetails));
                     await refreshArchiveData(project.id);
                 } catch {
                     setAgentFailureTarget('server-request');

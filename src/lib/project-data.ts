@@ -19,12 +19,6 @@ export const PROJECT_STATUS_CODE = {
   SUSPENDED: 'suspended',
 } as const;
 
-export const ACTION_REQUEST_STATUS = {
-  OPEN: 'open',
-  IN_PROGRESS: 'in_progress',
-  CLOSED: 'closed',
-} as const;
-
 export const AGENT_TYPE_CODE = {
   CLASSI: 'classi',
   SAFETY_DOC: 'safety-doc',
@@ -52,7 +46,6 @@ export const FILE_STATUS_CODE = {
 export type ProjectStatus = typeof PROJECT_STATUS[keyof typeof PROJECT_STATUS];
 export type UsageWorkflowStatus = typeof USAGE_WORKFLOW_STATUS[keyof typeof USAGE_WORKFLOW_STATUS];
 export type ProjectStatusCode = typeof PROJECT_STATUS_CODE[keyof typeof PROJECT_STATUS_CODE];
-export type ActionRequestStatusCode = typeof ACTION_REQUEST_STATUS[keyof typeof ACTION_REQUEST_STATUS];
 export type AgentTypeCode = typeof AGENT_TYPE_CODE[keyof typeof AGENT_TYPE_CODE];
 export type AgentLogStatusCode = typeof AGENT_LOG_STATUS[keyof typeof AGENT_LOG_STATUS];
 export type FileStatusCode = typeof FILE_STATUS_CODE[keyof typeof FILE_STATUS_CODE];

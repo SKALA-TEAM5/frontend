@@ -9,7 +9,7 @@ import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getOrchestratorDashboard } from '../../lib/agent-api';
 import { C } from '../../lib/theme';
-import { USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
+import { STATUS_META, USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
 import { listProjects } from '../../lib/project-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { ROLE_LABELS } from '../../lib/permissions';
@@ -156,6 +156,12 @@ const readUsageStatementMonth = (projectId: string) => {
   }
 };
 
+const formatMonthLabel = (month?: string) => {
+  const match = month?.match(/^(\d{4})-(\d{2})/);
+  if (!match) return '월 정보 없음';
+  return `${match[1]}년 ${Number(match[2])}월`;
+};
+
 const readUsageStatementMonths = (projectId: string) => {
   if (typeof window === 'undefined') return [] as string[];
   try {
@@ -264,7 +270,7 @@ const dashboardPhotoBackdropStyle: CSSProperties = {
 
 const dashboardTopStyle: CSSProperties = {
   position: 'relative',
-  zIndex: 1,
+  zIndex: 80,
   minWidth: 0,
   padding: 0,
   margin: '0 auto',
@@ -337,6 +343,7 @@ export default function DashboardPage() {
   const [logoutPending, setLogoutPending] = useState(false);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const [chartTooltip, setChartTooltip] = useState<{ x: number; y: number; title: string; body: string } | null>(null);
+  const [reviewQueueTooltipOpen, setReviewQueueTooltipOpen] = useState(false);
 
   const showChartTooltip = (event: ReactMouseEvent, title: string, body: string) => {
     setChartTooltip({ x: event.clientX + 14, y: event.clientY + 14, title, body });
@@ -464,6 +471,7 @@ export default function DashboardPage() {
       id: `project-${project.id}`,
       projectId: project.id,
       projectName: project.constructionName,
+      month: project.actionRequestDetails?.month || readUsageStatementMonth(project.id),
       title: getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
         ? (project.actionRequestDetails?.title || '보완 요청 확인 필요')
         : '업로드 완료 검토 필요',
@@ -621,7 +629,7 @@ export default function DashboardPage() {
               </div>
             </section>
           </div>
-        <aside style={{ alignSelf: 'start', position: 'relative', border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: 14, boxShadow: 'var(--ui-shadow-card)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
+        <aside style={{ alignSelf: 'start', position: 'relative', zIndex: 40, overflow: 'visible', border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: 14, boxShadow: 'var(--ui-shadow-card)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
           <button type="button" onClick={handleDashboardLogout} disabled={logoutPending} style={{ position: 'absolute', top: 13, right: 13, height: 24, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1 }}>
             {logoutPending ? '로그아웃 중' : '로그아웃'}
           </button>
@@ -642,11 +650,55 @@ export default function DashboardPage() {
 	              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>전체 프로젝트</div>
 		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.g800 }}>{projects.length}</div>
 	            </div>
-            <div style={{ border: `1px solid ${C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>확인 필요</div>
+            <button
+              type="button"
+              onClick={() => setReviewQueueTooltipOpen((open) => !open)}
+              aria-expanded={reviewQueueTooltipOpen}
+              style={{ border: `1px solid ${reviewQueueTooltipOpen ? C.primary : C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0, background: C.white, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
+            >
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>법령 검증 필요</div>
 		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{queueProjects.length}</div>
-	            </div>
+	            </button>
 	          </div>
+          {reviewQueueTooltipOpen && (
+            <div
+              role="tooltip"
+              style={{ position: 'absolute', top: 'calc(100% + 10px)', left: 0, right: 0, zIndex: 2000, minWidth: 260, border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, boxShadow: '0 18px 42px rgba(31,47,39,.18)', padding: 12 }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.g800 }}>법령 검증 필요 항목</div>
+                <button type="button" onClick={() => setReviewQueueTooltipOpen(false)} aria-label="검토 큐 닫기" style={{ border: 'none', background: 'transparent', color: C.g500, cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
+              </div>
+              <div style={{ display: 'grid', gap: 8, maxHeight: 250, overflowY: 'auto', paddingRight: 2 }}>
+                {queueProjects.length === 0 ? (
+                  <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, background: '#FBFCFB', padding: 12, fontSize: 12, fontWeight: 700, color: C.g500, lineHeight: 1.5 }}>
+                    현재 법령 검증이 필요한 월별 사용내역서가 없습니다.
+                  </div>
+                ) : queueProjects.map((item) => {
+                  const meta = STATUS_META[item.status];
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => router.push(`/projects/${item.projectId}?tab=validation`)}
+                      style={{ border: `1px solid ${meta.color}`, borderRadius: 10, background: meta.bg, padding: 10, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                        <div title={item.projectName} style={{ minWidth: 0, fontSize: 12, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.projectName}</div>
+                        <span style={{ flexShrink: 0, border: `1px solid ${meta.color}`, borderRadius: 999, background: C.white, color: meta.color, padding: '3px 7px', fontSize: 10, fontWeight: 800, lineHeight: 1 }}>{meta.label}</span>
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.g600, lineHeight: 1.45 }}>
+                        {formatMonthLabel(item.month)} · 담당 {item.assignee}
+                      </div>
+                      <div title={item.title} style={{ marginTop: 5, fontSize: 11, fontWeight: 750, color: meta.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.title}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 	          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>
 		            <button
 		              type="button"

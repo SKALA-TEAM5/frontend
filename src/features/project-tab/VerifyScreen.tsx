@@ -4,7 +4,6 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import InlineLoader from '../../components/ui/InlineLoader';
-import Modal from '../../components/ui/Modal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { runLegalAgent } from '../../lib/agent-api';
 import { useCurrentUser } from '../../lib/dev-user';
@@ -147,8 +146,6 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
   const [filter, setFilter] = useState<ResultFilter>('all');
   const [selectedCategoryId, setSelectedCategoryId] = useState(4);
   const [sheReviewDecision, setSheReviewDecision] = useState<SheReviewDecision>('pending');
-  const [manualSupplementOpen, setManualSupplementOpen] = useState(false);
-  const [manualSupplementText, setManualSupplementText] = useState('');
   const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
   const [openEvidenceFileCategoryIds, setOpenEvidenceFileCategoryIds] = useState<number[]>([]);
   const [validationId, setValidationId] = useState('');
@@ -225,10 +222,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
 
   const handleSupplementRequest = async () => {
     if (!can(user, 'requestAction')) return;
-    if (!issues.length) {
-      setManualSupplementOpen(true);
-      return;
-    }
+    if (!issues.length) return;
     const firstIssue = issues[0];
     const reason = firstIssue ? `${firstIssue.categoryName} 항목에서 ${firstIssue.title} 문제가 있습니다. ${firstIssue.requiredAction}` : '제출 자료를 다시 확인해 주세요.';
     if (!validationId || validationConfirming) return;
@@ -247,29 +241,6 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
     } finally {
       setValidationConfirming(false);
     }
-  };
-
-    const handleManualSupplementSend = async () => {
-      const message = manualSupplementText.trim();
-      if (!message) return;
-      if (!validationId || validationConfirming) return;
-      setValidationConfirming(true);
-      try {
-        onActionRequested?.({
-        title: '보완 요청',
-        reason: message,
-        assignee: '프로젝트 담당자',
-        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
-        requestedAt: new Date().toLocaleString('ko-KR'),
-        });
-        setManualSupplementText('');
-        setManualSupplementOpen(false);
-        setSheReviewDecision('supplement_requested');
-      } catch {
-        setAgentFailureTarget('legal-validation');
-      } finally {
-        setValidationConfirming(false);
-      }
   };
 
   const renderProgress = () => (
@@ -502,7 +473,8 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 보완 요청 상태를 보냈습니다. 사용내역서 또는 증빙 자료를 수정한 뒤 다시 업로드 완료를 누르면 재검토할 수 있습니다.' },
     };
     const current = decisionMetaByStatus[sheReviewDecision];
-    const reviewButtonStyle = (color: string, active: boolean): CSSProperties => ({
+    const canRequestSupplement = Boolean(validationId && issues.length > 0 && !validationConfirming);
+    const reviewButtonStyle = (color: string, active: boolean, disabled = !validationId || validationConfirming): CSSProperties => ({
       border: active ? 'none' : `1px solid ${C.g200}`,
       borderRadius: 999,
       padding: '9px 18px',
@@ -512,9 +484,9 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       fontFamily: 'inherit',
       fontSize: 13,
       fontWeight: 900,
-      cursor: !validationId || validationConfirming ? 'not-allowed' : 'pointer',
+      cursor: disabled ? 'not-allowed' : 'pointer',
       textAlign: 'center',
-      opacity: !validationId || validationConfirming ? 0.5 : 1,
+      opacity: disabled ? 0.5 : 1,
       boxShadow: active ? '0 10px 22px rgba(27, 94, 59, .22)' : '0 7px 16px rgba(31, 55, 43, .08)',
     });
 
@@ -530,7 +502,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
             <button type="button" onClick={handleApproveValidation} disabled={!validationId || validationConfirming} style={reviewButtonStyle(C.ok, sheReviewDecision === 'review_completed')}>{validationConfirming ? '처리 중' : '검토 완료'}</button>
-            <button type="button" onClick={handleSupplementRequest} disabled={!validationId || validationConfirming} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested')}>보완 요청</button>
+            <button type="button" onClick={handleSupplementRequest} disabled={!canRequestSupplement} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested', !canRequestSupplement)}>보완 요청</button>
           </div>
         </div>
       </Card>
@@ -595,17 +567,6 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
     {status === 'idle' && renderEmpty()}
     {status === 'done' && renderDashboard()}
     <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
-    <Modal open={manualSupplementOpen} onClose={() => setManualSupplementOpen(false)} maxWidth={560} zIndex={980}>
-      <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
-        <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>보완 요청 작성</div>
-        <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginBottom: 14 }}>담당자 조치 목록이 비어 있습니다. 프로젝트 담당자에게 보낼 보완 요청 내용을 직접 입력해 주세요.</div>
-        <textarea value={manualSupplementText} onChange={(event) => setManualSupplementText(event.target.value)} placeholder="예: 사용내역서의 보호구 항목 증빙이 부족합니다. 지급대장과 착용 사진을 추가 제출해 주세요." style={{ width: '100%', minHeight: 140, resize: 'vertical', boxSizing: 'border-box', border: `1px solid ${C.g200}`, borderRadius: 12, padding: '12px 14px', outline: 'none', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: C.g800, lineHeight: 1.6 }} />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-          <Button size="sm" variant="outline" onClick={() => setManualSupplementOpen(false)}>취소</Button>
-          <Button size="sm" onClick={handleManualSupplementSend} disabled={!manualSupplementText.trim() || !validationId || validationConfirming}>{validationConfirming ? '처리 중' : '요청 전송'}</Button>
-        </div>
-      </div>
-    </Modal>
   </div>;
 };
 

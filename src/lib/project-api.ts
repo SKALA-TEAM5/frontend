@@ -1,6 +1,6 @@
 import { apiFetch } from './api-client';
 import type { BackendRoleCode, BackendUserProfile } from './auth-api';
-import { PROJECT_STATUS_CODE, normalizeProjectStatus, type ActionRequestStatusCode, type NewProjectInput, type ProjectStatus, type ProjectStatusCode, type ProjectSummary } from './project-data';
+import { PROJECT_STATUS_CODE, normalizeProjectStatus, type NewProjectInput, type ProjectStatus, type ProjectStatusCode, type ProjectSummary } from './project-data';
 
 export interface ProjectAssignee {
   userId: number;
@@ -62,29 +62,6 @@ interface ProjectAssigneeListResponse {
 
 interface UserListResponse {
   items: BackendUserProfile[];
-}
-
-export interface ProjectActionRequest {
-  id: number;
-  projectId: number;
-  usageStatementId: number | null;
-  usageStatementItemId: number | null;
-  requestedByUserId: number;
-  assigneeUserId: number | null;
-  title: string;
-  reason: string | null;
-  statusCode: ActionRequestStatusCode | string;
-  dueDate: string | null;
-  createdAt: string | null;
-}
-
-export interface CreateActionRequestInput {
-  title: string;
-  reason?: string;
-  assigneeUserId: number;
-  usageStatementId?: number;
-  usageStatementItemId?: number;
-  dueDate?: string;
 }
 
 export interface ProjectListParams {
@@ -268,32 +245,4 @@ export const replaceProjectAssignees = async (projectId: string, assigneeUserIds
 export const listProjectManagerCandidates = async () => {
   const response = await apiFetch<UserListResponse>('/users?roleCode=user');
   return response.data.items;
-};
-
-export const listActionRequests = async (projectId: string) => {
-  const response = await apiFetch<ProjectActionRequest[]>(`/projects/${projectId}/action-requests`);
-  return response.data || [];
-};
-
-export const createActionRequest = async (projectId: string, input: CreateActionRequestInput) => {
-  const response = await apiFetch<ProjectActionRequest>(`/projects/${projectId}/action-requests`, {
-    method: 'POST',
-    body: {
-      title: input.title,
-      reason: input.reason,
-      assigneeUserId: input.assigneeUserId,
-      usageStatementId: input.usageStatementId,
-      usageStatementItemId: input.usageStatementItemId,
-      dueDate: input.dueDate,
-    },
-  });
-  return response.data;
-};
-
-export const updateActionRequestStatus = async (projectId: string, actionRequestId: number, statusCode: ActionRequestStatusCode) => {
-  const response = await apiFetch<ProjectActionRequest>(`/projects/${projectId}/action-requests/${actionRequestId}/status`, {
-    method: 'PATCH',
-    body: { statusCode },
-  });
-  return response.data;
 };

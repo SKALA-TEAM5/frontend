@@ -186,11 +186,11 @@
     0%, 100% { transform: translateY(0) scale(1); }
     50% { transform: translateY(-4px) scale(1.02); }
   }
-  .archive-verification-loader {
+  .usage-detail-verification-loader {
     display: grid;
     gap: 18px;
   }
-  .archive-loader-ocean {
+  .usage-detail-loader-ocean {
     position: relative;
     aspect-ratio: 2.7 / 1;
     min-height: 180px;
@@ -225,7 +225,7 @@
       animation: none;
       background-position: 50% 50%;
     }
-    .archive-loader-ocean {
+    .usage-detail-loader-ocean {
       animation: none;
     }
   }
@@ -413,17 +413,17 @@
   .history-date-tabs::-webkit-scrollbar {
     display: none;
   }
-  button:hover > .archive-todo-reason,
-  button:focus-visible > .archive-todo-reason {
+  button:hover > .usage-detail-todo-reason,
+  button:focus-visible > .usage-detail-todo-reason {
     display: block !important;
   }
-  .archive-todo-scroll::-webkit-scrollbar {
+  .usage-detail-todo-scroll::-webkit-scrollbar {
     width: 9px;
   }
-  .archive-todo-scroll::-webkit-scrollbar-track {
+  .usage-detail-todo-scroll::-webkit-scrollbar-track {
     background: transparent;
   }
-  .archive-todo-scroll::-webkit-scrollbar-thumb {
+  .usage-detail-todo-scroll::-webkit-scrollbar-thumb {
     background: var(--c-g200);
     border: 2px solid var(--c-white);
     border-radius: 999px;
