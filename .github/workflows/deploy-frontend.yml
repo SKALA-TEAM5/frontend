@@ -55,11 +55,6 @@ jobs:
             --region "${AWS_REGION}" \
             --name "${EKS_CLUSTER_NAME}"
 
-      - name: Apply Kubernetes manifests
-        run: |
-          kubectl apply -f k8s/frontend-deployment.yaml
-          kubectl apply -f k8s/frontend-service.yaml
-
       - name: Restart frontend deployment
         run: |
           kubectl rollout restart deployment/team5-frontend -n "${K8S_NAMESPACE}"
