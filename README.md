@@ -2,9 +2,10 @@
 
 산업안전보건관리비 사용내역서와 증빙자료를 월 단위로 검토하는 Next.js 프론트엔드입니다.
 
-## Docker / Kubernetes 실행 가이드
+## Docker / 배포 가이드
 
-프론트엔드는 Next.js standalone Docker 이미지로 빌드하여 Kubernetes에 배포합니다.
+프론트엔드는 Next.js standalone Docker 이미지로 빌드합니다.
+Kubernetes manifest는 `SKALA-TEAM5/deploy` 레포에서 중앙 관리합니다.
 
 ## 환경 설정 원칙
 
@@ -57,7 +58,10 @@ docker buildx build \
 
 ### Kubernetes 배포
 
-Private registry 접근용 secret을 한 번만 생성합니다.
+Kubernetes manifest는 이 레포에서 관리하지 않습니다.
+배포 정의는 `SKALA-TEAM5/deploy` 레포의 `k8s/frontend`를 기준으로 합니다.
+
+Private registry 접근용 secret은 namespace에 한 번만 생성합니다.
 
 ```bash
 kubectl create secret docker-registry team5-harbor-secret \
@@ -67,11 +71,6 @@ kubectl create secret docker-registry team5-harbor-secret \
   --docker-password='<REGISTRY_PASSWORD>' \
   --dry-run=client \
   -o yaml | kubectl apply -f -
-```
-
-```bash
-kubectl apply -f k8s/frontend-deployment.yaml
-kubectl apply -f k8s/frontend-service.yaml
 ```
 
 ```bash
