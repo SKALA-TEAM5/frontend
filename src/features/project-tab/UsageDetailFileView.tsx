@@ -74,8 +74,8 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
   const [moveTargetKind, setMoveTargetKind] = useState<FolderEvidenceCategory>('receipt');
   const filteredItems = usageItems.filter((item) => item.categoryId === selectedCatId);
   const activeItem = filteredItems.find((item) => item.id === selectedUsageItemId) || filteredItems[0];
-  const layoutColumns = 'minmax(140px, .5fr) minmax(620px, 1.24fr) minmax(250px, .84fr)';
-  const usageItemGridColumns = '72px minmax(120px, .78fr) 32px 36px 78px 84px';
+  const layoutColumns = '190px 600px 340px';
+  const usageItemGridColumns = '72px minmax(140px, .78fr) 32px 32px 80px 86px';
   const usageItemRowColumns = `${usageItemGridColumns} 66px`;
   const actionRequestText = `${actionRequest?.title || ''} ${actionRequest?.message || ''}`;
   const normalizeRequestText = (value: string) => value.replace(/\s+/g, '').toLowerCase();
@@ -337,7 +337,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
           </div>
 
           <div style={{ padding: 12, borderRight: `1px solid ${C.g200}`, overflow: 'hidden', minWidth: 0, background: '#FEFFFE' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 560, overflowY: 'auto', paddingRight: 3 }}>
+            <div className="usage-detail-y-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 560, overflowY: 'auto', paddingRight: 3 }}>
               <div className="thin-x-scroll" style={{ width: '100%', paddingBottom: 4 }}>
                 <div style={{ minWidth: 560, display: 'flex', flexDirection: 'column', gap: 7 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: usageItemRowColumns, gap: 8, alignItems: 'center', padding: '0 10px 4px', color: C.g400, fontSize: 10, fontWeight: 900 }}>
@@ -414,7 +414,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
           </div>
 
           <div style={{ padding: 14, overflow: 'hidden', minWidth: 0, background: '#FBFDFC' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, maxHeight: 532, overflowY: 'auto', paddingRight: 4 }}>
+            <div className="usage-detail-y-scroll" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, maxHeight: 532, overflowY: 'auto', paddingRight: 4 }}>
               {EVIDENCE_SECTIONS.map((section) => {
                 const files = getFiles(section.id, selectedCatId, activeItem?.id);
                 const uploadButton = (compact = false) => (

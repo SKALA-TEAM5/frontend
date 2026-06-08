@@ -4,24 +4,36 @@ import type { CSSProperties } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Card from '../../../components/ui/Card';
 import CenterModal from '../../../components/ui/CenterModal';
+import InlineLoader from '../../../components/ui/InlineLoader';
 import Modal from '../../../components/ui/Modal';
 import ProjectInfoEditorModal from '../../../components/project/ProjectInfoEditorModal';
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
-import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
+import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
 import { getProject, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
 import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
-import { getOrchestratorStatus, parseUsageStatementWithOcr, type OrchestratorTodo } from '../../../lib/agent-api';
+import { getOrchestratorStatus, parseUsageStatementWithOcr, type OrchestratorDashboardAgent, type OrchestratorTodo } from '../../../lib/agent-api';
 import { can } from '../../../lib/permissions';
 import { useCurrentUser } from '../../../lib/dev-user';
 import UsageStatementDetailScreen from '../../../features/project-tab/UsageStatementDetailScreen';
-import VerifyScreen from '../../../features/project-tab/VerifyScreen';
+import VerifyScreen, { type ValidationGateItem, type ValidationGateState } from '../../../features/project-tab/VerifyScreen';
 import ReportScreen from '../../../features/project-tab/ReportScreen';
-import { CATS, VALIDATION_DASHBOARD_RESULT, type UsageLineItem } from '../../../lib/evidence-utils';
+import { CATS, type UsageLineItem } from '../../../lib/evidence-utils';
 import type { ArchiveSeed } from '../../../types/domain';
 type DetailTab = 'overview' | 'details' | 'validation' | 'report';
+const FALLBACK_ACTION_ASSIGNEE = '프로젝트 담당자';
+
+const getProjectAssigneeNames = (project: ProjectSummary) => {
+    const names = project.participants.length > 0 ? project.participants : getProjectManagers(project);
+    return names.filter(Boolean);
+};
+
+const getProjectAssigneeLabel = (project: ProjectSummary) => {
+    const names = getProjectAssigneeNames(project);
+    return names.length > 0 ? names.join(', ') : FALLBACK_ACTION_ASSIGNEE;
+};
 type UsageStatementInfoDraft = UpdateProjectInput & {
     contractNumber: string;
     constructionName: string;
@@ -51,6 +63,10 @@ type MonthUsageStatementArchiveData = UsageStatementArchiveData & {
     workflowStatus?: SharedWorkflowStatus;
     actionRequestDetails?: ProjectSummary['actionRequestDetails'];
     orchestratorTodos?: OrchestratorTodo[];
+    orchestratorAgents?: OrchestratorDashboardAgent[];
+    legalResultCode?: string | null;
+    reportReady?: boolean;
+    reportDisabledReason?: string | null;
 };
 const TABS: Array<{
     id: DetailTab;
@@ -198,7 +214,7 @@ const withActionRequestMonth = (details: ProjectSummary['actionRequestDetails'] 
         return details;
     return details.month || !month ? details : { ...details, month };
 };
-const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string): ProjectSummary['actionRequestDetails'] | undefined => {
+const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string, assignee = FALLBACK_ACTION_ASSIGNEE): ProjectSummary['actionRequestDetails'] | undefined => {
     const openTodos = todos.filter((todo) => todo.statusCode !== 'closed');
     if (!openTodos.length)
         return undefined;
@@ -207,12 +223,67 @@ const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string): 
     return {
         title: firstTodo.reason || '보완 요청',
         reason,
-        assignee: '프로젝트 담당자',
+        assignee,
         dueDate: '',
         requestedAt: '-',
         month,
     };
 };
+const normalizeAgentGateCode = (code?: string | null) => String(code || '').toLowerCase().replace(/[-_\s]/g, '');
+const SUCCESS_AGENT_RESULTS = new Set(['success', 'hil']);
+const agentMatchesGate = (agent: OrchestratorDashboardAgent, gateCode: string) => {
+    const normalized = normalizeAgentGateCode(agent.agentTypeCode);
+    const target = normalizeAgentGateCode(gateCode);
+    if (target === 'safetydocs')
+        return normalized === 'safetydoc' || normalized === 'safetydocs';
+    return normalized === target;
+};
+const findAgentGateLog = (agents: OrchestratorDashboardAgent[] = [], gateCode: string) =>
+    [...agents].reverse().find((agent) => agentMatchesGate(agent, gateCode));
+const buildAgentGateItem = (agents: OrchestratorDashboardAgent[], input: { id: string; label: string; required: boolean; gateCode: string }): ValidationGateItem => {
+    const agent = findAgentGateLog(agents, input.gateCode);
+    if (!agent) {
+        return {
+            id: input.id,
+            label: input.label,
+            required: input.required,
+            state: input.required ? 'waiting' : 'passed',
+            statusText: input.required ? '로그 없음' : '선택 로그 없음',
+            detail: input.required
+                ? '실행 로그가 필요합니다. status_code=success, result_code=success 또는 hil이어야 합니다.'
+                : '로그가 없으면 법령 검증을 막지 않습니다. 로그가 있으면 success/hil 조건을 검사합니다.',
+        };
+    }
+    const statusCode = String(agent.statusCode || '').toLowerCase();
+    const resultCode = String(agent.resultCode || '').toLowerCase();
+    const statusReady = statusCode === 'success';
+    const resultReady = SUCCESS_AGENT_RESULTS.has(resultCode);
+    const pending = statusCode === 'pending' || statusCode === 'running';
+    const state: ValidationGateState = statusReady && resultReady ? 'passed' : pending ? 'waiting' : 'failed';
+    return {
+        id: input.id,
+        label: input.label,
+        required: input.required,
+        state,
+        statusText: `status=${statusCode || '-'}, result=${resultCode || '-'}`,
+        detail: `현재 status_code=${statusCode || '-'}, result_code=${resultCode || '-'}입니다. success / success 또는 hil 조건을 만족해야 합니다.`,
+    };
+};
+const buildValidationGateItems = (input: { usageStatementUploaded: boolean; uploadCompleted: boolean; agents: OrchestratorDashboardAgent[] }): ValidationGateItem[] => [
+    {
+        id: 'upload-completed',
+        label: '업로드 완료',
+        required: true,
+        state: input.usageStatementUploaded ? (input.uploadCompleted ? 'passed' : 'waiting') : 'failed',
+        statusText: input.uploadCompleted ? '완료' : '대기',
+        detail: input.usageStatementUploaded
+            ? '프로젝트 담당자가 해당 월 사용내역서의 업로드 완료를 눌러야 합니다.'
+            : '사용내역서를 먼저 업로드해야 합니다.',
+    },
+    buildAgentGateItem(input.agents, { id: 'safety-docs', label: '증빙 매칭 검증', required: true, gateCode: 'safety_docs' }),
+    buildAgentGateItem(input.agents, { id: 'link', label: 'OCR/링크 검증', required: false, gateCode: 'link' }),
+    buildAgentGateItem(input.agents, { id: 'vision', label: '현장사진 검증', required: false, gateCode: 'vision' }),
+];
 const getUsageStatementOcrFailureReason = (file: File) => {
     const fileName = file.name.toLowerCase();
     const supportedExtension = /\.(pdf|png|jpe?g|webp|xlsx)$/i.test(file.name);
@@ -252,11 +323,12 @@ export default function ProjectDetailPage() {
     });
     const availableTabIds = new Set(availableTabs.map((tab) => tab.id));
     const requestedTabParam = searchParams.get('tab');
+    const requestedMonth = normalizeMonthKey(searchParams.get('month'));
     const requestedTab = requestedTabParam && DETAIL_TABS.has(requestedTabParam as DetailTab) && availableTabIds.has(requestedTabParam as DetailTab) ? requestedTabParam as DetailTab : 'overview';
     const [activeTab, setActiveTab] = useState<DetailTab>(requestedTab);
     const [archiveSeed, setArchiveSeed] = useState<ArchiveSeed | null>(null);
     const [archiveUsageItems, setArchiveUsageItems] = useState<UsageLineItem[]>([]);
-    const [selectedMonth, setSelectedMonth] = useState('');
+    const [selectedMonth, setSelectedMonth] = useState(requestedMonth);
     const [usageUploadStage, setUsageUploadStage] = useState<UsageUploadStage>('idle');
     const [validationStatusByMonth, setValidationStatusByMonth] = useState<Record<string, 'idle' | 'running' | 'done'>>({});
     const [projectHeaderOpen, setProjectHeaderOpen] = useState(true);
@@ -266,6 +338,7 @@ export default function ProjectDetailPage() {
     const [todoClearSignal, setTodoClearSignal] = useState(0);
     const [activeArchiveTodoCount, setActiveArchiveTodoCount] = useState(0);
     const [uploadCompleteConfirmOpen, setUploadCompleteConfirmOpen] = useState(false);
+    const [uploadCompleteFeedback, setUploadCompleteFeedback] = useState(false);
     const [projectInfoModalOpen, setProjectInfoModalOpen] = useState(false);
     const [monthCreateModalOpen, setMonthCreateModalOpen] = useState(false);
     const [newMonthYear, setNewMonthYear] = useState(String(new Date().getFullYear()));
@@ -299,6 +372,7 @@ export default function ProjectDetailPage() {
     const actionRequestBadgeRef = useRef<HTMLButtonElement | null>(null);
     const monthHistoryPushedRef = useRef(false);
     const usageUploadTimersRef = useRef<number[]>([]);
+    const uploadCompleteFeedbackTimerRef = useRef<number | null>(null);
     const monthlyStatements = useMemo(() => {
         const byMonth = new Map<string, MonthlyUsageStatementSummary>();
         Object.values(dbUsageStatementsByMonth).forEach((entry) => {
@@ -340,13 +414,17 @@ export default function ProjectDetailPage() {
         try {
             const status = await getOrchestratorStatus(project.id || projectId, item.usageStatementId);
             const todos = status.todos || [];
-            const actionRequestDetails = orchestratorTodosToDetails(todos, month);
+            const actionRequestDetails = orchestratorTodosToDetails(todos, month, getProjectAssigneeLabel(project));
             return {
                 ...item,
                 statementSummary: { ...item.statementSummary, month, label: formatMonthLabel(month) },
                 workflowStatus: actionRequestDetails ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : item.workflowStatus,
                 actionRequestDetails,
                 orchestratorTodos: todos,
+                orchestratorAgents: status.agents,
+                legalResultCode: status.legalResultCode,
+                reportReady: status.reportReady,
+                reportDisabledReason: status.reportDisabledReason,
             };
         } catch {
             return { ...item, statementSummary: { ...item.statementSummary, month, label: formatMonthLabel(month) } };
@@ -412,6 +490,19 @@ export default function ProjectDetailPage() {
     const hasUsageStatement = monthlyStatements.length > 0 || Boolean(archiveSeed?.usage_statement?.length || archiveUsageItems.length);
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
     const selectedOpenOrchestratorTodos = selectedStatementArchive?.orchestratorTodos?.filter((todo) => todo.statusCode !== 'closed') || [];
+    const selectedLegalResultCode = String(selectedStatementArchive?.legalResultCode || '').toLowerCase();
+    const selectedLegalAllowsReport = selectedLegalResultCode === 'success' || selectedLegalResultCode === 'hil' || (!selectedLegalResultCode && selectedValidationStatus === 'done');
+    const selectedReportGenerationEnabled = Boolean(
+        selectedMonthHasUploadedStatement
+        && selectedLegalAllowsReport
+        && (selectedStatementArchive?.reportReady ?? selectedValidationStatus === 'done')
+    );
+    const selectedReportDisabledReason = selectedStatementArchive?.reportDisabledReason
+        || (!selectedMonthHasUploadedStatement
+            ? '사용내역서를 업로드한 뒤 법령 검증을 완료해야 보고서를 생성할 수 있습니다.'
+            : !selectedLegalAllowsReport
+                ? '법령 검증 결과가 success 또는 HIL 상태일 때만 보고서를 생성할 수 있습니다.'
+                : '법령 검증 결과가 있어야 보고서 초안을 생성할 수 있습니다.');
     const selectedMonthHasActionRequest = Boolean(
         selectedStatementArchive?.workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
         || selectedOpenOrchestratorTodos.length
@@ -426,11 +517,19 @@ export default function ProjectDetailPage() {
                     : USAGE_WORKFLOW_STATUS.DRAFT);
     const selectedMonthShouldDisplayWorkflowStatus = selectedMonthHasUploadedStatement || Boolean(selectedStatementArchive?.workflowStatus || selectedOpenOrchestratorTodos.length);
     const selectedMonthActionRequestDetails = selectedStatementArchive?.actionRequestDetails
-        || orchestratorTodosToDetails(selectedOpenOrchestratorTodos, selectedStatement.month)
+        || orchestratorTodosToDetails(selectedOpenOrchestratorTodos, selectedStatement.month, getProjectAssigneeLabel(project))
         || (selectedMonthHasActionRequest ? withActionRequestMonth(project.actionRequestDetails, selectedStatement.month) : undefined);
-    const validationSampleReady = VALIDATION_DASHBOARD_RESULT.categories.length > 0;
+    const selectedValidationGateItems = buildValidationGateItems({
+        usageStatementUploaded: selectedMonthHasUploadedStatement,
+        uploadCompleted: selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED,
+        agents: selectedStatementArchive?.orchestratorAgents || [],
+    });
+    const selectedValidationGateBlockedItem = selectedValidationGateItems.find((item) => item.state !== 'passed');
     const canStartValidationForCurrentView = Boolean(selectedStatementArchive?.usageStatementId)
-        && (selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || validationSampleReady);
+        && selectedValidationGateItems.every((item) => item.state === 'passed');
+    const selectedValidationDisabledReason = selectedValidationGateBlockedItem
+        ? `${selectedValidationGateBlockedItem.label} 조건이 충족되어야 법령 검증을 시작할 수 있습니다.`
+        : '사용내역서와 에이전트 검증 로그를 확인한 뒤 법령 검증을 시작할 수 있습니다.';
     const pushMonthHistory = () => {
         if (typeof window === 'undefined' || monthHistoryPushedRef.current)
             return;
@@ -606,6 +705,10 @@ export default function ProjectDetailPage() {
     useEffect(() => () => {
         usageUploadTimersRef.current.forEach((timer) => window.clearTimeout(timer));
         usageUploadTimersRef.current = [];
+        if (uploadCompleteFeedbackTimerRef.current) {
+            window.clearTimeout(uploadCompleteFeedbackTimerRef.current);
+            uploadCompleteFeedbackTimerRef.current = null;
+        }
     }, []);
     useEffect(() => {
         const archiveData = selectedStatement.month ? dbUsageStatementsByMonth[selectedStatement.month] : undefined;
@@ -650,6 +753,10 @@ export default function ProjectDetailPage() {
     useEffect(() => {
         setActiveTab(requestedTab);
     }, [requestedTab, requestedTabParam]);
+    useEffect(() => {
+        if (requestedMonth)
+            setSelectedMonth(requestedMonth);
+    }, [requestedMonth]);
     const updateTab = (tab: DetailTab) => {
         if (!availableTabIds.has(tab))
             return;
@@ -665,9 +772,20 @@ export default function ProjectDetailPage() {
         setProject((current) => ({ ...current, hasUploads: true }));
         setValidationStatusByMonth((prev) => prev[selectedStatement.month] ? { ...prev, [selectedStatement.month]: 'idle' } : prev);
     };
+    const flashUploadCompleteFeedback = () => {
+        if (uploadCompleteFeedbackTimerRef.current) {
+            window.clearTimeout(uploadCompleteFeedbackTimerRef.current);
+        }
+        setUploadCompleteFeedback(true);
+        uploadCompleteFeedbackTimerRef.current = window.setTimeout(() => {
+            setUploadCompleteFeedback(false);
+            uploadCompleteFeedbackTimerRef.current = null;
+        }, 1100);
+    };
     const completeReviewRequest = async () => {
         if (!canUploadEvidence || !hasUsageStatement)
             return;
+        flashUploadCompleteFeedback();
         const usageStatementId = selectedStatementArchive?.usageStatementId;
         try {
             if (usageStatementId && selectedMonthWorkflowStatus !== USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED) {
@@ -691,6 +809,7 @@ export default function ProjectDetailPage() {
     };
     const sendReviewRequest = () => {
         if (activeArchiveTodoCount > 0) {
+            flashUploadCompleteFeedback();
             setUploadCompleteConfirmOpen(true);
             return;
         }
@@ -867,6 +986,16 @@ export default function ProjectDetailPage() {
             setProjectInfoDraft((current) => ({ ...current, ...patch }));
             setProjectInfoSaveError('');
         }}/>);
+    const uploadCompleteFeedbackActive = uploadCompleteFeedback && selectedMonthHasUploadedStatement;
+    const uploadCompleteFeedbackStyle: CSSProperties = uploadCompleteFeedbackActive
+        ? {
+            background: C.primary,
+            color: C.white,
+            transform: 'scale(.96)',
+            boxShadow: `0 0 0 5px ${C.primaryShadow}`,
+        }
+        : {};
+    const uploadCompleteFeedbackLabel = uploadCompleteFeedbackActive ? '처리됨' : '업로드 완료';
     const monthCreateModal = (
       <Modal open={monthCreateModalOpen} onClose={() => setMonthCreateModalOpen(false)} zIndex={970} maxWidth={420}>
         <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
@@ -933,7 +1062,26 @@ export default function ProjectDetailPage() {
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
             <button type="button" onClick={() => setUploadCompleteConfirmOpen(false)} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={completeReviewRequest} style={{ height: 38, border: 'none', borderRadius: 999, background: C.primary, color: C.white, padding: '0 16px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>업로드 완료</button>
+            <button
+              type="button"
+              onClick={completeReviewRequest}
+              style={{
+                height: 38,
+                border: `1px solid ${C.primary}`,
+                borderRadius: 999,
+                background: C.primary,
+                color: C.white,
+                padding: '0 16px',
+                fontFamily: 'inherit',
+                fontSize: 13,
+                fontWeight: 900,
+                cursor: 'pointer',
+                transition: 'transform .16s ease, background .18s ease, color .18s ease, box-shadow .18s ease, border-color .18s ease',
+                ...uploadCompleteFeedbackStyle,
+              }}
+            >
+              {uploadCompleteFeedbackLabel}
+            </button>
           </div>
         </div>
       </Modal>
@@ -1013,9 +1161,11 @@ export default function ProjectDetailPage() {
     const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '120px minmax(170px, 1fr) 120px minmax(170px, 1fr)', minWidth: 620 } as const;
     const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 150px 130px', minWidth: 670 } as const;
     const usageTableScrollStyle = { width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden' } as const;
+    const detailPanelWidth = 'min(1180px, 100%)';
+    const tabPanelMinWidth = selectedMonth ? 1180 : 0;
     const tabPanelStyle: CSSProperties = selectedMonth && activeTab === 'report'
-        ? { padding: 0, border: 'none', boxShadow: 'none', background: 'transparent', minWidth: 0, overflow: 'visible' }
-        : { padding: 24, borderRadius: 12, border: `1px solid ${C.g200}`, background: C.white, minWidth: 0, overflow: 'visible', boxShadow: projectDetailCardShadow };
+        ? { padding: 0, border: 'none', boxShadow: 'none', background: 'transparent', width: detailPanelWidth, minWidth: tabPanelMinWidth, maxWidth: '100%', overflow: 'visible', margin: '0 auto' }
+        : { padding: 24, borderRadius: 12, border: `1px solid ${C.g200}`, background: C.white, width: detailPanelWidth, minWidth: tabPanelMinWidth, maxWidth: '100%', overflow: 'visible', boxShadow: projectDetailCardShadow, margin: '0 auto' };
     const parseProjectPeriod = (period: string) => {
         const [startDate = '', endDate = ''] = period.split('~').map((value) => value.trim().replace(/\//g, '-'));
         return { startDate, endDate };
@@ -1077,9 +1227,12 @@ export default function ProjectDetailPage() {
           fontFamily: 'inherit',
           whiteSpace: 'nowrap',
           boxShadow: 'none',
+          transform: 'scale(1)',
+          transition: 'transform .16s ease, background .18s ease, color .18s ease, box-shadow .18s ease, border-color .18s ease',
+          ...uploadCompleteFeedbackStyle,
         }}
       >
-        업로드 완료
+        {uploadCompleteFeedbackLabel}
       </button>
     ) : null;
     const monthGridContent = (
@@ -1278,7 +1431,7 @@ export default function ProjectDetailPage() {
             }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveArchiveTodoCount} onBackToOverview={() => updateTab('overview')} uploadCompleteAction={reviewRequestHeaderButton}/>}
         </>}
       </div>),
-        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} onValidationComplete={() => {
+        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} onValidationComplete={() => {
                 setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
             }} onValidationApproved={async () => {
                 const usageStatementId = selectedStatementArchive?.usageStatementId;
@@ -1315,10 +1468,10 @@ export default function ProjectDetailPage() {
                     setAgentFailureTarget('server-request');
                 }
             }}/>),
-        report: (<ReportScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} validationComplete={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED || selectedValidationStatus === 'done'} contractName={`${project.name} · ${selectedStatement.label}`}/>),
+        report: (<ReportScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} validationComplete={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED || selectedValidationStatus === 'done'} reportGenerationEnabled={selectedReportGenerationEnabled} reportDisabledReason={selectedReportDisabledReason} contractName={`${project.name} · ${selectedStatement.label}`}/>),
     };
     return (<AppFrame title={project.name} mainClassName="project-detail-main">
-      <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20, borderRadius: 12, border: `1px solid ${C.g200}`, boxShadow: projectDetailCardShadow }}>
+      <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20, borderRadius: 12, border: `1px solid ${C.g200}`, boxShadow: projectDetailCardShadow, width: detailPanelWidth, minWidth: selectedMonth ? tabPanelMinWidth : 0, maxWidth: '100%', marginLeft: 'auto', marginRight: 'auto' }}>
         <div data-ui="project-detail.19" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div data-ui="project-detail.20" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
             <h2 data-ui="project-detail.21" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>
@@ -1388,6 +1541,11 @@ export default function ProjectDetailPage() {
         <div style={{ marginBottom: 8 }}>사용내역서를 다시 업로드해주세요.</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800 }}>{ocrFailureReason}</div>
       </div>} actionLabel="확인" onAction={() => setOcrFailureReason('')} />
+      <Modal open={usageUploadStage === 'classifying'} onClose={() => {}} zIndex={1200} maxWidth={460}>
+        <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 24 }}>
+          <InlineLoader title="classi 에이전트가 분류하고 있어요" body="OCR로 추출한 사용내역서 세부 항목을 산업안전보건관리비 9개 항목 기준으로 분류하고 있습니다. 완료될 때까지 다른 작업을 할 수 없습니다." />
+        </div>
+      </Modal>
       <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 변경" body={<div>
         <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>classi 에이전트가 일부 세부항목의 9개 항목 위치를 변경했습니다.</div>
         <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
@@ -1406,7 +1564,7 @@ export default function ProjectDetailPage() {
       </div>} actionLabel="확인" onAction={() => setClassificationMoveNotices([])} />
       <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
 
-      {selectedMonth && <div data-ui="project-detail.28" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
+      {selectedMonth && <div data-ui="project-detail.28" style={{ width: detailPanelWidth, maxWidth: '100%', margin: '0 auto 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div role="tablist" aria-label="프로젝트 상세 탭" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: '1 1 360px', minWidth: 0, borderBottom: `1px solid ${C.g200}`, overflowX: 'auto' }}>
           {availableTabs.map((tab) => (<button data-ui="project-detail.29" key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} onClick={() => updateTab(tab.id)} style={{ border: 'none', borderBottom: `2px solid ${activeTab === tab.id ? C.primary : 'transparent'}`, background: 'transparent', color: activeTab === tab.id ? C.primary : C.g600, opacity: activeTab === tab.id ? 1 : 0.58, padding: '8px 12px 9px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: activeTab === tab.id ? 900 : 800, whiteSpace: 'nowrap' }}>
               {tab.label}
@@ -1416,8 +1574,12 @@ export default function ProjectDetailPage() {
 
       <div
         data-ui="project-detail.31"
+        className="thin-x-scroll"
         style={{
           minWidth: 0,
+          maxWidth: '100%',
+          overflowX: 'auto',
+          overflowY: 'visible',
         }}
       >
         <Card style={tabPanelStyle}>

@@ -7,14 +7,17 @@ import Card from '../../components/ui/Card';
 import { AppFrame, DateRangePicker } from '../../components/common';
 import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
-import { getOrchestratorDashboard } from '../../lib/agent-api';
 import { C } from '../../lib/theme';
 import { STATUS_META, USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
 import { listProjects } from '../../lib/project-api';
+import { listUsageStatementArchives } from '../../lib/archive-api';
+import { getOrchestratorStatus, type OrchestratorTodo } from '../../lib/agent-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { ROLE_LABELS } from '../../lib/permissions';
+import { getLatestUsageRecordPeriod, listUsageRecords, summarizeTopUsageRecords, type UsageRecordPeriod, type UsageRecordSummary } from '../../lib/usage-records-api';
 
 const LOCAL_USAGE_STATEMENT_PREFIX = 'iveri-mvp-usage-statement:';
+const FALLBACK_ACTION_ASSIGNEE = '프로젝트 담당자';
 
 const DASHBOARD_CHART_COLORS = [
   '#4269D0FF',
@@ -71,49 +74,7 @@ const SUPPLEMENT_REASON_TYPES = [
   },
 ] as const;
 
-const EXAMPLE_SUPPLEMENT_REASON_TRENDS = [
-  { key: '2026-03', label: '3월', counts: { purpose: 1, allocation: 0, labor: 1, evidence: 2 } },
-  { key: '2026-04', label: '4월', counts: { purpose: 0, allocation: 1, labor: 1, evidence: 3 } },
-  { key: '2026-05', label: '5월', counts: { purpose: 1, allocation: 1, labor: 0, evidence: 2 } },
-] as const;
-
-const AI_USAGE_COST_ROWS = [
-  {
-    user: '김서연',
-    role: 'SHE 담당자',
-    tokens: 684_200,
-    calls: 126,
-    cost: 48200,
-  },
-  {
-    user: '김현장',
-    role: '프로젝트 담당자',
-    tokens: 431_600,
-    calls: 74,
-    cost: 31600,
-  },
-  {
-    user: '박공무',
-    role: '프로젝트 담당자',
-    tokens: 208_900,
-    calls: 39,
-    cost: 14800,
-  },
-  {
-    user: '이프로',
-    role: '프로젝트 담당자',
-    tokens: 124_700,
-    calls: 22,
-    cost: 8900,
-  },
-] as const;
-
 const AI_USAGE_COST_COLORS = DASHBOARD_CHART_COLORS;
-const AI_TOKEN_COST_KRW = 0.0715;
-
-const estimateAiUsageCost = (tokens: number) =>
-  Math.round((tokens * AI_TOKEN_COST_KRW) / 100) * 100;
-
 type AiUsageCostRow = {
   user: string;
   role: string;
@@ -143,6 +104,88 @@ const mergeWorkflowStatus = (project: ProjectSummary) => {
 };
 
 const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActionRequest;
+
+const normalizeMonthKey = (month?: string | null) => {
+  const match = month?.match(/^(\d{4})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}` : month || '';
+};
+
+const getProjectAssigneeNames = (project: ProjectSummary) => {
+  const names = project.participants.length > 0 ? project.participants : getProjectManagers(project);
+  return names.filter(Boolean);
+};
+
+const getProjectAssigneeLabel = (project: ProjectSummary) => {
+  const names = getProjectAssigneeNames(project);
+  return names.length > 0 ? names.join(', ') : FALLBACK_ACTION_ASSIGNEE;
+};
+
+const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string, assignee = FALLBACK_ACTION_ASSIGNEE): ProjectSummary['actionRequestDetails'] | undefined => {
+  const openTodos = todos.filter((todo) => todo.statusCode !== 'closed');
+  if (!openTodos.length) return undefined;
+  const firstTodo = openTodos[0];
+  return {
+    title: firstTodo.reason || '보완 요청',
+    reason: openTodos.map((todo, index) => `${index + 1}. ${todo.reason}`).join('\n'),
+    assignee,
+    dueDate: '',
+    requestedAt: '-',
+    month,
+  };
+};
+
+const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<ProjectSummary> => {
+  const localMergedProject = mergeWorkflowStatus(project);
+  const assigneeLabel = getProjectAssigneeLabel(project);
+  try {
+    const archives = await listUsageStatementArchives(project.id);
+    for (const archive of archives) {
+      const month = normalizeMonthKey(archive.statementSummary.month);
+      if (archive.usageStatementId) {
+        const status = await getOrchestratorStatus(project.id, archive.usageStatementId).catch(() => null);
+        const actionRequestDetails = status ? orchestratorTodosToDetails(status.todos || [], month, assigneeLabel) : undefined;
+        if (actionRequestDetails) {
+          return {
+            ...project,
+            hasActionRequest: true,
+            actionRequestDetails,
+            reportReady: true,
+          };
+        }
+      }
+      if (archive.workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) {
+        return {
+          ...project,
+          hasActionRequest: true,
+          actionRequestDetails: {
+            ...(project.actionRequestDetails || localMergedProject.actionRequestDetails || {
+              title: '보완 요청 확인 필요',
+              reason: '프로젝트 담당자가 사용내역서 또는 증빙 자료를 수정해야 합니다.',
+              assignee: assigneeLabel,
+              dueDate: '',
+              requestedAt: '-',
+            }),
+            assignee: (project.actionRequestDetails?.assignee && project.actionRequestDetails.assignee !== FALLBACK_ACTION_ASSIGNEE)
+              ? project.actionRequestDetails.assignee
+              : (localMergedProject.actionRequestDetails?.assignee && localMergedProject.actionRequestDetails.assignee !== FALLBACK_ACTION_ASSIGNEE)
+                ? localMergedProject.actionRequestDetails.assignee
+                : assigneeLabel,
+            month,
+          },
+          reportReady: true,
+        };
+      }
+    }
+    return {
+      ...localMergedProject,
+      hasActionRequest: project.hasActionRequest,
+      actionRequestDetails: project.hasActionRequest ? project.actionRequestDetails : undefined,
+      reportReady: project.reportReady,
+    };
+  } catch {
+    return localMergedProject;
+  }
+};
 
 const readUsageStatementMonth = (projectId: string) => {
   if (typeof window === 'undefined') return '';
@@ -270,7 +313,7 @@ const dashboardPhotoBackdropStyle: CSSProperties = {
 
 const dashboardTopStyle: CSSProperties = {
   position: 'relative',
-  zIndex: 80,
+  zIndex: 20,
   minWidth: 0,
   padding: 0,
   margin: '0 auto',
@@ -336,14 +379,18 @@ export default function DashboardPage() {
   const [sortBy, setSortBy] = useState<ProjectSortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [selectedReasonProjectId, setSelectedReasonProjectId] = useState('');
-  const [aiUsagePeriodMode, setAiUsagePeriodMode] = useState<'all' | 'month'>('all');
-  const [aiUsageYear, setAiUsageYear] = useState('2026');
-  const [aiUsageMonth, setAiUsageMonth] = useState('05');
-  const [orchestratorAiUsageRows, setOrchestratorAiUsageRows] = useState<AiUsageCostRow[]>([]);
+  const [aiUsageView, setAiUsageView] = useState<'user' | 'project'>('user');
+  const [aiUsagePeriod, setAiUsagePeriod] = useState<UsageRecordPeriod | null>(null);
+  const aiUsageYear = aiUsagePeriod?.year || '';
+  const aiUsageMonth = aiUsagePeriod?.month || '';
+  const [aiUsageUserRows, setAiUsageUserRows] = useState<UsageRecordSummary[]>([]);
+  const [aiUsageProjectRows, setAiUsageProjectRows] = useState<UsageRecordSummary[]>([]);
+  const [aiUsageLoading, setAiUsageLoading] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const [chartTooltip, setChartTooltip] = useState<{ x: number; y: number; title: string; body: string } | null>(null);
   const [reviewQueueTooltipOpen, setReviewQueueTooltipOpen] = useState(false);
+  const reviewQueueTooltipRef = useRef<HTMLDivElement | null>(null);
 
   const showChartTooltip = (event: ReactMouseEvent, title: string, body: string) => {
     setChartTooltip({ x: event.clientX + 14, y: event.clientY + 14, title, body });
@@ -358,12 +405,24 @@ export default function DashboardPage() {
       router.replace('/projects');
     }
   }, [router, user.role]);
+  useEffect(() => {
+    if (!reviewQueueTooltipOpen)
+      return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || reviewQueueTooltipRef.current?.contains(target))
+        return;
+      setReviewQueueTooltipOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [reviewQueueTooltipOpen]);
 
   const refreshDashboardProjects = useCallback(async () => {
     setDashboardRefreshing(true);
     try {
       const items = await listProjects({ size: 10 });
-      setProjects(items.map(mergeWorkflowStatus));
+      setProjects(await Promise.all(items.map(hydrateProjectWorkflowStatus)));
     } catch {
       setProjects([]);
     } finally {
@@ -375,8 +434,9 @@ export default function DashboardPage() {
     let alive = true;
     setDashboardRefreshing(true);
     listProjects({ size: 10 })
+      .then((items) => Promise.all(items.map(hydrateProjectWorkflowStatus)))
       .then((items) => {
-        if (alive) setProjects(items.map(mergeWorkflowStatus));
+        if (alive) setProjects(items);
       })
       .catch(() => {
         if (alive) setProjects([]);
@@ -390,41 +450,47 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (projects.length === 0) {
-      setOrchestratorAiUsageRows([]);
-      return;
-    }
     let alive = true;
-    Promise.all(projects.map((project) => getOrchestratorDashboard(project.id).catch(() => null)))
-      .then((dashboards) => {
+    listUsageRecords('date')
+      .then((dateRows) => {
         if (!alive) return;
-        const agentTotals = dashboards.reduce((map, dashboard) => {
-          if (!dashboard) return map;
-          dashboard.agents.forEach((agent) => {
-            const key = agent.agentTypeCode || 'unknown';
-            const current = map.get(key) || { tokens: 0, calls: 0 };
-            map.set(key, {
-              tokens: current.tokens + agent.token,
-              calls: current.calls + 1,
-            });
-          });
-          return map;
-        }, new Map<string, { tokens: number; calls: number }>());
-        setOrchestratorAiUsageRows(Array.from(agentTotals.entries())
-          .filter(([, value]) => value.tokens > 0 || value.calls > 0)
-          .sort((a, b) => b[1].tokens - a[1].tokens || a[0].localeCompare(b[0]))
-          .map(([agentTypeCode, value]) => ({
-            user: agentTypeCode,
-            role: 'AI Agent',
-            tokens: value.tokens,
-            calls: value.calls,
-            cost: estimateAiUsageCost(value.tokens),
-          })));
+        setAiUsagePeriod(getLatestUsageRecordPeriod(dateRows) || null);
+      })
+      .catch(() => {
+        if (alive) setAiUsagePeriod(null);
       });
     return () => {
       alive = false;
     };
-  }, [projects]);
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    if (!aiUsageYear || !aiUsageMonth) {
+      setAiUsageUserRows([]);
+      setAiUsageProjectRows([]);
+      setAiUsageLoading(false);
+      return () => {
+        alive = false;
+      };
+    }
+    setAiUsageLoading(true);
+    Promise.all([
+      listUsageRecords('user', { year: aiUsageYear, month: aiUsageMonth }).catch(() => []),
+      listUsageRecords('project', { year: aiUsageYear, month: aiUsageMonth }).catch(() => []),
+    ])
+      .then(([userRows, projectRows]) => {
+        if (!alive) return;
+        setAiUsageUserRows(userRows);
+        setAiUsageProjectRows(projectRows);
+      })
+      .finally(() => {
+        if (alive) setAiUsageLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [aiUsageMonth, aiUsageYear]);
 
   const handleDashboardLogout = async () => {
     if (logoutPending) return;
@@ -484,7 +550,22 @@ export default function DashboardPage() {
       status: getProjectMonthWorkflowStatus(project) || USAGE_WORKFLOW_STATUS.DRAFT,
     }))
     .slice(0, 6);
-  const aiUsageRows: readonly AiUsageCostRow[] = orchestratorAiUsageRows.length > 0 ? orchestratorAiUsageRows : AI_USAGE_COST_ROWS;
+  const openReviewQueueProject = (item: (typeof queueProjects)[number]) => {
+    const targetSearchParams = new URLSearchParams({ tab: 'validation' });
+    const targetMonth = item.month?.match(/^(\d{4}-\d{2})/)?.[1] || '';
+    if (targetMonth)
+      targetSearchParams.set('month', targetMonth);
+    setReviewQueueTooltipOpen(false);
+    router.push(`/projects/${item.projectId}?${targetSearchParams.toString()}`);
+  };
+  const selectedAiUsageSourceRows = aiUsageView === 'user' ? aiUsageUserRows : aiUsageProjectRows;
+  const aiUsageRows: readonly AiUsageCostRow[] = summarizeTopUsageRecords(selectedAiUsageSourceRows, 5).map((row) => ({
+    user: row.label,
+    role: row.subLabel || (aiUsageView === 'user' ? '사용자' : '프로젝트'),
+    tokens: row.tokens,
+    calls: row.calls,
+    cost: row.cost,
+  }));
   const aiUsageTotalCost = aiUsageRows.reduce((sum, row) => sum + row.cost, 0);
   const aiUsageTotalTokens = aiUsageRows.reduce((sum, row) => sum + row.tokens, 0);
   const aiUsageTotalCalls = aiUsageRows.reduce((sum, row) => sum + row.calls, 0);
@@ -506,12 +587,12 @@ export default function DashboardPage() {
   const selectedReasonProject = projects.find((project) => project.id === selectedReasonProjectId) || projects[0];
   const reasonProjectId = selectedReasonProject?.id || '';
   const projectTableHeaders: Array<{ label: string; field: ProjectSortField; width: number }> = [
-    { label: '프로젝트명', field: 'name', width: 120 },
-    { label: '프로젝트 번호', field: 'contractNumber', width: 70 },
-    { label: '공정률', field: 'progress', width: 140 },
-    { label: '안전관리비 사용률', field: 'usageRate', width: 140 },
-    { label: '공사 기간', field: 'startDate', width: 120 },
-    { label: '담당자', field: 'manager', width: 50 },
+    { label: '프로젝트명', field: 'name', width: 150 },
+    { label: '프로젝트 번호', field: 'contractNumber', width: 60 },
+    { label: '공정률', field: 'progress', width: 130 },
+    { label: '안전관리비 사용률', field: 'usageRate', width: 130 },
+    { label: '공사 기간', field: 'startDate', width: 100 },
+    { label: '담당자', field: 'manager', width: 80 },
   ];
   const toggleProjectTableSort = (field: ProjectSortField) => {
     if (sortBy === field) {
@@ -544,49 +625,33 @@ export default function DashboardPage() {
     };
   });
   const hasReasonTrendData = reasonTrendRows.some((row) => row.total > 0);
-  const displayedReasonTrendRows = hasReasonTrendData
-    ? reasonTrendRows
-    : EXAMPLE_SUPPLEMENT_REASON_TRENDS.map((row) => {
-      const reasons = SUPPLEMENT_REASON_TYPES.map((reasonType) => ({
-        ...reasonType,
-        count: row.counts[reasonType.id],
-      }));
-      return {
-        key: row.key,
-        label: row.label,
-        reasons,
-        total: reasons.reduce((sum, reason) => sum + reason.count, 0),
-      };
-    });
+  const displayedReasonTrendRows = hasReasonTrendData ? reasonTrendRows : [];
   const maxReasonTrendValue = Math.max(1, ...displayedReasonTrendRows.flatMap((row) => [row.total, ...row.reasons.map((reason) => reason.count)]));
   const reasonTrendAxisMax = Math.max(2, maxReasonTrendValue);
   const reasonTrendAxisTicks = Array.from(new Set([reasonTrendAxisMax, Math.ceil(reasonTrendAxisMax / 2), 0]));
   const managerWorkloads = Array.from(
     projects.reduce((map, project) => {
-      const projectManagers = project.participants.length > 0 ? project.participants : getProjectManagers(project);
+      const projectManagers = getProjectAssigneeNames(project);
       const managers = projectManagers.length > 0 ? projectManagers : ['미지정'];
-      const actionAssignees = getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-        ? (project.actionRequestDetails?.assignee || managers[0]).split(',').map((name) => name.trim()).filter(Boolean)
-        : [];
-
-      managers.forEach((managerName) => {
-        const current = map.get(managerName) || { actionRequired: 0, projectCount: 0 };
-        map.set(managerName, {
-          actionRequired: current.actionRequired,
-          projectCount: current.projectCount + 1,
-        });
-      });
+      if (getProjectMonthWorkflowStatus(project) !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED)
+        return map;
+      const detailAssignee = project.actionRequestDetails?.assignee?.trim();
+      const actionAssigneeSource = detailAssignee && detailAssignee !== FALLBACK_ACTION_ASSIGNEE ? detailAssignee : managers.join(',');
+      const actionAssignees = actionAssigneeSource
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean);
 
       actionAssignees.forEach((managerName) => {
         const current = map.get(managerName) || { actionRequired: 0, projectCount: 0 };
         map.set(managerName, {
           actionRequired: current.actionRequired + 1,
-          projectCount: current.projectCount,
+          projectCount: current.projectCount + 1,
         });
       });
       return map;
     }, new Map<string, { actionRequired: number; projectCount: number }>()),
-  ).sort((a, b) => (b[1].actionRequired + b[1].projectCount) - (a[1].actionRequired + a[1].projectCount) || a[0].localeCompare(b[0], 'ko'));
+  ).sort((a, b) => b[1].actionRequired - a[1].actionRequired || a[0].localeCompare(b[0], 'ko'));
   if (user.role === 'project_manager') {
     return (
       <AppFrame title="프로젝트 대시보드" mainClassName="dashboard-main">
@@ -650,21 +715,21 @@ export default function DashboardPage() {
 	              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>전체 프로젝트</div>
 		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.g800 }}>{projects.length}</div>
 	            </div>
-            <button
-              type="button"
-              onClick={() => setReviewQueueTooltipOpen((open) => !open)}
-              aria-expanded={reviewQueueTooltipOpen}
-              style={{ border: `1px solid ${reviewQueueTooltipOpen ? C.primary : C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0, background: C.white, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
-            >
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>법령 검증 필요</div>
-		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{queueProjects.length}</div>
-	            </button>
-	          </div>
-          {reviewQueueTooltipOpen && (
-            <div
-              role="tooltip"
-              style={{ position: 'absolute', top: 'calc(100% + 10px)', left: 0, right: 0, zIndex: 2000, minWidth: 260, border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, boxShadow: '0 18px 42px rgba(31,47,39,.18)', padding: 12 }}
-            >
+            <div ref={reviewQueueTooltipRef} style={{ position: 'relative', minWidth: 0 }}>
+              <button
+                type="button"
+                onClick={() => setReviewQueueTooltipOpen((open) => !open)}
+                aria-expanded={reviewQueueTooltipOpen}
+                style={{ width: '100%', border: `1px solid ${reviewQueueTooltipOpen ? C.primary : C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0, background: C.white, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
+              >
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>법령 검증 필요</div>
+                <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{queueProjects.length}</div>
+              </button>
+              {reviewQueueTooltipOpen && (
+                <div
+                  role="tooltip"
+                  style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 2000, width: 260, border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, boxShadow: '0 18px 42px rgba(31,47,39,.18)', padding: 12 }}
+                >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: C.g800 }}>법령 검증 필요 항목</div>
                 <button type="button" onClick={() => setReviewQueueTooltipOpen(false)} aria-label="검토 큐 닫기" style={{ border: 'none', background: 'transparent', color: C.g500, cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
@@ -680,7 +745,7 @@ export default function DashboardPage() {
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => router.push(`/projects/${item.projectId}?tab=validation`)}
+                      onClick={() => openReviewQueueProject(item)}
                       style={{ border: `1px solid ${meta.color}`, borderRadius: 10, background: meta.bg, padding: 10, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 6 }}>
@@ -697,8 +762,10 @@ export default function DashboardPage() {
                   );
                 })}
               </div>
+                </div>
+              )}
             </div>
-          )}
+		          </div>
 	          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>
 		            <button
 		              type="button"
@@ -829,102 +896,99 @@ export default function DashboardPage() {
                   ))}
                 </select>
               </div>
-              <div style={{ height: 142, display: 'grid', gridTemplateColumns: '16px minmax(0,1fr)', gap: 3, alignItems: 'stretch', padding: '4px 0 0' }}>
-                <div style={{ position: 'relative', height: 122, borderBottom: `1px solid ${C.g100}` }}>
-                  {reasonTrendAxisTicks.map((tick) => (
-                    <span
-                      key={tick}
-                      style={{
-                        position: 'absolute',
-                        right: 2,
-                        top: `${100 - (tick / reasonTrendAxisMax) * 100}%`,
-                        transform: 'translateY(-50%)',
-                        fontSize: 9,
-                        fontWeight: 700,
-                        color: C.g400,
-                      }}
-                    >
-                      {tick}
-                    </span>
-                  ))}
+              {displayedReasonTrendRows.length === 0 ? (
+                <div style={{ flex: 1, minHeight: 0, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+                  표시할 보완 요청 사유가 없습니다.
                 </div>
-                <div style={{ overflowX: 'auto', overflowY: 'hidden', borderBottom: `1px solid ${C.g100}`, scrollbarWidth: 'thin' }}>
-                <div style={{ minWidth: displayedReasonTrendRows.length ? Math.max(displayedReasonTrendRows.length * 84, 220) : 220, height: '100%', display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, displayedReasonTrendRows.length)}, 84px)`, gap: 0, alignItems: 'stretch' }}>
-                  {displayedReasonTrendRows.length === 0 ? (
-                    <div style={{ gridColumn: '1 / -1', minHeight: 102, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 12, fontWeight: 700 }}>
-                      표시할 보완 요청 사유가 없습니다.
+              ) : (
+                <>
+                  <div style={{ height: 142, display: 'grid', gridTemplateColumns: '16px minmax(0,1fr)', gap: 3, alignItems: 'stretch', padding: '4px 0 0' }}>
+                    <div style={{ position: 'relative', height: 122, borderBottom: `1px solid ${C.g100}` }}>
+                      {reasonTrendAxisTicks.map((tick) => (
+                        <span
+                          key={tick}
+                          style={{
+                            position: 'absolute',
+                            right: 2,
+                            top: `${100 - (tick / reasonTrendAxisMax) * 100}%`,
+                            transform: 'translateY(-50%)',
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: C.g400,
+                          }}
+                        >
+                          {tick}
+                        </span>
+                      ))}
                     </div>
-                  ) : displayedReasonTrendRows.map((row, rowIndex) => (
-                    <div key={row.key} style={{ position: 'relative', display: 'grid', gridTemplateRows: '1fr 16px', gap: 3, height: '100%', padding: '0 5px' }}>
-                      {rowIndex > 0 && <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 2, bottom: 20, width: 1, background: C.g100, transform: 'translateX(-.5px)' }} />}
-                      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${SUPPLEMENT_REASON_TYPES.length}, minmax(0, 1fr))`, gap: 1, alignItems: 'end', justifyItems: 'center', alignSelf: 'end', height: 106 }}>
-                        {row.reasons.map((reason) => (
-                          <span
-                            key={reason.id}
-                            onMouseEnter={(event) => showChartTooltip(event, `${row.label} ${reason.label}`, `${reason.count}건`)}
-                            onMouseMove={moveChartTooltip}
-                            onMouseLeave={hideChartTooltip}
-                            style={{
-                              width: 14,
-                              height: reason.count > 0 ? `${Math.max(7, (reason.count / reasonTrendAxisMax) * 102)}px` : 0,
-                              background: reason.color,
-                              borderRadius: '4px 4px 0 0',
-                              cursor: 'default',
-                            }}
-                          />
+                    <div style={{ overflowX: 'auto', overflowY: 'hidden', borderBottom: `1px solid ${C.g100}`, scrollbarWidth: 'thin' }}>
+                      <div style={{ minWidth: Math.max(displayedReasonTrendRows.length * 84, 220), height: '100%', display: 'grid', gridTemplateColumns: `repeat(${displayedReasonTrendRows.length}, 84px)`, gap: 0, alignItems: 'stretch' }}>
+                        {displayedReasonTrendRows.map((row, rowIndex) => (
+                          <div key={row.key} style={{ position: 'relative', display: 'grid', gridTemplateRows: '1fr 16px', gap: 3, height: '100%', padding: '0 5px' }}>
+                            {rowIndex > 0 && <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 2, bottom: 20, width: 1, background: C.g100, transform: 'translateX(-.5px)' }} />}
+                            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${SUPPLEMENT_REASON_TYPES.length}, minmax(0, 1fr))`, gap: 1, alignItems: 'end', justifyItems: 'center', alignSelf: 'end', height: 106 }}>
+                              {row.reasons.map((reason) => (
+                                <span
+                                  key={reason.id}
+                                  onMouseEnter={(event) => showChartTooltip(event, `${row.label} ${reason.label}`, `${reason.count}건`)}
+                                  onMouseMove={moveChartTooltip}
+                                  onMouseLeave={hideChartTooltip}
+                                  style={{
+                                    width: 14,
+                                    height: reason.count > 0 ? `${Math.max(7, (reason.count / reasonTrendAxisMax) * 102)}px` : 0,
+                                    background: reason.color,
+                                    borderRadius: '4px 4px 0 0',
+                                    cursor: 'default',
+                                  }}
+                                />
+                              ))}
+                            </div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.g400, textAlign: 'center' }}>{row.label}</div>
+                          </div>
                         ))}
                       </div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: C.g400, textAlign: 'center' }}>{row.label}</div>
                     </div>
-                  ))}
-                </div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginTop: 14, fontSize: 10, fontWeight: 700, color: C.g600 }}>
-                {SUPPLEMENT_REASON_TYPES.map((reason) => (
-                  <span key={reason.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 999, background: reason.color }} />
-                    {reason.label}
-                  </span>
-                ))}
-              </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginTop: 14, fontSize: 10, fontWeight: 700, color: C.g600 }}>
+                    {SUPPLEMENT_REASON_TYPES.map((reason) => (
+                      <span key={reason.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 999, background: reason.color }} />
+                        {reason.label}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
             </Card>
 
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 10 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>AI 사용 금액</div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                  <div role="group" aria-label="AI 사용 금액 기간" style={{ display: 'inline-flex', alignItems: 'center', height: 30, padding: 2, border: `1px solid ${C.g200}`, borderRadius: 999, background: '#F7F8F7', flexShrink: 0 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap' }}>AI 사용 금액</div>
+                  <div style={{ color: C.g500, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                    {aiUsagePeriod ? `${aiUsagePeriod.year}년 ${Number(aiUsagePeriod.month)}월 기준` : '실행 데이터 없음'}
+                  </div>
+                </div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                  <div role="group" aria-label="AI 사용 금액 기준" style={{ display: 'inline-flex', alignItems: 'center', height: 30, padding: 2, border: `1px solid ${C.g200}`, borderRadius: 999, background: '#F7F8F7', flexShrink: 0 }}>
                     {[
-                      { key: 'all' as const, label: '전체' },
-                      { key: 'month' as const, label: '월 선택' },
+                      { key: 'user' as const, label: '사용자별' },
+                      { key: 'project' as const, label: '프로젝트별' },
                     ].map((option) => {
-                      const active = aiUsagePeriodMode === option.key;
+                      const active = aiUsageView === option.key;
                       return (
                         <button
                           key={option.key}
                           type="button"
-                          onClick={() => setAiUsagePeriodMode(option.key)}
-                          style={{ height: 24, border: 'none', borderRadius: 999, background: active ? C.white : 'transparent', color: active ? C.primary : C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', boxShadow: active ? '0 1px 4px rgba(31,55,43,.08)' : 'none' }}
+                          onClick={() => setAiUsageView(option.key)}
+                          style={{ height: 24, border: 'none', borderRadius: 999, background: active ? C.white : 'transparent', color: active ? C.primary : C.g600, padding: '0 8px', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'pointer', boxShadow: active ? '0 1px 4px rgba(31,55,43,.08)' : 'none' }}
                         >
                           {option.label}
                         </button>
                       );
                     })}
                   </div>
-                  {aiUsagePeriodMode === 'month' && (
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      <select aria-label="AI 사용 금액 연도" value={aiUsageYear} onChange={(event) => setAiUsageYear(event.target.value)} style={{ width: 68, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
-                        <option value="2026">2026</option>
-                        <option value="2025">2025</option>
-                      </select>
-                      <select aria-label="AI 사용 금액 월" value={aiUsageMonth} onChange={(event) => setAiUsageMonth(event.target.value)} style={{ width: 54, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 11, fontWeight: 700, padding: '0 6px' }}>
-                        {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')).map((month) => (
-                          <option key={month} value={month}>{Number(month)}월</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
+                  <Link href={aiUsagePeriod ? `/usage-records?year=${aiUsageYear}&month=${aiUsageMonth}` : '/usage-records'} style={{ color: C.primary, fontSize: 11, fontWeight: 800, textDecoration: 'none', whiteSpace: 'nowrap' }}>전체 보기 〉</Link>
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, .9fr) minmax(0, 1.1fr)', gap: 12, flex: '1 1 auto', minHeight: 0 }}>
@@ -967,11 +1031,8 @@ export default function DashboardPage() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
                     <div>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: C.g400 }}>평균 비용</div>
-                      <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 2, marginTop: 2, fontSize: 12, fontWeight: 700, color: C.g800 }}>
-                        <span>₩</span>
-                        <span>{Math.round(aiUsageTotalCost / Math.max(aiUsageTotalCalls, 1)).toLocaleString('ko-KR')}</span>
-                      </div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: C.g400 }}>총 토큰</div>
+                      <div style={{ marginTop: 2, fontSize: 12, fontWeight: 700, color: C.g800 }}>{aiUsageTotalTokens.toLocaleString('ko-KR')}</div>
                     </div>
                     <div>
                       <div style={{ fontSize: 9, fontWeight: 700, color: C.g400 }}>호출 수</div>
@@ -980,7 +1041,17 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div style={{ display: 'grid', gap: 0, minHeight: 0, overflowY: 'auto', paddingRight: 5, scrollbarGutter: 'stable' }}>
-                  {aiUsageRows.map((row) => (
+                  {aiUsageLoading && (
+                    <div style={{ minHeight: 120, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 12, fontWeight: 700 }}>
+                      사용량을 불러오는 중입니다.
+                    </div>
+                  )}
+                  {!aiUsageLoading && aiUsageRows.length === 0 && (
+                    <div style={{ minHeight: 120, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 12, fontWeight: 700 }}>
+                      표시할 AI 사용량이 없습니다.
+                    </div>
+                  )}
+                  {!aiUsageLoading && aiUsageRows.map((row) => (
                     <div key={row.user} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 10, alignItems: 'center', borderTop: `1px solid ${C.g100}`, padding: '10px 10px' }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0 }}>
@@ -988,11 +1059,7 @@ export default function DashboardPage() {
                           <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: C.g500 }}>{row.role}</span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>
-                          <span>평균</span>
-                          <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 2 }}>
-                            <span>₩</span>
-                            <span>{Math.round(row.cost / Math.max(row.calls, 1)).toLocaleString('ko-KR')}</span>
-                          </span>
+                          <span>{row.tokens.toLocaleString('ko-KR')} tokens</span>
                           <span>· {row.calls}회</span>
                         </div>
                       </div>
@@ -1008,13 +1075,13 @@ export default function DashboardPage() {
 
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>담당자별 프로젝트 현황</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>담당자별 보완 진행 현황</div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.primary }}>{currentMonthKey.replace('-', '년 ')}월</div>
             </div>
             <div style={{ display: 'grid', gap: 10, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', paddingRight: 6, scrollbarGutter: 'stable', overscrollBehavior: 'contain' }}>
               {managerWorkloads.length === 0 && (
                 <div style={{ minHeight: 128, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 12, fontWeight: 700 }}>
-                  표시할 담당자 현황이 없습니다.
+                  진행 중인 보완 요청이 없습니다.
                 </div>
               )}
               {managerWorkloads.map(([managerName, workload]) => (
@@ -1027,9 +1094,9 @@ export default function DashboardPage() {
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{managerName}</div>
-                    <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>완료 {Math.max(0, workload.projectCount - workload.actionRequired)}건 · 진행 {workload.actionRequired}건</div>
+                    <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>보완 요청 진행 중</div>
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.g800 }}>{workload.projectCount + workload.actionRequired}건</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.g800 }}>{workload.actionRequired}건</div>
                 </div>
               ))}
             </div>

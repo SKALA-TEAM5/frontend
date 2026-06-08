@@ -8,7 +8,7 @@ import { C } from '../../lib/theme';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
-import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadProjectFile, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
+import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
 import { getOrchestratorStatus, listSafeLeeEvidenceRequirements, parseAndMatchEvidenceWithOcr, runEvidenceReviewAgent, safeLeeRequirementsToMap, type OrchestratorTodo } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
@@ -88,17 +88,6 @@ const EVIDENCE_SECTIONS: Array<{ id: FolderEvidenceCategory; label: string }> = 
     { id: 'other_document', label: '기타' },
 ];
 
-const EXAMPLE_PPE_SOURCE_IMAGE_URL = 'http://team5-minio:9000/safety-files/test/vision/ppe-test.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260604%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260604T044743Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=f8dc1d6b905ee15159af686dfff07516bacf68d0152abda2daf5b3590c941c9c';
-
-const EXAMPLE_PPE_DETECTIONS: NonNullable<EvidenceFile['visionValidation']>['detections'] = [
-    { label: '안전모 착용', confidence: 0.817, box: [87.74, 62.51, 4.42, 9.19], status: 'ok' },
-    { label: '안전모 착용', confidence: 0.7555, box: [55.72, 66.19, 4.14, 8.95], status: 'ok' },
-    { label: '안전벨트 착용', confidence: 0.7489, box: [86.21, 71.98, 7.51, 19.42], status: 'ok' },
-    { label: '안전벨트 착용', confidence: 0.6335, box: [53.8, 75.08, 6.8, 18.06], status: 'ok' },
-    { label: '안전모 착용', confidence: 0.5398, box: [72.27, 66.21, 3.34, 6.97], status: 'ok' },
-    { label: '안전벨트 착용', confidence: 0.5099, box: [72.25, 72.15, 4.96, 14.12], status: 'ok' },
-    { label: '안전벨트 검토필요', confidence: 0.3611, box: [65.62, 72.87, 5.2, 12.79], status: 'bad' },
-];
 const addUsageItemInputStyle = {
     height: 42,
     minWidth: 0,
@@ -182,19 +171,6 @@ const toNounPhraseDetail = (value?: string) => {
 const getUsageDetailTodoStorageKey = (projectId: string, key?: string) => `iveri-mvp-usage-detail-todos:${projectId}:${key || 'default'}`;
 const getLegacyArchiveTodoStorageKey = (projectId: string, key?: string) => `iveri-mvp-archive-todos:${projectId}:${key || 'default'}`;
 const isApiStatus = (error: unknown, status: number) => error instanceof ApiClientError && error.status === status;
-const buildExampleRequiredEvidence = (items: UsageLineItem[]): SafetyDocAgentRequiredEvidenceMap => {
-    const candidates = items.slice(0, 3);
-    if (!candidates.length)
-        return {};
-    return candidates.reduce<SafetyDocAgentRequiredEvidenceMap>((result, item, index) => {
-        result[item.id] = index === 0
-            ? { receipt: ['영수증'], other_document: ['이체확인증'] }
-            : index === 1
-                ? { site_photo: ['현장사진'], other_document: ['지급대장'] }
-                : { tax_invoice: ['세금계산서'], other_document: ['계약서'] };
-        return result;
-    }, {});
-};
 type StoredUsageDetailTodoState = {
     requiredEvidenceByLine: SafetyDocAgentRequiredEvidenceMap;
     completedTodoIds: Record<string, boolean>;
@@ -351,24 +327,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         const files = getFilesForCategory(kind, catId, usageItemId);
         if (kind !== 'site_photo')
             return files;
-        return files.map((file, index) => {
-            if (file.visionValidation || index !== 0)
-                return file;
-            return {
-                ...file,
-                visionValidation: {
-                    status: 'unsuitable' as const,
-                    checkedAt: '2026-05-15',
-                    itemName: resolvedUsageItems.find((item) => item.id === usageItemId)?.name || '현장사진',
-                    summary: '예시 비전 결과, 작업자 안전벨트 착용 여부가 불명확합니다.',
-                    detections: [
-                        { label: 'worker', confidence: 0.91, box: [14, 12, 48, 76] as [number, number, number, number], status: 'ok' as const },
-                        { label: 'safety_belt', confidence: 0.38, box: [24, 42, 36, 42] as [number, number, number, number], status: 'bad' as const },
-                        { label: 'helmet', confidence: 0.74, box: [22, 16, 18, 16] as [number, number, number, number], status: 'ok' as const },
-                    ],
-                },
-            };
-        });
+        return files;
     };
     const refreshOrchestratorStatusTodos = async () => {
         if (!usageStatementId)
@@ -537,14 +496,11 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setUsageDetailActionError('');
             try {
                 const nextEntries = await Promise.all(pickedFiles.map(async (file) => {
-                    const uploadedEntry = await uploadProjectFile(projectId, file, kind);
+                    const uploadedEntry = await uploadEvidenceFileToItem(projectId, usageItemId, file, kind);
                     if (!uploadedEntry.fileId)
                         return createEntryFromFile(file, kind, { ...uploadedEntry, categoryIds: [catId], usageItemIds: [usageItemId] });
-                    const link = await linkEvidenceFile(projectId, usageItemId, uploadedEntry.fileId, kind);
                     return {
                         ...uploadedEntry,
-                        id: `evidence-link-${link.linkId}`,
-                        linkId: link.linkId,
                         kind,
                         previewUrl: uploadedEntry.previewUrl || (file.type.startsWith('image/') ? getProjectFilePreviewUrl(projectId, uploadedEntry.fileId) : ''),
                         categoryIds: [catId],
@@ -906,23 +862,17 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         } catch (error) {
             if (isApiStatus(error, 501)) {
                 const storedRequiredEvidence = await loadStoredRequirements();
-                if (!Object.keys(storedRequiredEvidence).length) {
-                    setRequiredEvidenceByLine(buildExampleRequiredEvidence(resolvedUsageItems));
-                    setFileData((current) => normalizeArchiveData(current));
-                }
                 setMatchingStatus('done');
                 setMatchingNotice(Object.keys(storedRequiredEvidence).length
                     ? 'Safety Doc Agent 실행 API가 아직 구현되지 않아 저장된 필수 증빙 데이터를 표시합니다.'
-                    : 'Safety Doc Agent 실행 API가 아직 구현되지 않아 예시 필수 증빙 결과를 표시합니다.');
+                    : 'Safety Doc Agent 실행 API가 아직 구현되지 않아 표시할 필수 증빙 결과가 없습니다.');
                 return;
             }
             const storedRequiredEvidence = await loadStoredRequirements();
-            if (!Object.keys(storedRequiredEvidence).length) {
-                setRequiredEvidenceByLine(buildExampleRequiredEvidence(resolvedUsageItems));
-                setFileData((current) => normalizeArchiveData(current));
-            }
             setMatchingStatus('done');
-            setMatchingNotice('Safety Doc Agent 응답을 받지 못해 예시 필수 증빙 결과를 표시합니다.');
+            setMatchingNotice(Object.keys(storedRequiredEvidence).length
+                ? 'Safety Doc Agent 응답을 받지 못해 저장된 필수 증빙 데이터를 표시합니다.'
+                : 'Safety Doc Agent 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.');
         }
     };
     const runVisionPhotoValidation = async () => {
@@ -932,76 +882,6 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setAgentFailureTarget('photo-validation');
             return;
         }
-        const applyExampleVisionValidation = () => {
-            const today = new Date().toISOString().slice(0, 10);
-            const fallbackItem = resolvedUsageItems[0];
-            commitFileData((prev) => {
-                const next: ArchiveSeed = { ...prev, categories: { ...(prev.categories || {}) } };
-                let applied = false;
-                Object.entries(next.categories).forEach(([catId, lineMap]) => {
-                    next.categories[catId] = { ...lineMap };
-                    Object.entries(lineMap).forEach(([usageItemId, kindMap]) => {
-                        const photos = kindMap.site_photo || [];
-                        if (!photos.length)
-                            return;
-                        const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
-                        next.categories[catId][usageItemId] = {
-                            ...kindMap,
-                            site_photo: photos.map((file, index) => ({
-                                ...file,
-                                previewUrl: index === 0 && !applied ? (file.previewUrl || EXAMPLE_PPE_SOURCE_IMAGE_URL) : file.previewUrl,
-                                visionValidation: index === 0 && !applied
-                                    ? {
-                                        status: 'unsuitable',
-                                        checkedAt: today,
-                                        itemName: usageItem?.name || '현장사진',
-                                        summary: '안전벨트 항목은 검토가 필요합니다. 안전화 항목이 확인되지 않았습니다.',
-                                        detections: [...EXAMPLE_PPE_DETECTIONS],
-                                    }
-                                    : file.visionValidation || {
-                                        status: 'suitable',
-                                        checkedAt: today,
-                                        itemName: usageItem?.name || '현장사진',
-                                        summary: '예시 비전 검증 결과, 현장 상태와 지출 항목이 확인됩니다.',
-                                        detections: [{ label: 'site', confidence: 0.87, box: [8, 10, 86, 78], status: 'ok' }],
-                                    },
-                            })),
-                        };
-                        applied = true;
-                    });
-                });
-                if (!applied && fallbackItem) {
-                    const catId = String(fallbackItem.categoryId);
-                    const lineMap = { ...(next.categories[catId] || {}) };
-                    const kindMap = { ...(lineMap[fallbackItem.id] || {}) };
-                    lineMap[fallbackItem.id] = {
-                        ...kindMap,
-                        site_photo: [
-                            ...(kindMap.site_photo || []),
-                            {
-                                id: `example-vision-${fallbackItem.id}`,
-                                name: 'ppe-test.jpg',
-                                kind: 'site_photo',
-                                previewUrl: EXAMPLE_PPE_SOURCE_IMAGE_URL,
-                                uploadedAt: today,
-                                uploadedBy: '예시 데이터',
-                                categoryIds: [fallbackItem.categoryId],
-                                usageItemIds: [fallbackItem.id],
-                                visionValidation: {
-                                    status: 'unsuitable',
-                                    checkedAt: today,
-                                    itemName: fallbackItem.name,
-                                    summary: '안전벨트 항목은 검토가 필요합니다. 안전화 항목이 확인되지 않았습니다.',
-                                    detections: [...EXAMPLE_PPE_DETECTIONS],
-                                },
-                            },
-                        ],
-                    };
-                    next.categories[catId] = lineMap;
-                }
-                return next;
-            });
-        };
         setPhotoValidationNotice(null);
         setPhotoValidationStatus('running');
         try {
@@ -1009,9 +889,8 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setPhotoValidationStatus('done');
             setPhotoValidationNotice({ type: 'ok', message: 'Vision 실행 결과가 저장되었습니다.' });
         } catch {
-            applyExampleVisionValidation();
-            setPhotoValidationStatus('done');
-            setPhotoValidationNotice({ type: 'ok', message: 'Vision 응답을 받지 못해 예시 검증 결과를 표시합니다.' });
+            setPhotoValidationStatus('idle');
+            setPhotoValidationNotice({ type: 'bad', message: 'Vision 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.' });
         }
     };
     const waitForVerificationStep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1036,7 +915,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             usageStatementId,
             usageStatementItemId: file.usageItemId,
         }))).catch(() => {
-            setMatchingNotice('link agent 응답을 받지 못해 예시 매칭 흐름으로 계속 진행합니다.');
+            setMatchingNotice('link agent 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.');
         });
     };
     const runUsageDetailVerification = async () => {

@@ -101,6 +101,18 @@ interface EvidenceLinkResponse {
   linkId: number;
 }
 
+interface LinkedEvidenceFileUploadResponse {
+  linkId: number;
+  fileId?: number;
+  originalFilename?: string;
+  uploadedEvidenceTypeCode?: BackendEvidenceTypeCode | string;
+  uploadedEvidenceTypeName?: string;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  uploadedAt?: string | null;
+  statusCode?: FileStatusCode | string;
+}
+
 interface SourceFileResponse {
   fileId: number;
   originalFilename: string;
@@ -548,6 +560,32 @@ export const uploadProjectFile = async (projectId: string, file: File, kind: Evi
     body: formData,
   });
   return projectFileToEntry(projectId, response.data);
+};
+
+export const uploadEvidenceFileToItem = async (projectId: string, itemId: string, file: File, kind: FolderEvidenceCategory) => {
+  const formData = new FormData();
+  formData.set('evidenceTypeCode', kindToEvidenceCode(kind));
+  formData.set('file', file);
+  const response = await apiFetch<LinkedEvidenceFileUploadResponse>(`/projects/${projectId}/usage-statement-items/${itemId}/evidence-files/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  const fileId = response.data.fileId;
+  return {
+    ...makeEntry(response.data.originalFilename || file.name, kind, {
+      fileId,
+      uploadedAt: formatDate(response.data.uploadedAt),
+      uploadedBy: '',
+      documentType: response.data.uploadedEvidenceTypeName,
+      statusCode: response.data.statusCode,
+      previewUrl: fileId && response.data.mimeType?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, fileId) : '',
+    }),
+    id: `evidence-link-${response.data.linkId}`,
+    linkId: response.data.linkId,
+    kind,
+    categoryIds: [],
+    usageItemIds: [itemId],
+  };
 };
 
 export const deleteProjectFile = async (projectId: string, fileId: number | string) => {

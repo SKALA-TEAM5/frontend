@@ -80,8 +80,8 @@ const createRequiredFields: Array<keyof NewProjectInput> = [
 const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActionRequest;
 
 const projectAccordionSections: ProjectStatus[] = [
-  PROJECT_STATUS.OPEN,
   PROJECT_STATUS.IN_PROGRESS,
+  PROJECT_STATUS.OPEN,
   PROJECT_STATUS.CLOSED,
 ];
 
@@ -504,19 +504,19 @@ export default function ProjectsPage() {
             const sectionMeta = PROJECT_LIFECYCLE_STATUS_META[section];
             const open = openSections[section];
             return (
-              <section key={section} style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, overflow: 'hidden' }}>
+              <section key={section} style={{ border: `1px solid ${open ? C.light : C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, overflow: 'hidden' }}>
                 <button
                   type="button"
                   onClick={() => toggleSection(section)}
                   aria-expanded={open}
-                  style={{ width: '100%', height: 48, border: 'none', background: open ? 'color-mix(in srgb, var(--c-bg) 34%, #fff)' : C.white, padding: '0 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontFamily: 'inherit', cursor: 'pointer' }}
+                  style={{ width: '100%', height: 48, border: 'none', background: open ? 'color-mix(in srgb, var(--c-bg) 72%, #fff)' : C.white, padding: '0 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontFamily: 'inherit', cursor: 'pointer' }}
                 >
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                     <span aria-hidden="true" style={{ color: sectionMeta.color, fontSize: 15, fontWeight: 900, transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .16s ease' }}>›</span>
-                    <span style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>{sectionMeta.label}</span>
-                    <span style={{ height: 22, minWidth: 28, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: C.g600, fontSize: 12, fontWeight: 900 }}>{sectionProjects.length}건</span>
+                    <span style={{ fontSize: 15, fontWeight: 900, color: open ? C.primary : C.g800 }}>{sectionMeta.label}</span>
+                    <span style={{ height: 22, minWidth: 28, border: `1px solid ${open ? C.light : C.g200}`, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: open ? C.primary : C.g600, background: open ? C.white : 'transparent', fontSize: 12, fontWeight: 900 }}>{sectionProjects.length}건</span>
                   </span>
-                  <span style={{ color: C.g500, fontSize: 12, fontWeight: 800 }}>{open ? '접기' : '펼치기'}</span>
+                  <span style={{ color: open ? C.primary : C.g500, fontSize: 12, fontWeight: 900 }}>{open ? '접기' : '펼치기'}</span>
                 </button>
                 {open && (
                   <div style={{ borderTop: `1px solid ${C.g100}`, padding: 12 }}>

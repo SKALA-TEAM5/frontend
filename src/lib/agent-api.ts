@@ -58,6 +58,9 @@ export interface OrchestratorStatusResponse {
   evidenceReviewReady: boolean;
   legalReady: boolean;
   reportReady: boolean;
+  legalResultCode?: string | null;
+  reportDisabledReason?: string | null;
+  agents: OrchestratorDashboardAgent[];
   logs: Array<Record<string, unknown>>;
   todos: OrchestratorTodo[];
 }
@@ -82,6 +85,37 @@ export interface OrchestratorDashboardResponse {
   agents: OrchestratorDashboardAgent[];
 }
 
+interface AgentTodoItemResponse {
+  usageStatementItemId?: number | null;
+  usage_statement_item_id?: number | null;
+  reason?: string | null;
+}
+
+interface AgentTodoEntryResponse {
+  agentTypeCode?: string | null;
+  agent_type_code?: string | null;
+  resultCode?: string | null;
+  result_code?: string | null;
+  reason?: string | null;
+  items?: AgentTodoItemResponse[];
+}
+
+interface AgentTodoListResponse {
+  validate?: AgentTodoEntryResponse[];
+  legal?: AgentTodoEntryResponse | null;
+}
+
+interface AgentButtonStateResponse {
+  enabled?: boolean;
+  reason?: string | null;
+}
+
+interface AgentButtonStatesResponse {
+  validate?: AgentButtonStateResponse;
+  legal?: AgentButtonStateResponse;
+  report?: AgentButtonStateResponse;
+}
+
 const readField = <T = unknown>(source: Record<string, unknown>, camelKey: string, snakeKey: string): T | undefined =>
   (source[camelKey] ?? source[snakeKey]) as T | undefined;
 
@@ -98,6 +132,7 @@ const normalizeOrchestratorStatus = (raw: unknown): OrchestratorStatusResponse =
     evidenceReviewReady: Boolean(readField(source, 'evidenceReviewReady', 'evidence_review_ready')),
     legalReady: Boolean(readField(source, 'legalReady', 'legal_ready')),
     reportReady: Boolean(readField(source, 'reportReady', 'report_ready')),
+    agents: [],
     logs: (source.logs as Array<Record<string, unknown>>) || [],
     todos: rawTodos.map((todo) => ({
       agentTypeCode: String(readField(todo, 'agentTypeCode', 'agent_type_code') || ''),
@@ -109,6 +144,35 @@ const normalizeOrchestratorStatus = (raw: unknown): OrchestratorStatusResponse =
       statusCode: String(readField(todo, 'statusCode', 'status_code') || 'open'),
     })),
   };
+};
+
+const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefined): OrchestratorTodo[] => {
+  const entries = [...(raw?.validate || []), raw?.legal].filter((entry): entry is AgentTodoEntryResponse => Boolean(entry));
+  return entries.flatMap((entry) => {
+    const agentTypeCode = String(readField(entry as Record<string, unknown>, 'agentTypeCode', 'agent_type_code') || '');
+    const entryReason = entry.reason || '';
+    const items = entry.items || [];
+    if (!items.length) {
+      return [{
+        agentTypeCode,
+        usageStatementItemId: null,
+        fileId: null,
+        reason: entryReason || '보완 사항 확인 필요',
+        statusCode: 'open',
+      }];
+    }
+    return items.map((item) => {
+      const itemRecord = item as Record<string, unknown>;
+      const usageStatementItemId = readField(itemRecord, 'usageStatementItemId', 'usage_statement_item_id');
+      return {
+        agentTypeCode,
+        usageStatementItemId: usageStatementItemId == null ? null : Number(usageStatementItemId),
+        fileId: null,
+        reason: item.reason || entryReason || '보완 사항 확인 필요',
+        statusCode: 'open',
+      };
+    });
+  });
 };
 
 const normalizeOrchestratorDashboard = (raw: unknown): OrchestratorDashboardResponse => {
@@ -208,10 +272,31 @@ export const runLegalAgent = async (projectId: string, usageStatementId: number)
 };
 
 export const getOrchestratorStatus = async (projectId: string, usageStatementId: number) => {
-  const response = await apiFetch<unknown>(
-    `/projects/${projectId}/agents/orchestrator/status?usageStatementId=${usageStatementId}`,
-  );
-  return normalizeOrchestratorStatus(response.data);
+  const [todosResponse, buttonStatesResponse, dashboardResponse] = await Promise.all([
+    apiFetch<AgentTodoListResponse>(`/projects/${projectId}/agents/todos?usageStatementId=${usageStatementId}`),
+    apiFetch<AgentButtonStatesResponse>(`/projects/${projectId}/agents/button-states?usageStatementId=${usageStatementId}`),
+    apiFetch<unknown>(`/projects/${projectId}/agents/orchestrator/dashboard?usageStatementId=${usageStatementId}`).catch(() => null),
+  ]);
+  const todos = normalizeBackendAgentTodos(todosResponse.data);
+  const buttonStates = buttonStatesResponse.data || {};
+  const dashboard = dashboardResponse ? normalizeOrchestratorDashboard(dashboardResponse.data) : null;
+  const legalAgent = dashboard?.agents.find((agent) => agent.agentTypeCode === 'legal');
+  return {
+    projectId: Number(projectId),
+    usageStatementId,
+    hasUsageStatementItems: true,
+    hasReceiptsOrTaxInvoices: true,
+    hasSitePhotos: true,
+    classiReady: true,
+    evidenceReviewReady: todos.length === 0,
+    legalReady: Boolean(buttonStates.legal?.enabled),
+    reportReady: Boolean(buttonStates.report?.enabled),
+    legalResultCode: legalAgent?.resultCode ?? null,
+    reportDisabledReason: buttonStates.report?.reason ?? null,
+    agents: dashboard?.agents || [],
+    logs: [],
+    todos,
+  };
 };
 
 export const getOrchestratorDashboard = async (projectId: string, usageStatementId?: number) => {
