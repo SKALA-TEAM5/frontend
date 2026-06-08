@@ -14,10 +14,10 @@ import { listUsageStatementArchives } from '../../lib/archive-api';
 import { getOrchestratorStatus, type OrchestratorTodo } from '../../lib/agent-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { ROLE_LABELS } from '../../lib/permissions';
-import { getLatestUsageRecordPeriod, listUsageRecords, summarizeTopUsageRecords, type UsageRecordPeriod, type UsageRecordSummary } from '../../lib/usage-records-api';
+import { listUsageRecords, summarizeTopUsageRecords, type UsageRecordSummary } from '../../lib/usage-records-api';
 
-const LOCAL_USAGE_STATEMENT_PREFIX = 'iveri-mvp-usage-statement:';
 const FALLBACK_ACTION_ASSIGNEE = '프로젝트 담당자';
+const ALL_REASON_PROJECTS = 'all';
 
 const DASHBOARD_CHART_COLORS = [
   '#4269D0FF',
@@ -83,24 +83,18 @@ type AiUsageCostRow = {
   cost: number;
 };
 
-const mergeWorkflowStatus = (project: ProjectSummary) => {
-  if (typeof window === 'undefined') return project;
-  try {
-    const raw = window.localStorage.getItem(`${LOCAL_USAGE_STATEMENT_PREFIX}${project.id}`);
-    if (!raw) return project;
-    const parsed = JSON.parse(raw) as { workflowStatus?: string; actionRequestDetails?: ProjectSummary['actionRequestDetails'] };
-    if (!parsed.workflowStatus) return project;
-    const workflowStatus = normalizeUsageWorkflowStatus(parsed.workflowStatus);
-    if (!workflowStatus) return project;
-    return {
-      ...project,
-      hasActionRequest: workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
-      actionRequestDetails: workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? parsed.actionRequestDetails : undefined,
-      reportReady: workflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
-    };
-  } catch {
-    return project;
-  }
+const getAiUsageDisplayRole = (view: 'user' | 'project', row: UsageRecordSummary) => {
+  if (view === 'project') return '';
+  const rawRole = row.subLabel.toLowerCase();
+  if (rawRole.includes('she') || rawRole.includes('admin') || rawRole.includes('관리자')) return 'SHE 담당자';
+  return '프로젝트 담당자';
+};
+
+const getAiUsageTooltipTitle = (row: AiUsageCostRow) => row.role ? `${row.user} · ${row.role}` : row.user;
+
+const isSupplementClearedWorkflow = (status?: string | null) => {
+  const normalized = normalizeUsageWorkflowStatus(status);
+  return normalized === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || normalized === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED;
 };
 
 const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActionRequest;
@@ -135,15 +129,17 @@ const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string, a
 };
 
 const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<ProjectSummary> => {
-  const localMergedProject = mergeWorkflowStatus(project);
   const assigneeLabel = getProjectAssigneeLabel(project);
   try {
     const archives = await listUsageStatementArchives(project.id);
     for (const archive of archives) {
       const month = normalizeMonthKey(archive.statementSummary.month);
+      const archiveWorkflowStatus = normalizeUsageWorkflowStatus(archive.workflowStatus);
+      const supplementCleared = archiveWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+        && isSupplementClearedWorkflow(archiveWorkflowStatus);
       if (archive.usageStatementId) {
         const status = await getOrchestratorStatus(project.id, archive.usageStatementId).catch(() => null);
-        const actionRequestDetails = status ? orchestratorTodosToDetails(status.todos || [], month, assigneeLabel) : undefined;
+        const actionRequestDetails = status && !supplementCleared ? orchestratorTodosToDetails(status.todos || [], month, assigneeLabel) : undefined;
         if (actionRequestDetails) {
           return {
             ...project,
@@ -153,12 +149,12 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
           };
         }
       }
-      if (archive.workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) {
+      if (archiveWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) {
         return {
           ...project,
           hasActionRequest: true,
           actionRequestDetails: {
-            ...(project.actionRequestDetails || localMergedProject.actionRequestDetails || {
+            ...(project.actionRequestDetails || {
               title: '보완 요청 확인 필요',
               reason: '프로젝트 담당자가 사용내역서 또는 증빙 자료를 수정해야 합니다.',
               assignee: assigneeLabel,
@@ -167,9 +163,7 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
             }),
             assignee: (project.actionRequestDetails?.assignee && project.actionRequestDetails.assignee !== FALLBACK_ACTION_ASSIGNEE)
               ? project.actionRequestDetails.assignee
-              : (localMergedProject.actionRequestDetails?.assignee && localMergedProject.actionRequestDetails.assignee !== FALLBACK_ACTION_ASSIGNEE)
-                ? localMergedProject.actionRequestDetails.assignee
-                : assigneeLabel,
+              : assigneeLabel,
             month,
           },
           reportReady: true,
@@ -177,25 +171,13 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
       }
     }
     return {
-      ...localMergedProject,
-      hasActionRequest: project.hasActionRequest,
-      actionRequestDetails: project.hasActionRequest ? project.actionRequestDetails : undefined,
+      ...project,
+      hasActionRequest: false,
+      actionRequestDetails: undefined,
       reportReady: project.reportReady,
     };
   } catch {
-    return localMergedProject;
-  }
-};
-
-const readUsageStatementMonth = (projectId: string) => {
-  if (typeof window === 'undefined') return '';
-  try {
-    const raw = window.localStorage.getItem(`${LOCAL_USAGE_STATEMENT_PREFIX}${projectId}`);
-    if (!raw) return '';
-    const parsed = JSON.parse(raw) as { statementSummary?: { month?: string } };
-    return parsed.statementSummary?.month || '';
-  } catch {
-    return '';
+    return project;
   }
 };
 
@@ -205,51 +187,18 @@ const formatMonthLabel = (month?: string) => {
   return `${match[1]}년 ${Number(match[2])}월`;
 };
 
-const readUsageStatementMonths = (projectId: string) => {
-  if (typeof window === 'undefined') return [] as string[];
-  try {
-    const raw = window.localStorage.getItem(`${LOCAL_USAGE_STATEMENT_PREFIX}${projectId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const months = new Set<string>();
-    const addMonth = (value: unknown) => {
-      if (typeof value !== 'string') return;
-      const match = value.match(/^(\d{4}-\d{2})/);
-      if (match) months.add(match[1]);
-    };
-    const collectMonths = (value: unknown) => {
-      if (!value || typeof value !== 'object') return;
-      if (Array.isArray(value)) {
-        value.forEach(collectMonths);
-        return;
-      }
-      Object.entries(value as Record<string, unknown>).forEach(([key, childValue]) => {
-        if (/^\d{4}-\d{2}/.test(key)) addMonth(key);
-        if (['month', 'usageMonth', 'statementMonth'].includes(key)) addMonth(childValue);
-        if (childValue && typeof childValue === 'object') collectMonths(childValue);
-      });
-    };
-    collectMonths(parsed);
-    return Array.from(months).sort();
-  } catch {
-    return [];
-  }
-};
-
-const readUsageWorkflowStatus = (projectId: string): UsageWorkflowStatus | undefined => {
-  if (typeof window === 'undefined') return undefined;
-  try {
-    const raw = window.localStorage.getItem(`${LOCAL_USAGE_STATEMENT_PREFIX}${projectId}`);
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as { workflowStatus?: string };
-    return normalizeUsageWorkflowStatus(parsed.workflowStatus);
-  } catch {
-    return undefined;
-  }
-};
-
 const getProjectMonthWorkflowStatus = (project: ProjectSummary): UsageWorkflowStatus | undefined =>
-  hasSupplementRequiredMonth(project) ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : readUsageWorkflowStatus(project.id);
+  hasSupplementRequiredMonth(project) ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : normalizeUsageWorkflowStatus(project.latestUsageStatementStatusCode);
+
+const getProjectActionRequestMonth = (project: ProjectSummary) =>
+  project.actionRequestDetails?.month?.match(/^(\d{4}-\d{2})/)?.[1] || '';
+
+const getProjectReasonTrendMonth = (project: ProjectSummary, fallbackMonth: string) =>
+  getProjectActionRequestMonth(project) || fallbackMonth;
+
+const getProjectActionRequestSourceText = (project: ProjectSummary) =>
+  `${project.actionRequestDetails?.title || ''} ${project.actionRequestDetails?.reason || ''}`.trim()
+    || '보완 요청 증빙 자료 제출 확인 필요';
 
 const getSupplementReasonMatchIds = (sourceText: string) => {
   const normalized = sourceText.toLowerCase();
@@ -378,11 +327,18 @@ export default function DashboardPage() {
   const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
   const [sortBy, setSortBy] = useState<ProjectSortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [selectedReasonProjectId, setSelectedReasonProjectId] = useState('');
+  const [selectedReasonProjectId, setSelectedReasonProjectId] = useState(ALL_REASON_PROJECTS);
   const [aiUsageView, setAiUsageView] = useState<'user' | 'project'>('user');
-  const [aiUsagePeriod, setAiUsagePeriod] = useState<UsageRecordPeriod | null>(null);
-  const aiUsageYear = aiUsagePeriod?.year || '';
-  const aiUsageMonth = aiUsagePeriod?.month || '';
+  const [dashboardMonthPeriod] = useState(() => {
+    const now = new Date();
+    return {
+      year: String(now.getFullYear()),
+      month: String(now.getMonth() + 1).padStart(2, '0'),
+    };
+  });
+  const aiUsageYear = dashboardMonthPeriod.year;
+  const aiUsageMonth = dashboardMonthPeriod.month;
+  const currentMonthKey = `${dashboardMonthPeriod.year}-${dashboardMonthPeriod.month}`;
   const [aiUsageUserRows, setAiUsageUserRows] = useState<UsageRecordSummary[]>([]);
   const [aiUsageProjectRows, setAiUsageProjectRows] = useState<UsageRecordSummary[]>([]);
   const [aiUsageLoading, setAiUsageLoading] = useState(false);
@@ -451,21 +407,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let alive = true;
-    listUsageRecords('date')
-      .then((dateRows) => {
-        if (!alive) return;
-        setAiUsagePeriod(getLatestUsageRecordPeriod(dateRows) || null);
-      })
-      .catch(() => {
-        if (alive) setAiUsagePeriod(null);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
     if (!aiUsageYear || !aiUsageMonth) {
       setAiUsageUserRows([]);
       setAiUsageProjectRows([]);
@@ -526,7 +467,6 @@ export default function DashboardPage() {
     [USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED),
     [USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED),
   };
-  const currentMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
   const queueProjects = projects
     .filter((project) => {
       const workflow = getProjectMonthWorkflowStatus(project);
@@ -537,7 +477,7 @@ export default function DashboardPage() {
       id: `project-${project.id}`,
       projectId: project.id,
       projectName: project.constructionName,
-      month: project.actionRequestDetails?.month || readUsageStatementMonth(project.id),
+      month: getProjectActionRequestMonth(project),
       title: getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
         ? (project.actionRequestDetails?.title || '보완 요청 확인 필요')
         : '업로드 완료 검토 필요',
@@ -561,7 +501,7 @@ export default function DashboardPage() {
   const selectedAiUsageSourceRows = aiUsageView === 'user' ? aiUsageUserRows : aiUsageProjectRows;
   const aiUsageRows: readonly AiUsageCostRow[] = summarizeTopUsageRecords(selectedAiUsageSourceRows, 5).map((row) => ({
     user: row.label,
-    role: row.subLabel || (aiUsageView === 'user' ? '사용자' : '프로젝트'),
+    role: getAiUsageDisplayRole(aiUsageView, row),
     tokens: row.tokens,
     calls: row.calls,
     cost: row.cost,
@@ -584,8 +524,10 @@ export default function DashboardPage() {
     aiUsageDonutOffset += dash;
     return segment;
   });
-  const selectedReasonProject = projects.find((project) => project.id === selectedReasonProjectId) || projects[0];
-  const reasonProjectId = selectedReasonProject?.id || '';
+  const selectedReasonScope = selectedReasonProjectId || ALL_REASON_PROJECTS;
+  const isAllReasonProjects = selectedReasonScope === ALL_REASON_PROJECTS;
+  const selectedReasonProject = isAllReasonProjects ? undefined : projects.find((project) => project.id === selectedReasonScope);
+  const reasonProjectId = isAllReasonProjects ? ALL_REASON_PROJECTS : selectedReasonProject?.id || '';
   const projectTableHeaders: Array<{ label: string; field: ProjectSortField; width: number }> = [
     { label: '프로젝트명', field: 'name', width: 150 },
     { label: '프로젝트 번호', field: 'contractNumber', width: 60 },
@@ -602,19 +544,31 @@ export default function DashboardPage() {
     setSortBy(field);
     setSortDirection('asc');
   };
-  const selectedReasonProjectMonths = selectedReasonProject ? readUsageStatementMonths(selectedReasonProject.id) : [];
-  const selectedReasonProjectMonth = selectedReasonProject?.actionRequestDetails?.month || selectedReasonProjectMonths.at(-1) || '';
-  const selectedReasonSourceText = `${selectedReasonProject?.actionRequestDetails?.title || ''} ${selectedReasonProject?.actionRequestDetails?.reason || ''}`.toLowerCase();
+  const selectedReasonProjectMonths = selectedReasonProject ? [getProjectReasonTrendMonth(selectedReasonProject, currentMonthKey)].filter(Boolean) : [];
+  const selectedReasonProjectMonth = selectedReasonProject ? getProjectReasonTrendMonth(selectedReasonProject, currentMonthKey) : '';
+  const selectedReasonSourceText = selectedReasonProject ? getProjectActionRequestSourceText(selectedReasonProject).toLowerCase() : '';
+  const allReasonProjectMonths = Array.from(new Set(projects.flatMap((project) => {
+    if (getProjectMonthWorkflowStatus(project) !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) return [];
+    return [getProjectReasonTrendMonth(project, currentMonthKey)];
+  }))).sort();
   const reasonTrendMonthKeys = Array.from(new Set([
-    ...selectedReasonProjectMonths,
-    ...(selectedReasonProjectMonth ? [selectedReasonProjectMonth] : []),
+    ...(isAllReasonProjects ? allReasonProjectMonths : selectedReasonProjectMonths),
+    ...(!isAllReasonProjects && selectedReasonProjectMonth ? [selectedReasonProjectMonth] : []),
   ])).sort();
   const reasonTrendRows = reasonTrendMonthKeys.map((monthKey) => {
     const activeMonth = monthKey === selectedReasonProjectMonth;
     const reasons = SUPPLEMENT_REASON_TYPES.map((reasonType) => {
-      const projectCount = activeMonth && Boolean(selectedReasonProject) && getProjectMonthWorkflowStatus(selectedReasonProject) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-        ? getSupplementReasonMatchIds(selectedReasonSourceText).filter((id) => id === reasonType.id).length
-        : 0;
+      const projectCount = isAllReasonProjects
+        ? projects.reduce((sum, project) => {
+          const projectMonth = getProjectReasonTrendMonth(project, currentMonthKey);
+          if (projectMonth !== monthKey || getProjectMonthWorkflowStatus(project) !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED)
+            return sum;
+          const sourceText = getProjectActionRequestSourceText(project).toLowerCase();
+          return sum + getSupplementReasonMatchIds(sourceText).filter((id) => id === reasonType.id).length;
+        }, 0)
+        : activeMonth && Boolean(selectedReasonProject) && getProjectMonthWorkflowStatus(selectedReasonProject) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+          ? getSupplementReasonMatchIds(selectedReasonSourceText).filter((id) => id === reasonType.id).length
+          : 0;
       return { ...reasonType, count: projectCount };
     });
     return {
@@ -728,7 +682,7 @@ export default function DashboardPage() {
               {reviewQueueTooltipOpen && (
                 <div
                   role="tooltip"
-                  style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 2000, width: 260, border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, boxShadow: '0 18px 42px rgba(31,47,39,.18)', padding: 12 }}
+	                  style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 2000, width: 380, maxWidth: 'min(380px, calc(100vw - 48px))', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, boxShadow: '0 18px 42px rgba(31,47,39,.18)', padding: 12 }}
                 >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: C.g800 }}>법령 검증 필요 항목</div>
@@ -749,13 +703,13 @@ export default function DashboardPage() {
                       style={{ border: `1px solid ${meta.color}`, borderRadius: 10, background: meta.bg, padding: 10, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                        <div title={item.projectName} style={{ minWidth: 0, fontSize: 12, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.projectName}</div>
+	                        <div style={{ minWidth: 0, fontSize: 12, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.projectName}</div>
                         <span style={{ flexShrink: 0, border: `1px solid ${meta.color}`, borderRadius: 999, background: C.white, color: meta.color, padding: '3px 7px', fontSize: 10, fontWeight: 800, lineHeight: 1 }}>{meta.label}</span>
                       </div>
                       <div style={{ fontSize: 11, fontWeight: 700, color: C.g600, lineHeight: 1.45 }}>
                         {formatMonthLabel(item.month)} · 담당 {item.assignee}
                       </div>
-                      <div title={item.title} style={{ marginTop: 5, fontSize: 11, fontWeight: 750, color: meta.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+	                      <div style={{ marginTop: 5, fontSize: 11, fontWeight: 750, color: meta.color, lineHeight: 1.45, whiteSpace: 'normal', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                         {item.title}
                       </div>
                     </button>
@@ -891,6 +845,7 @@ export default function DashboardPage() {
                   style={{ width: 190, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 12, fontWeight: 700, padding: '0 10px' }}
                 >
                   {projects.length === 0 && <option value="">프로젝트 없음</option>}
+                  {projects.length > 0 && <option value={ALL_REASON_PROJECTS}>전체</option>}
                   {projects.map((project) => (
                     <option key={project.id} value={project.id}>{project.constructionName}</option>
                   ))}
@@ -966,7 +921,7 @@ export default function DashboardPage() {
                 <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap' }}>AI 사용 금액</div>
                   <div style={{ color: C.g500, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }}>
-                    {aiUsagePeriod ? `${aiUsagePeriod.year}년 ${Number(aiUsagePeriod.month)}월 기준` : '실행 데이터 없음'}
+                    {dashboardMonthPeriod.year}년 {Number(dashboardMonthPeriod.month)}월 기준
                   </div>
                 </div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
@@ -988,7 +943,7 @@ export default function DashboardPage() {
                       );
                     })}
                   </div>
-                  <Link href={aiUsagePeriod ? `/usage-records?year=${aiUsageYear}&month=${aiUsageMonth}` : '/usage-records'} style={{ color: C.primary, fontSize: 11, fontWeight: 800, textDecoration: 'none', whiteSpace: 'nowrap' }}>전체 보기 〉</Link>
+                  <Link href={`/usage-records?year=${aiUsageYear}&month=${aiUsageMonth}`} style={{ color: C.primary, fontSize: 11, fontWeight: 800, textDecoration: 'none', whiteSpace: 'nowrap' }}>전체 보기 〉</Link>
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, .9fr) minmax(0, 1.1fr)', gap: 12, flex: '1 1 auto', minHeight: 0 }}>
@@ -1011,7 +966,7 @@ export default function DashboardPage() {
                               strokeLinecap="butt"
                               strokeDasharray={`${segment.dash} ${aiUsageDonutCircumference}`}
                               strokeDashoffset={-segment.offset}
-                              onMouseEnter={(event) => showChartTooltip(event, `${segment.row.user} · ${segment.row.role}`, `₩ ${segment.row.cost.toLocaleString('ko-KR')} · ${segment.row.calls}회`)}
+                              onMouseEnter={(event) => showChartTooltip(event, getAiUsageTooltipTitle(segment.row), `₩ ${segment.row.cost.toLocaleString('ko-KR')} · ${segment.row.calls}회`)}
                               onMouseMove={moveChartTooltip}
                               onMouseLeave={hideChartTooltip}
                               style={{ cursor: 'default' }}
@@ -1056,7 +1011,7 @@ export default function DashboardPage() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0 }}>
                           <span style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.user}</span>
-                          <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: C.g500 }}>{row.role}</span>
+                          {row.role && <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: C.g500 }}>{row.role}</span>}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>
                           <span>{row.tokens.toLocaleString('ko-KR')} tokens</span>

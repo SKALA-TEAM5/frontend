@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { AppFrame } from '../../components/common';
 import Card from '../../components/ui/Card';
 import { C } from '../../lib/theme';
-import { getLatestUsageRecordPeriod, listUsageRecords, type UsageRecordScope, type UsageRecordSummary } from '../../lib/usage-records-api';
+import { listUsageRecords, type UsageRecordScope, type UsageRecordSummary } from '../../lib/usage-records-api';
 
 const SCOPES: Array<{ key: UsageRecordScope; label: string; description: string }> = [
   { key: 'user', label: '사용자별', description: '사용자 단위 토큰 사용량과 비용' },
@@ -27,10 +27,10 @@ const getInitialParam = (key: 'year' | 'month') => {
 export default function UsageRecordsPage() {
   const now = new Date();
   const [scope, setScope] = useState<UsageRecordScope>('user');
-  const [year, setYear] = useState(() => getInitialParam('year'));
+  const [year, setYear] = useState(() => getInitialParam('year') || String(new Date().getFullYear()));
   const [month, setMonth] = useState(() => {
     const initialMonth = getInitialParam('month');
-    return initialMonth ? initialMonth.padStart(2, '0') : '';
+    return initialMonth ? initialMonth.padStart(2, '0') : String(new Date().getMonth() + 1).padStart(2, '0');
   });
   const [rowsByScope, setRowsByScope] = useState<Record<UsageRecordScope, UsageRecordSummary[]>>({
     user: [],
@@ -40,25 +40,6 @@ export default function UsageRecordsPage() {
     date: [],
   });
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    if (year && month) return () => {
-      alive = false;
-    };
-    listUsageRecords('date')
-      .then((dateRows) => {
-        if (!alive) return;
-        const latestPeriod = getLatestUsageRecordPeriod(dateRows);
-        if (!latestPeriod) return;
-        setYear(latestPeriod.year);
-        setMonth(latestPeriod.month);
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [month, year]);
 
   useEffect(() => {
     let alive = true;

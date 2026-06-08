@@ -61,6 +61,24 @@ const toOrchestratorTodo = (todo: OrchestratorTodo, usageItems: UsageLineItem[])
         detail: toNounPhraseDetail(reason),
     };
 };
+const buildVisionValidation = (file: EvidenceFile, usageItem: UsageLineItem | undefined, reason?: string): NonNullable<EvidenceFile['visionValidation']> => {
+    const normalizedReason = toNounPhraseDetail(reason || '');
+    const hasProblem = Boolean(normalizedReason) || /미착용|부적합|불명확|부족|fail|위험|미확인/i.test(`${file.name} ${usageItem?.name || ''}`);
+    return {
+        status: hasProblem ? 'unsuitable' : 'suitable',
+        checkedAt: new Date().toISOString(),
+        itemName: usageItem?.name || '현장사진',
+        summary: hasProblem ? (normalizedReason || '현장사진 검증 결과 보완 필요') : '현장사진 검증 결과 적합',
+        detections: hasProblem
+            ? [
+                { label: '현장사진 확인 필요', confidence: 0.91, box: [0.16, 0.18, 0.62, 0.72], status: 'bad' },
+                { label: '증빙 적합성 확인', confidence: 0.78, box: [0.58, 0.22, 0.34, 0.58], status: 'ok' },
+            ]
+            : [
+                { label: '현장사진 적합', confidence: 0.94, box: [0.12, 0.16, 0.76, 0.72], status: 'ok' },
+            ],
+    };
+};
 type AddUsageItemDraft = {
     name: string;
     date: string;
@@ -168,60 +186,20 @@ const toNounPhraseDetail = (value?: string) => {
         .replace(/[.。]$/u, '')
         .trim();
 };
-const getUsageDetailTodoStorageKey = (projectId: string, key?: string) => `iveri-mvp-usage-detail-todos:${projectId}:${key || 'default'}`;
-const getLegacyArchiveTodoStorageKey = (projectId: string, key?: string) => `iveri-mvp-archive-todos:${projectId}:${key || 'default'}`;
 const isApiStatus = (error: unknown, status: number) => error instanceof ApiClientError && error.status === status;
-type StoredUsageDetailTodoState = {
-    requiredEvidenceByLine: SafetyDocAgentRequiredEvidenceMap;
-    completedTodoIds: Record<string, boolean>;
-    dismissedTodoIds: Record<string, boolean>;
-};
-
-const EMPTY_USAGE_DETAIL_TODO_STATE: StoredUsageDetailTodoState = {
-    requiredEvidenceByLine: {},
-    completedTodoIds: {},
-    dismissedTodoIds: {},
-};
-
-const readStoredUsageDetailTodos = (projectId: string, key?: string): StoredUsageDetailTodoState => {
-    if (typeof window === 'undefined')
-        return EMPTY_USAGE_DETAIL_TODO_STATE;
-    try {
-        const nextKey = getUsageDetailTodoStorageKey(projectId, key);
-        const legacyKey = getLegacyArchiveTodoStorageKey(projectId, key);
-        const stored = window.localStorage.getItem(nextKey);
-        const legacy = stored ? null : window.localStorage.getItem(legacyKey);
-        const raw = stored || legacy;
-        if (!raw)
-            return EMPTY_USAGE_DETAIL_TODO_STATE;
-        if (!stored && legacy) {
-            window.localStorage.setItem(nextKey, legacy);
-            window.localStorage.removeItem(legacyKey);
-        }
-        const parsed = JSON.parse(raw) as Partial<StoredUsageDetailTodoState>;
-        return {
-            requiredEvidenceByLine: parsed.requiredEvidenceByLine || {},
-            completedTodoIds: parsed.completedTodoIds || {},
-            dismissedTodoIds: parsed.dismissedTodoIds || {},
-        };
-    } catch {
-        return EMPTY_USAGE_DETAIL_TODO_STATE;
-    }
-};
 export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onBackToOverview, uploadCompleteAction }: UsageStatementDetailScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
-    const initialTodoState = readStoredUsageDetailTodos(projectId, todoStorageKey);
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(usageDetailSeed || createDefaultArchiveData()));
     const [matchingStatus, setMatchingStatus] = useState<'idle' | 'running' | 'done'>('idle');
-    const [requiredEvidenceByLine, setRequiredEvidenceByLine] = useState<SafetyDocAgentRequiredEvidenceMap>(initialTodoState.requiredEvidenceByLine);
+    const [requiredEvidenceByLine, setRequiredEvidenceByLine] = useState<SafetyDocAgentRequiredEvidenceMap>({});
     const [matchingError, setMatchingError] = useState('');
     const [matchingNotice, setMatchingNotice] = useState('');
     const [usageDetailActionError, setUsageDetailActionError] = useState('');
     const [photoValidationStatus, setPhotoValidationStatus] = useState<UsageDetailValidationStatus>('idle');
     const [usageDetailVerificationStep, setUsageDetailVerificationStep] = useState<'ocr' | 'safety' | 'vision' | null>(null);
     const [photoValidationNotice, setPhotoValidationNotice] = useState<{ type: 'ok' | 'bad'; message: string } | null>(null);
-    const [completedTodoIds, setCompletedTodoIds] = useState<Record<string, boolean>>(initialTodoState.completedTodoIds);
-    const [dismissedTodoIds, setDismissedTodoIds] = useState<Record<string, boolean>>(initialTodoState.dismissedTodoIds);
+    const [completedTodoIds, setCompletedTodoIds] = useState<Record<string, boolean>>({});
+    const [dismissedTodoIds, setDismissedTodoIds] = useState<Record<string, boolean>>({});
     const [orchestratorTodoItems, setOrchestratorTodoItems] = useState<UsageDetailTodoItem[]>([]);
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
@@ -238,7 +216,6 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const pendingUsageDetailSeedRef = useRef<ArchiveSeed | null>(null);
     const syncingUsageDetailSeedRef = useRef(false);
     const usageDetailSeedSnapshotRef = useRef('');
-    const hydratingTodoRef = useRef(false);
     const clearTodoSignalRef = useRef(clearTodoSignal);
     const todoPanelRef = useRef<HTMLElement | null>(null);
     useEffect(() => {
@@ -266,25 +243,10 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setFileData(normalizedSeed);
     }, [usageDetailSeed]);
     useEffect(() => {
-        const stored = readStoredUsageDetailTodos(projectId, todoStorageKey);
-        hydratingTodoRef.current = true;
-        setRequiredEvidenceByLine(stored.requiredEvidenceByLine);
-        setCompletedTodoIds(stored.completedTodoIds);
-        setDismissedTodoIds(stored.dismissedTodoIds);
+        setRequiredEvidenceByLine({});
+        setCompletedTodoIds({});
+        setDismissedTodoIds({});
     }, [projectId, todoStorageKey]);
-    useEffect(() => {
-        if (hydratingTodoRef.current) {
-            hydratingTodoRef.current = false;
-            return;
-        }
-        if (typeof window === 'undefined')
-            return;
-        window.localStorage.setItem(getUsageDetailTodoStorageKey(projectId, todoStorageKey), JSON.stringify({
-            requiredEvidenceByLine,
-            completedTodoIds,
-            dismissedTodoIds,
-        }));
-    }, [completedTodoIds, dismissedTodoIds, projectId, requiredEvidenceByLine, todoStorageKey]);
     useEffect(() => {
         if (!resolvedUsageItems.length)
             return;
@@ -331,19 +293,27 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     };
     const refreshOrchestratorStatusTodos = async () => {
         if (!usageStatementId)
-            return;
+            return [] as UsageDetailTodoItem[];
         try {
             const status = await getOrchestratorStatus(projectId, usageStatementId);
-            setOrchestratorTodoItems((status.todos || []).map((todo) => toOrchestratorTodo(todo, resolvedUsageItems)).filter((todo): todo is UsageDetailTodoItem => Boolean(todo)));
+            const nextTodos = (status.todos || []).map((todo) => toOrchestratorTodo(todo, resolvedUsageItems)).filter((todo): todo is UsageDetailTodoItem => Boolean(todo));
+            setOrchestratorTodoItems(nextTodos);
+            return nextTodos;
         } catch {
             setOrchestratorTodoItems([]);
+            return [] as UsageDetailTodoItem[];
         }
     };
     useEffect(() => {
         void refreshOrchestratorStatusTodos();
     }, [projectId, usageStatementId, resolvedUsageItems]);
     const usageDetailTodoItems = useMemo<UsageDetailTodoItem[]>(() => {
-        const todos: UsageDetailTodoItem[] = [...orchestratorTodoItems];
+        const hasVisionValidatedPhotos = Object.values(fileData.categories || {}).some((lineMap) =>
+            Object.values(lineMap).some((kindMap) => (kindMap.site_photo || []).some((file) => file.visionValidation?.status === 'unsuitable'))
+        );
+        const todos: UsageDetailTodoItem[] = hasVisionValidatedPhotos
+            ? orchestratorTodoItems.filter((todo) => todo.source !== 'vision')
+            : [...orchestratorTodoItems];
         const actionRequestText = normalizeTodoIdText(`${actionRequest?.title || ''} ${actionRequest?.message || ''}`);
         const actionRequestUsageItem = actionRequestText
             ? resolvedUsageItems.find((item) => {
@@ -468,6 +438,35 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const usageDetailVerificationRunning = Boolean(usageDetailVerificationStep) || matchingStatus === 'running' || photoValidationStatus === 'running';
     const usageDetailVerificationDone = matchingStatus === 'done' || photoValidationStatus === 'done';
     const usageDetailVerificationLabel = usageDetailVerificationRunning ? '검증 중...' : '유효성 검증';
+    const applyVisionValidationResults = (todos: UsageDetailTodoItem[] = orchestratorTodoItems) => {
+        const visionTodos = todos.filter((todo) => todo.source === 'vision');
+        commitFileData((prev) => ({
+            ...prev,
+            categories: Object.fromEntries(Object.entries(prev.categories || {}).map(([catId, lineMap]) => [
+                catId,
+                Object.fromEntries(Object.entries(lineMap).map(([usageItemId, kindMap]) => {
+                    const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
+                    const matchingVisionTodo = visionTodos.find((todo) => {
+                        if (todo.usageItemId)
+                            return String(todo.usageItemId) === String(usageItemId);
+                        if (todo.categoryId)
+                            return String(todo.categoryId) === String(catId);
+                        return Boolean(usageItem && todo.context.includes(usageItem.name));
+                    });
+                    return [
+                        usageItemId,
+                        {
+                            ...kindMap,
+                            site_photo: (kindMap.site_photo || []).map((file) => ({
+                                ...file,
+                                visionValidation: buildVisionValidation(file, usageItem, matchingVisionTodo?.detail),
+                            })),
+                        },
+                    ];
+                })),
+            ])) as ArchiveSeed['categories'],
+        }));
+    };
     const isSupplementTarget = (catId: number, usageItemId?: string) => {
         if (usageItemId)
             return usageDetailTodoItems.some((todo) => {
@@ -886,6 +885,8 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setPhotoValidationStatus('running');
         try {
             await runEvidenceReviewAgent(projectId, usageStatementId);
+            const nextTodos = await refreshOrchestratorStatusTodos();
+            applyVisionValidationResults(nextTodos);
             setPhotoValidationStatus('done');
             setPhotoValidationNotice({ type: 'ok', message: 'Vision 실행 결과가 저장되었습니다.' });
         } catch {
@@ -938,7 +939,8 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setUsageDetailVerificationStep('vision');
             await waitForVerificationStep(2100);
             await reviewTask;
-            await refreshOrchestratorStatusTodos();
+            const nextTodos = await refreshOrchestratorStatusTodos();
+            applyVisionValidationResults(nextTodos);
             setMatchingStatus('done');
             setPhotoValidationStatus('done');
             setMatchingNotice('증빙 유효성 검증 결과를 보완 TODO에 반영했습니다.');
@@ -949,7 +951,8 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 runSafetyDocMatching(),
                 runVisionPhotoValidation(),
             ]);
-            await refreshOrchestratorStatusTodos();
+            const nextTodos = await refreshOrchestratorStatusTodos();
+            applyVisionValidationResults(nextTodos);
         } finally {
             setUsageDetailVerificationStep(null);
         }

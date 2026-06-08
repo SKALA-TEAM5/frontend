@@ -9,7 +9,7 @@ import ProjectInfoEditorModal from '../../components/project/ProjectInfoEditorMo
 import { AppFrame, DateRangePicker } from '../../components/common';
 import { type BackendUserProfile } from '../../lib/auth-api';
 import { C } from '../../lib/theme';
-import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectLifecycleStatus, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
+import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getSheFilterOptionsFromProjects, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
 import { createProject, deleteProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees, updateProject } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
@@ -46,8 +46,6 @@ const supplementRequestBadgeStyle: React.CSSProperties = {
   lineHeight: 1,
   whiteSpace: 'nowrap',
 };
-
-const LOCAL_USAGE_STATEMENT_PREFIX = 'iveri-mvp-usage-statement:';
 
 const initialCreateForm: NewProjectInput = {
   contractNumber: '',
@@ -122,28 +120,7 @@ export default function ProjectsPage() {
     listProjects({ size: 10 })
       .then((items) => {
         if (!alive) return;
-        const mergedItems = items.map((project) => {
-          if (typeof window === 'undefined') return project;
-          try {
-            const raw = window.localStorage.getItem(`${LOCAL_USAGE_STATEMENT_PREFIX}${project.id}`);
-            if (!raw) return project;
-            const parsed = JSON.parse(raw) as { workflowStatus?: string; actionRequestDetails?: ProjectSummary['actionRequestDetails'] };
-            if (!parsed.workflowStatus) return project;
-            const workflowStatus = normalizeUsageWorkflowStatus(parsed.workflowStatus);
-            if (!workflowStatus) return project;
-            return {
-              ...project,
-              latestUsageStatementStatusCode: workflowStatus,
-              hasUploads: true,
-              hasActionRequest: workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
-              actionRequestDetails: workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? parsed.actionRequestDetails : undefined,
-              reportReady: workflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
-            };
-          } catch {
-            return project;
-          }
-        });
-        setProjects(mergedItems);
+        setProjects(items);
       })
       .catch((error) => {
         if (alive) setLoadError(error instanceof Error ? error.message : '프로젝트 목록을 불러오지 못했습니다.');
@@ -383,9 +360,6 @@ export default function ProjectsPage() {
     setDeleteError('');
     try {
       await deleteProject(deleteTarget.id);
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(`${LOCAL_USAGE_STATEMENT_PREFIX}${deleteTarget.id}`);
-      }
       setDeleteTarget(null);
       loadProjects();
     } catch (error) {

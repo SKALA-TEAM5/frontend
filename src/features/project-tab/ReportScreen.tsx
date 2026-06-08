@@ -65,11 +65,10 @@ const normalizeReportSectionTable = (
   sectionId: string,
   table: ReportDraft['report_sections'][number]['tables'][number],
 ): ReportDraft['report_sections'][number]['tables'][number] => {
-  if (sectionId === 'supplement_actions') {
+  if (sectionId === 'issue_details') {
     return {
       ...table,
-      headers: ['No.', '보완 항목', '실행 내용'],
-      rows: table.rows.map((row) => [row[0] || '', row[1] || '', row[2] || '']),
+      title: table.title?.replace(/^6\.(\d+)/, '5.$1') ?? table.title,
     };
   }
   if (sectionId === 'evidence_validation') {
@@ -87,10 +86,17 @@ const normalizeReportDraftEvidenceLabels = (draft: ReportDraft): ReportDraft => 
     ...item,
     evidence_type_name: normalizeEvidenceTypeLabel(item.evidence_type_name || item.evidence_type_code),
   })),
-  report_sections: draft.report_sections.map((section) => ({
-    ...section,
-    tables: section.tables.map((table) => normalizeReportSectionTable(section.section_id, table)),
-  })),
+  report_sections: draft.report_sections
+    .filter((section) => section.section_id !== 'tax_settlement' && section.section_id !== 'supplement_actions')
+    .map((section) => ({
+      ...section,
+      title:
+        section.section_id === 'item_reviews' ? '4. 항목별 적정성 검토 결과'
+        : section.section_id === 'issue_details' ? '5. 부적정 및 검토 필요 상세 내역'
+        : section.section_id === 'overall_opinion' ? '6. 종합 의견'
+        : section.title,
+      tables: section.tables.map((table) => normalizeReportSectionTable(section.section_id, table)),
+    })),
 });
 
 const isReportDraft = (value: unknown): value is ReportDraft => {
@@ -153,6 +159,27 @@ const reportInputStyle: CSSProperties = {
   lineHeight: 1.75,
   outline: 'none',
   padding: '6px 8px',
+};
+
+const getTextareaHeight = (value: string, minHeight: number, lineHeightPx = 23, verticalPaddingPx = 18) => {
+  const lineCount = Math.max(1, value.split('\n').length);
+  const wrappedLineCount = value.split('\n').reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 34)), 0);
+  return Math.max(minHeight, Math.max(lineCount, wrappedLineCount) * lineHeightPx + verticalPaddingPx);
+};
+
+const getReportCellHeight = (sectionId: string, cellIndex: number, value: string) => {
+  if (sectionId === 'item_reviews') {
+    const wrapAt = cellIndex === 4 ? 46 : cellIndex === 1 ? 10 : 12;
+    const minHeight = cellIndex === 4 ? 58 : 46;
+    const wrappedLineCount = value.split('\n').reduce((count, line) => count + Math.max(1, Math.ceil(line.length / wrapAt)), 0);
+    return Math.max(minHeight, wrappedLineCount * 24 + 18);
+  }
+  if (sectionId === 'issue_details') {
+    const wrapAt = cellIndex === 0 ? 10 : 66;
+    const wrappedLineCount = value.split('\n').reduce((count, line) => count + Math.max(1, Math.ceil(line.length / wrapAt)), 0);
+    return Math.max(42, wrappedLineCount * 23 + 16);
+  }
+  return getTextareaHeight(value, 38);
 };
 
 const ReportScreen = ({ projectId, usageStatementId, validationComplete = false, reportGenerationEnabled = validationComplete, reportDisabledReason = '법령 검증 결과가 success 또는 HIL 상태일 때만 보고서를 생성할 수 있습니다.' }: ReportScreenProps) => {
@@ -296,7 +323,8 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     const getReportColumnTemplate = (sectionId: string, table: ReportDraft['report_sections'][number]['tables'][number]) => {
       if (table.headers.length === 0 && (sectionId === 'cover' || sectionId === 'issue_details')) return '144px minmax(0, 1fr)';
       if (table.headers.length === 0 && sectionId === 'basic_info') return '132px minmax(0, 1fr) 132px minmax(0, 1fr)';
-      if (sectionId === 'supplement_actions' && table.headers[0] === 'No.') return '44px minmax(210px, 1.1fr) minmax(420px, 2fr)';
+      if (sectionId === 'execution_summary' && table.headers[0] === '집행 항목') return 'minmax(300px, 1.15fr) minmax(180px, .85fr) minmax(96px, .45fr) minmax(230px, .9fr)';
+      if (sectionId === 'item_reviews' && table.headers[0] === 'No.') return '42px 128px 92px 70px minmax(460px, 1fr)';
       if (table.headers[0] === 'No.') return `44px repeat(${Math.max(0, table.headers.length - 1)}, minmax(132px, 1fr))`;
       return `repeat(${Math.max(table.headers.length, 1)}, minmax(0, 1fr))`;
     };
@@ -307,31 +335,34 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
       const columnTemplate = getReportColumnTemplate(section.section_id, table);
       const minWidth = section.section_id === 'basic_info'
         ? 720
-        : section.section_id === 'supplement_actions'
-          ? 920
-          : table.headers[0] === 'No.'
+        : section.section_id === 'item_reviews'
+          ? 792
+        : table.headers[0] === 'No.'
             ? 860
             : Math.max(720, columnCount * 132);
-      return <div key={tableIndex} style={{ marginTop: tableIndex === 0 ? 0 : 16 }}>
+      return <div key={tableIndex} style={{ width: '100%', maxWidth: '100%', minWidth: 0, marginTop: tableIndex === 0 ? 0 : 16 }}>
         {table.title !== null && (
           <div style={{ padding: '4px 0 8px', fontSize: 13, fontWeight: 700, color: C.g800 }}>{table.title}</div>
         )}
-        <div className="thin-x-scroll" style={{ width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'auto' }}>
-          <div style={{ width: 'max-content', minWidth, maxWidth: 'none', border: `1px solid ${C.g200}`, borderBottom: 'none', borderRadius: 6, overflow: 'hidden', background: C.white }}>
+        <div className="thin-x-scroll" style={{ display: 'block', width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden' }}>
+          <div style={{ width: '100%', minWidth, boxSizing: 'border-box', border: `1px solid ${C.g200}`, borderBottom: 'none', borderRadius: 6, overflow: 'hidden', background: C.white }}>
             {table.headers.length > 0 && <div style={{ display: 'grid', gridTemplateColumns: columnTemplate, background: '#F1F5F3', borderBottom: `1px solid ${C.g200}` }}>
-              {table.headers.map((header) => <div key={header} style={{ padding: '9px 10px', borderRight: `1px solid ${C.g200}`, fontSize: 13, fontWeight: 700, color: C.g800, textAlign: 'center' }}>{header}</div>)}
+              {table.headers.map((header) => <div key={header} style={{ padding: '9px 10px', borderRight: `1px solid ${C.g200}`, fontSize: 13, fontWeight: 700, color: C.g800, textAlign: 'left' }}>{header}</div>)}
             </div>}
-            {table.rows.map((row, rowIndex) => (
+            {table.rows.map((row, rowIndex) => {
+              const rowHeight = Math.max(...row.map((cell, cellIndex) => getReportCellHeight(section.section_id, cellIndex, cell)));
+              return (
               <div key={rowIndex} style={{ display: 'grid', gridTemplateColumns: columnTemplate, borderBottom: `1px solid ${C.g200}` }}>
                 {row.map((cell, cellIndex) => {
                   const isLabel = isTemplateLabelCell(section.section_id, table.headers.length > 0, cellIndex, rowIndex, cell) || isLockedDataCell(section.section_id, tableIndex, table, cellIndex);
-                  const commonCellStyle: CSSProperties = { minHeight: 38, borderRight: cellIndex === row.length - 1 ? 'none' : `1px solid ${C.g200}`, background: isLabel ? '#F1F5F3' : C.white, color: isLabel ? C.g600 : C.g800, textAlign: table.headers.length > 0 && cellIndex > 0 ? 'center' : 'left', fontSize: 13, fontWeight: isLabel ? 700 : 500 };
+                  const commonCellStyle: CSSProperties = { minHeight: rowHeight, borderRight: cellIndex === row.length - 1 ? 'none' : `1px solid ${C.g200}`, background: isLabel ? '#F1F5F3' : C.white, color: isLabel ? C.g600 : C.g800, textAlign: 'left', fontSize: 13, fontWeight: isLabel ? 700 : 500 };
                   return isLabel
-                    ? <div key={cellIndex} style={{ ...commonCellStyle, padding: '9px 10px', display: 'flex', alignItems: 'center' }}>{cell}</div>
-                    : <textarea className="report-edit-field" key={cellIndex} value={cell} onChange={(event) => updateReportTableCell(sectionIndex, tableIndex, rowIndex, cellIndex, event.target.value)} style={{ ...reportInputStyle, ...commonCellStyle, resize: 'vertical', border: 'none', borderRight: commonCellStyle.borderRight, borderRadius: 0, padding: '9px 10px' }} />;
+                    ? <div key={cellIndex} style={{ ...commonCellStyle, padding: '9px 10px', display: 'flex', alignItems: 'flex-start', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.65 }}>{cell}</div>
+                    : <textarea className="report-edit-field" key={cellIndex} value={cell} rows={1} onChange={(event) => updateReportTableCell(sectionIndex, tableIndex, rowIndex, cellIndex, event.target.value)} style={{ ...reportInputStyle, ...commonCellStyle, height: rowHeight, resize: 'none', overflow: 'hidden', border: 'none', borderRight: commonCellStyle.borderRight, borderRadius: 0, padding: '9px 10px', whiteSpace: 'pre-wrap' }} />;
                 })}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>;
@@ -371,7 +402,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     boxShadow: `0 6px 14px ${C.primaryShadow}`,
   };
 
-  return <div className="screen-enter" style={{ background: 'transparent', maxWidth: 1040, margin: '0 auto' }}>
+  return <div className="screen-enter" style={{ width: '100%', maxWidth: '100%', background: 'transparent', margin: '0 auto' }}>
     <Card style={{ padding: '14px 16px', marginBottom: 14, boxShadow: '0 1px 2px rgba(31,47,39,.04)' }}>
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
@@ -399,7 +430,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
 
     {validationComplete && reportStatus === 'idle' && <Card style={{ padding: '22px 24px', marginBottom: 18, background: '#F7F8FA', boxShadow: 'none', border: `1px solid ${C.g200}` }}>
       <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>보고서가 아직 생성되지 않았습니다</div>
-      <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6, marginTop: 5 }}>보고서 생성하기를 눌러야 초안과 항목별 검토 결과가 생성됩니다.</div>
+      <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6, marginTop: 5 }}>보고서 생성하기를 누르면 초안과 항목별 검토 결과가 생성됩니다.</div>
     </Card>}
 
     {reportStatus === 'done' && renderReportEditor()}

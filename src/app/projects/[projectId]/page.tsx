@@ -78,8 +78,6 @@ const TABS: Array<{
     { id: 'report', label: '보고서' },
 ];
 const DETAIL_TABS = new Set<DetailTab>(['overview', 'details', 'validation', 'report']);
-const LOCAL_USAGE_STATEMENT_PREFIX = 'iveri-mvp-usage-statement:';
-const LOCAL_VALIDATION_STATUS_PREFIX = 'iveri-mvp-validation-status:';
 const EMPTY_USAGE_STATEMENT: MonthlyUsageStatementSummary = {
     month: '',
     label: '사용내역서',
@@ -96,10 +94,6 @@ const EMPTY_USAGE_STATEMENT: MonthlyUsageStatementSummary = {
     issueCount: 0,
 };
 const EMPTY_OVERVIEW_ROWS = [...CATS.map((cat) => [`${cat.id}. ${cat.label}`, '-', '-', '-'] as [string, string, string, string]), ['계', '-', '-', '-'] as [string, string, string, string]];
-interface MvpUsageStatementArchiveData extends MonthUsageStatementArchiveData {
-    workflowStatus?: SharedWorkflowStatus;
-    actionRequestDetails?: ProjectSummary['actionRequestDetails'];
-}
 const formatMonthLabel = (month: string) => {
     const [year, monthNo] = month.split('-');
     return `${year}년 ${Number(monthNo)}월`;
@@ -165,43 +159,9 @@ const getNextMonthKey = (month?: string) => {
     base.setMonth(base.getMonth() + 1);
     return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
 };
-const getLocalUsageStatementKey = (projectId: string) => `${LOCAL_USAGE_STATEMENT_PREFIX}${projectId}`;
-const readLocalUsageStatementData = (projectId: string): MvpUsageStatementArchiveData | null => {
-    if (typeof window === 'undefined' || !projectId)
-        return null;
-    try {
-        const raw = window.localStorage.getItem(getLocalUsageStatementKey(projectId));
-        return raw ? JSON.parse(raw) as MvpUsageStatementArchiveData : null;
-    } catch {
-        return null;
-    }
-};
-const writeLocalUsageStatementData = (projectId: string, data: MvpUsageStatementArchiveData) => {
-    if (typeof window === 'undefined' || !projectId)
-        return;
-    window.localStorage.setItem(getLocalUsageStatementKey(projectId), JSON.stringify(data));
-};
-const getLocalValidationStatusKey = (projectId: string) => `${LOCAL_VALIDATION_STATUS_PREFIX}${projectId}`;
-const readLocalValidationStatusByMonth = (projectId: string): Record<string, 'idle' | 'running' | 'done'> => {
-    if (typeof window === 'undefined' || !projectId)
-        return {};
-    try {
-        const raw = window.localStorage.getItem(getLocalValidationStatusKey(projectId));
-        if (!raw)
-            return {};
-        const parsed = JSON.parse(raw) as Record<string, string>;
-        return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value === 'idle' || value === 'running' || value === 'done')) as Record<string, 'idle' | 'running' | 'done'>;
-    } catch {
-        return {};
-    }
-};
-const writeLocalValidationStatusByMonth = (projectId: string, data: Record<string, 'idle' | 'running' | 'done'>) => {
-    if (typeof window === 'undefined' || !projectId)
-        return;
-    window.localStorage.setItem(getLocalValidationStatusKey(projectId), JSON.stringify(data));
-};
-const normalizeWorkflowStatus = (value?: string | null): SharedWorkflowStatus => {
-    return normalizeUsageWorkflowStatus(value) || USAGE_WORKFLOW_STATUS.DRAFT;
+const isSupplementClearedWorkflow = (status?: string | null) => {
+    const normalized = normalizeUsageWorkflowStatus(status);
+    return normalized === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || normalized === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED;
 };
 const applyWorkflowToProject = (project: ProjectSummary, status: SharedWorkflowStatus, actionRequestDetails?: ProjectSummary['actionRequestDetails']): ProjectSummary => ({
     ...project,
@@ -269,8 +229,21 @@ const buildAgentGateItem = (agents: OrchestratorDashboardAgent[], input: { id: s
         detail: `현재 status_code=${statusCode || '-'}, result_code=${resultCode || '-'}입니다. success / success 또는 hil 조건을 만족해야 합니다.`,
     };
 };
-const buildValidationGateItems = (input: { usageStatementUploaded: boolean; uploadCompleted: boolean; agents: OrchestratorDashboardAgent[] }): ValidationGateItem[] => [
-    {
+const summarizeValidationGateState = (items: ValidationGateItem[]): ValidationGateState => {
+    if (items.some((item) => item.state === 'failed'))
+        return 'failed';
+    if (items.some((item) => item.state === 'waiting'))
+        return 'waiting';
+    return 'passed';
+};
+const buildValidationGateItems = (input: { usageStatementUploaded: boolean; uploadCompleted: boolean; agents: OrchestratorDashboardAgent[] }): ValidationGateItem[] => {
+    const agentGateItems = [
+        buildAgentGateItem(input.agents, { id: 'safety-docs', label: '증빙 매칭 검증', required: true, gateCode: 'safety_docs' }),
+        buildAgentGateItem(input.agents, { id: 'link', label: 'OCR/링크 검증', required: false, gateCode: 'link' }),
+        buildAgentGateItem(input.agents, { id: 'vision', label: '현장사진 검증', required: false, gateCode: 'vision' }),
+    ];
+    const passedAgentGateCount = agentGateItems.filter((item) => item.state === 'passed').length;
+    return [{
         id: 'upload-completed',
         label: '업로드 완료',
         required: true,
@@ -280,10 +253,15 @@ const buildValidationGateItems = (input: { usageStatementUploaded: boolean; uplo
             ? '프로젝트 담당자가 해당 월 사용내역서의 업로드 완료를 눌러야 합니다.'
             : '사용내역서를 먼저 업로드해야 합니다.',
     },
-    buildAgentGateItem(input.agents, { id: 'safety-docs', label: '증빙 매칭 검증', required: true, gateCode: 'safety_docs' }),
-    buildAgentGateItem(input.agents, { id: 'link', label: 'OCR/링크 검증', required: false, gateCode: 'link' }),
-    buildAgentGateItem(input.agents, { id: 'vision', label: '현장사진 검증', required: false, gateCode: 'vision' }),
-];
+    {
+        id: 'validity-check',
+        label: '유효성 검증',
+        required: true,
+        state: summarizeValidationGateState(agentGateItems),
+        statusText: `${passedAgentGateCount}/${agentGateItems.length}개 내부 검증 조건 충족`,
+        detail: '유효성 검증을 먼저 실행해야 법령 검증을 실행할 수 있습니다.',
+    }];
+};
 const getUsageStatementOcrFailureReason = (file: File) => {
     const fileName = file.name.toLowerCase();
     const supportedExtension = /\.(pdf|png|jpe?g|webp|xlsx)$/i.test(file.name);
@@ -402,6 +380,7 @@ export default function ProjectDetailPage() {
                     ...entry,
                     workflowStatus: status,
                     actionRequestDetails: status === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? withActionRequestMonth(actionRequestDetails, month) : undefined,
+                    orchestratorTodos: status === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? entry.orchestratorTodos : [],
                 },
             };
         });
@@ -412,13 +391,18 @@ export default function ProjectDetailPage() {
             return { ...item, statementSummary: { ...item.statementSummary, month, label: formatMonthLabel(month) } };
         }
         try {
+            const archiveWorkflowStatus = normalizeUsageWorkflowStatus(item.workflowStatus);
+            const clearedByWorkflow = archiveWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+                && isSupplementClearedWorkflow(archiveWorkflowStatus);
             const status = await getOrchestratorStatus(project.id || projectId, item.usageStatementId);
-            const todos = status.todos || [];
+            const todos = clearedByWorkflow ? [] : status.todos || [];
             const actionRequestDetails = orchestratorTodosToDetails(todos, month, getProjectAssigneeLabel(project));
             return {
                 ...item,
                 statementSummary: { ...item.statementSummary, month, label: formatMonthLabel(month) },
-                workflowStatus: actionRequestDetails ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : item.workflowStatus,
+                workflowStatus: clearedByWorkflow
+                    ? (archiveWorkflowStatus || item.workflowStatus)
+                    : actionRequestDetails ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : item.workflowStatus,
                 actionRequestDetails,
                 orchestratorTodos: todos,
                 orchestratorAgents: status.agents,
@@ -431,18 +415,12 @@ export default function ProjectDetailPage() {
         }
     };
     const refreshArchiveData = async (targetProjectId: string) => {
-        const localData = readLocalUsageStatementData(targetProjectId);
         const [statementArchives, latestData, archiveData] = await Promise.all([
             listUsageStatementArchives(targetProjectId).catch(() => []),
             getLatestUsageStatementArchive(targetProjectId).catch(() => null),
             getProjectArchiveFromCategories(targetProjectId).catch(() => null),
         ]);
-        const mergedStatementArchives = [...statementArchives];
-        const localDataMonth = normalizeMonthKey(localData?.statementSummary.month);
-        if (localData && !mergedStatementArchives.some((item) => normalizeMonthKey(item.statementSummary.month) === localDataMonth)) {
-            mergedStatementArchives.push(localData);
-        }
-        const mergedWithOrchestrator = await Promise.all(mergedStatementArchives.map(attachOrchestratorState));
+        const mergedWithOrchestrator = await Promise.all(statementArchives.map(attachOrchestratorState));
         if (mergedWithOrchestrator.length) {
             setDbUsageStatementsByMonth(Object.fromEntries(mergedWithOrchestrator.map((item) => {
                 const month = normalizeMonthKey(item.statementSummary.month);
@@ -481,7 +459,7 @@ export default function ProjectDetailPage() {
             setProject((current) => applyWorkflowToProject({
                 ...current,
                 hasUploads: Boolean(archiveData.archiveSeed.usage_statement.length || archiveData.usageItems.length || current.hasUploads),
-            }, normalizeWorkflowStatus(localData?.workflowStatus || current.status), withActionRequestMonth(localData?.actionRequestDetails, localData?.statementSummary.month)));
+            }, normalizeUsageWorkflowStatus(current.latestUsageStatementStatusCode) || USAGE_WORKFLOW_STATUS.DRAFT));
         }
     };
     const selectedStatement = monthlyStatements.find((statement) => statement.month === selectedMonth) || latestStatement;
@@ -501,7 +479,7 @@ export default function ProjectDetailPage() {
         || (!selectedMonthHasUploadedStatement
             ? '사용내역서를 업로드한 뒤 법령 검증을 완료해야 보고서를 생성할 수 있습니다.'
             : !selectedLegalAllowsReport
-                ? '법령 검증 결과가 success 또는 HIL 상태일 때만 보고서를 생성할 수 있습니다.'
+                ? '법령 검증을 완료해야 보고서를 생성할 수 있습니다.'
                 : '법령 검증 결과가 있어야 보고서 초안을 생성할 수 있습니다.');
     const selectedMonthHasActionRequest = Boolean(
         selectedStatementArchive?.workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
@@ -651,41 +629,17 @@ export default function ProjectDetailPage() {
         if (!project.id)
             return;
         let alive = true;
-        const localData = readLocalUsageStatementData(project.id);
         setArchiveSeed(null);
         setArchiveUsageItems([]);
         setDbUsageStatementsByMonth({});
-        setValidationStatusByMonth(readLocalValidationStatusByMonth(project.id));
+        setValidationStatusByMonth({});
         setActionGuideOpen(user.role === 'project_manager' && selectedMonthHasActionRequest);
         setActionCompletionSent(false);
-        if (localData) {
-            const month = normalizeMonthKey(localData.statementSummary.month);
-            const normalizedLocalData = {
-                ...localData,
-                statementSummary: {
-                    ...localData.statementSummary,
-                    month,
-                    label: formatMonthLabel(month),
-                },
-                actionRequestDetails: withActionRequestMonth(localData.actionRequestDetails, month),
-            };
-            setDbUsageStatementsByMonth({
-                [month]: normalizedLocalData,
-            });
-            setArchiveSeed(normalizedLocalData.archiveSeed);
-            setArchiveUsageItems(normalizedLocalData.usageItems);
-            setProject((current) => applyWorkflowToProject({
-                ...current,
-                hasUploads: normalizedLocalData.statementSummary.evidenceCount > 0 || Boolean(normalizedLocalData.statementSummary.sourceFileName && normalizedLocalData.statementSummary.sourceFileName !== '-'),
-                accumulatedAmount: normalizedLocalData.statementSummary.cumulativeAmount,
-            }, normalizedLocalData.workflowStatus ? normalizeWorkflowStatus(normalizedLocalData.workflowStatus) : USAGE_WORKFLOW_STATUS.DRAFT, normalizedLocalData.actionRequestDetails));
-        }
         refreshArchiveData(project.id)
             .catch(() => {
                 if (!alive)
                     return;
-                if (!localData)
-                    setArchiveSeed(null);
+                setArchiveSeed(null);
             });
         listProjectFiles(project.id)
             .then((files) => {
@@ -710,26 +664,6 @@ export default function ProjectDetailPage() {
             uploadCompleteFeedbackTimerRef.current = null;
         }
     }, []);
-    useEffect(() => {
-        const archiveData = selectedStatement.month ? dbUsageStatementsByMonth[selectedStatement.month] : undefined;
-        if (!project.id || !archiveSeed || !archiveData)
-            return;
-        writeLocalUsageStatementData(project.id, {
-            archiveSeed,
-            usageItems: archiveUsageItems,
-            overviewRows: archiveData.overviewRows,
-            statementSummary: archiveData.statementSummary,
-            workflowStatus: selectedMonthShouldDisplayWorkflowStatus ? selectedMonthWorkflowStatus : undefined,
-            actionRequestDetails: selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-                ? withActionRequestMonth(selectedMonthActionRequestDetails, selectedStatement.month)
-                : undefined,
-        });
-    }, [archiveSeed, archiveUsageItems, dbUsageStatementsByMonth, project.id, selectedMonthActionRequestDetails, selectedMonthShouldDisplayWorkflowStatus, selectedMonthWorkflowStatus, selectedStatement.month]);
-    useEffect(() => {
-        if (!project.id)
-            return;
-        writeLocalValidationStatusByMonth(project.id, validationStatusByMonth);
-    }, [project.id, validationStatusByMonth]);
     useEffect(() => {
         setProjectHeaderOpen(Boolean(selectedMonth));
     }, [selectedMonth]);
@@ -809,7 +743,6 @@ export default function ProjectDetailPage() {
     };
     const sendReviewRequest = () => {
         if (activeArchiveTodoCount > 0) {
-            flashUploadCompleteFeedback();
             setUploadCompleteConfirmOpen(true);
             return;
         }
@@ -1428,6 +1361,22 @@ export default function ProjectDetailPage() {
         {selectedMonthHasUploadedStatement && <UsageStatementDetailScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} usageDetailSeed={archiveSeed} usageItems={archiveUsageItems} onUsageItemsChange={(items) => {
                 setArchiveUsageItems(items);
                 revertReviewedProjectToDraft();
+            }} onUsageDetailSeedChange={(seed) => {
+                setArchiveSeed(seed);
+                if (!selectedStatement.month)
+                    return;
+                setDbUsageStatementsByMonth((current) => {
+                    const currentArchive = current[selectedStatement.month];
+                    if (!currentArchive)
+                        return current;
+                    return {
+                        ...current,
+                        [selectedStatement.month]: {
+                            ...currentArchive,
+                            archiveSeed: seed,
+                        },
+                    };
+                });
             }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveArchiveTodoCount} onBackToOverview={() => updateTab('overview')} uploadCompleteAction={reviewRequestHeaderButton}/>}
         </>}
       </div>),
