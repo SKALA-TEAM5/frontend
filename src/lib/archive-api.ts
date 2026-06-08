@@ -573,6 +573,9 @@ export const uploadEvidenceFileToItem = async (projectId: string, itemId: string
   });
   const fileId = response.data.fileId;
   const linkId = response.data.linkId;
+  if (!linkId) {
+    throw new Error('파일은 업로드됐지만 세부항목 증빙 연결이 생성되지 않았습니다. 다시 업로드해 주세요.');
+  }
   const entry = makeEntry(response.data.originalFilename || file.name, kind, {
     fileId,
     uploadedAt: formatDate(response.data.uploadedAt) || new Date().toISOString().slice(0, 10),

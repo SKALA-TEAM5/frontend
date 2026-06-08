@@ -2,22 +2,24 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import Card from '../../components/ui/Card';
 import { AppFrame, DateRangePicker } from '../../components/common';
+import DashboardChatbot from '../../components/common/DashboardChatbot';
 import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { C } from '../../lib/theme';
-import { STATUS_META, USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
+import { LEGAL_REVIEW_STATUS_FILTER, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
 import { listUsageStatementArchives } from '../../lib/archive-api';
 import { getOrchestratorStatus, type OrchestratorTodo } from '../../lib/agent-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { ROLE_LABELS } from '../../lib/permissions';
-import { listUsageRecords, summarizeTopUsageRecords, type UsageRecordSummary } from '../../lib/usage-records-api';
-import { getAdminDashboard, listAdminDashboardProjects, type AdminDashboardResponse } from '../../lib/admin-dashboard-api';
+import { getDashboardAiUsage, getDashboardSummary, getDashboardSupplementProgress, type DashboardAiUsageResponse, type DashboardSummaryResponse, type DashboardSupplementProgress } from '../../lib/dashboard-api';
+import { listProjects } from '../../lib/project-api';
 
 const FALLBACK_ACTION_ASSIGNEE = '프로젝트 담당자';
 const ALL_REASON_PROJECTS = 'all';
+const AI_USAGE_TOP_LIMIT = 8;
 
 const DASHBOARD_CHART_COLORS = [
   '#4269D0FF',
@@ -83,13 +85,6 @@ type AiUsageCostRow = {
   cost: number;
 };
 
-const getAiUsageDisplayRole = (view: 'user' | 'project', row: UsageRecordSummary) => {
-  if (view === 'project') return '';
-  const rawRole = row.subLabel.toLowerCase();
-  if (rawRole.includes('she') || rawRole.includes('admin') || rawRole.includes('관리자')) return 'SHE 담당자';
-  return '프로젝트 담당자';
-};
-
 const getAiUsageTooltipTitle = (row: AiUsageCostRow) => row.role ? `${row.user} · ${row.role}` : row.user;
 const formatUsd = (value: number | string) => `$${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const roleCodeToDashboardLabel = (roleCode: string) => {
@@ -104,6 +99,11 @@ const isSupplementClearedWorkflow = (status?: string | null) => {
 };
 
 const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActionRequest;
+
+const isLegalReviewWorkflow = (status?: string | null) => {
+  const normalized = normalizeUsageWorkflowStatus(status);
+  return normalized === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || normalized === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
+};
 
 const normalizeMonthKey = (month?: string | null) => {
   const match = month?.match(/^(\d{4})-(\d{2})/);
@@ -138,6 +138,7 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
   const assigneeLabel = getProjectAssigneeLabel(project);
   try {
     const archives = await listUsageStatementArchives(project.id);
+    const hasReviewNeededArchive = archives.some((archive) => isLegalReviewWorkflow(archive.workflowStatus));
     for (const archive of archives) {
       const month = normalizeMonthKey(archive.statementSummary.month);
       const archiveWorkflowStatus = normalizeUsageWorkflowStatus(archive.workflowStatus);
@@ -149,6 +150,7 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
         if (actionRequestDetails) {
           return {
             ...project,
+            hasLegalReviewNeededMonth: true,
             hasActionRequest: true,
             actionRequestDetails,
             reportReady: true,
@@ -158,6 +160,7 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
       if (archiveWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) {
         return {
           ...project,
+          hasLegalReviewNeededMonth: true,
           hasActionRequest: true,
           actionRequestDetails: {
             ...(project.actionRequestDetails || {
@@ -178,6 +181,7 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
     }
     return {
       ...project,
+      hasLegalReviewNeededMonth: hasReviewNeededArchive || isLegalReviewWorkflow(project.latestUsageStatementStatusCode),
       hasActionRequest: false,
       actionRequestDetails: undefined,
       reportReady: project.reportReady,
@@ -237,6 +241,51 @@ const compactFieldStyle: CSSProperties = {
   fontSize: 11,
   lineHeight: '16px',
 };
+
+const hiddenCheckboxStyle: CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  opacity: 0,
+  pointerEvents: 'none',
+};
+
+const legalReviewFilterStyle = (active: boolean): CSSProperties => ({
+  height: 30,
+  boxSizing: 'border-box',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 5,
+  padding: '0 8px',
+  borderRadius: 6,
+  border: `1px solid ${active ? C.light : C.g200}`,
+  background: active ? '#F4FBF6' : C.white,
+  color: active ? C.primary : C.g800,
+  fontFamily: 'inherit',
+  fontSize: 11,
+  fontWeight: 800,
+  cursor: 'pointer',
+  boxShadow: active ? 'inset 0 0 0 1px rgba(24, 111, 67, .06)' : 'none',
+  transition: 'background .16s ease, border-color .16s ease, color .16s ease',
+  whiteSpace: 'nowrap',
+});
+
+const legalReviewCheckStyle = (active: boolean): CSSProperties => ({
+  width: 15,
+  height: 15,
+  flex: '0 0 auto',
+  borderRadius: 4,
+  border: `1px solid ${active ? C.primary : C.g400}`,
+  background: active ? C.primary : '#FAFBFA',
+  color: C.white,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 11,
+  fontWeight: 900,
+  lineHeight: 1,
+});
 
 const dashboardPageStyle: CSSProperties = {
   position: 'relative',
@@ -324,14 +373,17 @@ export default function DashboardPage() {
   const router = useRouter();
   const { user, clearCurrentUser } = useCurrentUser();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [adminDashboard, setAdminDashboard] = useState<AdminDashboardResponse | null>(null);
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummaryResponse | null>(null);
+  const [dashboardAiUsage, setDashboardAiUsage] = useState<DashboardAiUsageResponse | null>(null);
+  const [supplementProgress, setSupplementProgress] = useState<DashboardSupplementProgress[]>([]);
   const filterOptions = useMemo(() => getSheFilterOptionsFromProjects(projects), [projects]);
   const [projectName, setProjectName] = useState('');
   const [contractNumber, setContractNumber] = useState('');
   const [period, setPeriod] = useState('');
   const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
   const [manager, setManager] = useState(filterOptions.managers[0] || '전체');
-  const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
+  const [status, setStatus] = useState<string>(filterOptions.statuses[0] || '전체');
+  const legalReviewNeededChecked = status === '법령 검증 필요';
   const [sortBy, setSortBy] = useState<ProjectSortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [selectedReasonProjectId, setSelectedReasonProjectId] = useState(ALL_REASON_PROJECTS);
@@ -346,14 +398,10 @@ export default function DashboardPage() {
   const aiUsageYear = dashboardMonthPeriod.year;
   const aiUsageMonth = dashboardMonthPeriod.month;
   const currentMonthKey = `${dashboardMonthPeriod.year}-${dashboardMonthPeriod.month}`;
-  const [aiUsageUserRows, setAiUsageUserRows] = useState<UsageRecordSummary[]>([]);
-  const [aiUsageProjectRows, setAiUsageProjectRows] = useState<UsageRecordSummary[]>([]);
   const [aiUsageLoading, setAiUsageLoading] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const [chartTooltip, setChartTooltip] = useState<{ x: number; y: number; title: string; body: string } | null>(null);
-  const [reviewQueueTooltipOpen, setReviewQueueTooltipOpen] = useState(false);
-  const reviewQueueTooltipRef = useRef<HTMLDivElement | null>(null);
 
   const showChartTooltip = (event: ReactMouseEvent, title: string, body: string) => {
     setChartTooltip({ x: event.clientX + 14, y: event.clientY + 14, title, body });
@@ -368,31 +416,22 @@ export default function DashboardPage() {
       router.replace('/projects');
     }
   }, [router, user.role]);
-  useEffect(() => {
-    if (!reviewQueueTooltipOpen)
-      return;
-    const handleOutsideClick = (event: MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node) || reviewQueueTooltipRef.current?.contains(target))
-        return;
-      setReviewQueueTooltipOpen(false);
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [reviewQueueTooltipOpen]);
 
   const refreshDashboardProjects = useCallback(async () => {
     setDashboardRefreshing(true);
     try {
-      const [items, dashboard] = await Promise.all([
-        listAdminDashboardProjects(),
-        getAdminDashboard().catch(() => null),
+      const [items, summary, progress] = await Promise.all([
+        listProjects({ page: 1, size: 10 }),
+        getDashboardSummary().catch(() => null),
+        getDashboardSupplementProgress().catch(() => []),
       ]);
-      setAdminDashboard(dashboard);
+      setDashboardSummary(summary);
+      setSupplementProgress(progress);
       setProjects(await Promise.all(items.map(hydrateProjectWorkflowStatus)));
     } catch {
       setProjects([]);
-      setAdminDashboard(null);
+      setDashboardSummary(null);
+      setSupplementProgress([]);
     } finally {
       setDashboardRefreshing(false);
     }
@@ -402,19 +441,22 @@ export default function DashboardPage() {
     let alive = true;
     setDashboardRefreshing(true);
     Promise.all([
-      listAdminDashboardProjects(),
-      getAdminDashboard().catch(() => null),
+      listProjects({ page: 1, size: 10 }),
+      getDashboardSummary().catch(() => null),
+      getDashboardSupplementProgress().catch(() => []),
     ])
-      .then(([items, dashboard]) => Promise.all(items.map(hydrateProjectWorkflowStatus)).then((hydrated) => ({ hydrated, dashboard })))
-      .then(({ hydrated, dashboard }) => {
+      .then(([items, summary, progress]) => Promise.all(items.map(hydrateProjectWorkflowStatus)).then((hydrated) => ({ hydrated, summary, progress })))
+      .then(({ hydrated, summary, progress }) => {
         if (!alive) return;
         setProjects(hydrated);
-        setAdminDashboard(dashboard);
+        setDashboardSummary(summary);
+        setSupplementProgress(progress);
       })
       .catch(() => {
         if (!alive) return;
         setProjects([]);
-        setAdminDashboard(null);
+        setDashboardSummary(null);
+        setSupplementProgress([]);
       })
       .finally(() => {
         if (alive) setDashboardRefreshing(false);
@@ -427,22 +469,21 @@ export default function DashboardPage() {
   useEffect(() => {
     let alive = true;
     if (!aiUsageYear || !aiUsageMonth) {
-      setAiUsageUserRows([]);
-      setAiUsageProjectRows([]);
+      setDashboardAiUsage(null);
       setAiUsageLoading(false);
       return () => {
         alive = false;
       };
     }
     setAiUsageLoading(true);
-    Promise.all([
-      listUsageRecords('user', { year: aiUsageYear, month: aiUsageMonth }).catch(() => []),
-      listUsageRecords('project', { year: aiUsageYear, month: aiUsageMonth }).catch(() => []),
-    ])
-      .then(([userRows, projectRows]) => {
+    getDashboardAiUsage({ year: aiUsageYear, month: aiUsageMonth })
+      .then((aiUsage) => {
         if (!alive) return;
-        setAiUsageUserRows(userRows);
-        setAiUsageProjectRows(projectRows);
+        setDashboardAiUsage(aiUsage);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setDashboardAiUsage(null);
       })
       .finally(() => {
         if (alive) setAiUsageLoading(false);
@@ -466,8 +507,12 @@ export default function DashboardPage() {
     }
   };
 
+  const activeProjects = useMemo(
+    () => projects.filter((project) => project.projectStatusCode === PROJECT_STATUS_CODE.ACTIVE),
+    [projects],
+  );
   const visibleProjects = useMemo(() => {
-    return getVisibleProjects(projects, {
+    return getVisibleProjects(activeProjects, {
       projectName,
       contractNumber,
       period,
@@ -477,7 +522,7 @@ export default function DashboardPage() {
       allManagerLabel: filterOptions.managers[0],
       allStatusLabel: filterOptions.statuses[0],
     }, sortBy, sortDirection);
-  }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, sortBy, sortDirection, status]);
+  }, [activeProjects, contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, sortBy, sortDirection, status]);
   const [rangeStart = '', rangeEnd = ''] = period.split('~');
 
   const workflowProjects = {
@@ -486,67 +531,34 @@ export default function DashboardPage() {
     [USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED),
     [USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED),
   };
-  const queueProjects = projects
-    .filter((project) => {
-      const workflow = getProjectMonthWorkflowStatus(project);
-      return workflow === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
-    })
-    .map((project) => ({
-      workflow: getProjectMonthWorkflowStatus(project),
-      id: `project-${project.id}`,
-      projectId: project.id,
-      projectName: project.constructionName,
-      month: getProjectActionRequestMonth(project),
-      title: getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-        ? (project.actionRequestDetails?.title || '보완 요청 확인 필요')
-        : '업로드 완료 검토 필요',
-      message:
-        getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-          ? (project.actionRequestDetails?.reason || '프로젝트 담당자가 사용내역서 또는 증빙 자료를 수정해야 합니다.')
-          : '프로젝트 담당자가 업로드를 완료했습니다. SHE 담당자의 법령 검증이 필요합니다.',
-      assignee: project.manager || '프로젝트 담당자',
-      createdAt: getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? (project.actionRequestDetails?.requestedAt || '-') : '-',
-      status: getProjectMonthWorkflowStatus(project) || USAGE_WORKFLOW_STATUS.DRAFT,
-    }))
-    .slice(0, 6);
-  const openReviewQueueProject = (item: (typeof queueProjects)[number]) => {
-    const targetSearchParams = new URLSearchParams({ tab: 'validation' });
-    const targetMonth = item.month?.match(/^(\d{4}-\d{2})/)?.[1] || '';
-    if (targetMonth)
-      targetSearchParams.set('month', targetMonth);
-    setReviewQueueTooltipOpen(false);
-    router.push(`/projects/${item.projectId}?${targetSearchParams.toString()}`);
+  const reviewNeededProjectCount = projects.filter((project) => {
+    const workflow = getProjectMonthWorkflowStatus(project);
+    return workflow === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
+  }).length;
+  const openReviewNeededProjects = () => {
+    const targetSearchParams = new URLSearchParams({ status: LEGAL_REVIEW_STATUS_FILTER.NEEDED });
+    router.push(`/projects?${targetSearchParams.toString()}`);
   };
-  const selectedAiUsageSourceRows = aiUsageView === 'user' ? aiUsageUserRows : aiUsageProjectRows;
-  const adminAiUsageRows: readonly AiUsageCostRow[] | null = adminDashboard
+  const aiUsageRows: readonly AiUsageCostRow[] = dashboardAiUsage
     ? (aiUsageView === 'user'
-      ? adminDashboard.aiUsage.topUsers.map((row) => ({
+      ? dashboardAiUsage.byUser.slice(0, AI_USAGE_TOP_LIMIT).map((row) => ({
         user: row.userName,
         role: roleCodeToDashboardLabel(row.roleCode),
-        tokens: Number(row.inputTokens || 0) + Number(row.outputTokens || 0),
+        tokens: Number(row.totalTokens || 0),
         calls: Number(row.callCount || 0),
         cost: Number(row.costUsd || 0),
       }))
-      : adminDashboard.aiUsage.topProjects.map((row) => ({
+      : dashboardAiUsage.byProject.slice(0, AI_USAGE_TOP_LIMIT).map((row) => ({
         user: row.projectName,
         role: '',
-        tokens: Number(row.inputTokens || 0) + Number(row.outputTokens || 0),
+        tokens: Number(row.totalTokens || 0),
         calls: Number(row.callCount || 0),
         cost: Number(row.costUsd || 0),
       })))
-    : null;
-  const aiUsageRows: readonly AiUsageCostRow[] = adminAiUsageRows || summarizeTopUsageRecords(selectedAiUsageSourceRows, 5).map((row) => ({
-    user: row.label,
-    role: getAiUsageDisplayRole(aiUsageView, row),
-    tokens: row.tokens,
-    calls: row.calls,
-    cost: row.cost,
-  }));
-  const aiUsageTotalCost = adminDashboard ? Number(adminDashboard.aiUsage.total.totalCostUsd || 0) : aiUsageRows.reduce((sum, row) => sum + row.cost, 0);
-  const aiUsageTotalTokens = adminDashboard
-    ? Number(adminDashboard.aiUsage.total.totalInputTokens || 0) + Number(adminDashboard.aiUsage.total.totalOutputTokens || 0)
-    : aiUsageRows.reduce((sum, row) => sum + row.tokens, 0);
-  const aiUsageTotalCalls = adminDashboard ? Number(adminDashboard.aiUsage.total.callCount || 0) : aiUsageRows.reduce((sum, row) => sum + row.calls, 0);
+    : [];
+  const aiUsageTotalCost = Number(dashboardAiUsage?.total.totalCostUsd || 0);
+  const aiUsageTotalTokens = Number(dashboardAiUsage?.total.totalTokens || 0);
+  const aiUsageTotalCalls = Number(dashboardAiUsage?.total.totalCalls || 0);
   const aiUsageDonutRadius =42;
   const aiUsageDonutCircumference = 2 * Math.PI * aiUsageDonutRadius;
   let aiUsageDonutOffset = 0;
@@ -644,8 +656,8 @@ export default function DashboardPage() {
       return map;
     }, new Map<string, { actionRequired: number; projectCount: number }>()),
   ).sort((a, b) => b[1].actionRequired - a[1].actionRequired || a[0].localeCompare(b[0], 'ko'));
-  const displayedManagerWorkloads = adminDashboard?.supplementAssignees.length
-    ? adminDashboard.supplementAssignees.map((assignee) => [assignee.userName, { actionRequired: assignee.supplementCount, projectCount: assignee.supplementCount }] as const)
+  const displayedManagerWorkloads = supplementProgress.length
+    ? supplementProgress.map((assignee) => [assignee.userName, { actionRequired: assignee.supplementCount, projectCount: assignee.supplementCount }] as const)
     : managerWorkloads;
   if (user.role === 'project_manager') {
     return (
@@ -708,57 +720,52 @@ export default function DashboardPage() {
 	          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
 		            <div style={{ border: `1px solid ${C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0 }}>
 	              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>전체 프로젝트</div>
-		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.g800 }}>{adminDashboard?.summary.totalProjects ?? projects.length}</div>
+		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.g800 }}>{dashboardSummary?.totalProjects ?? projects.length}</div>
 	            </div>
-            <div ref={reviewQueueTooltipRef} style={{ position: 'relative', minWidth: 0 }}>
+            <div style={{ position: 'relative', minWidth: 0 }}>
               <button
                 type="button"
-                onClick={() => setReviewQueueTooltipOpen((open) => !open)}
-                aria-expanded={reviewQueueTooltipOpen}
-                style={{ width: '100%', border: `1px solid ${reviewQueueTooltipOpen ? C.primary : C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0, background: C.white, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
+                onClick={openReviewNeededProjects}
+                style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0, background: C.white, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
               >
-                <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>법령 검증 필요</div>
-                <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{adminDashboard?.summary.reviewNeededProjects ?? queueProjects.length}</div>
-              </button>
-              {reviewQueueTooltipOpen && (
-                <div
-                  role="tooltip"
-	                  style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 2000, width: 380, maxWidth: 'min(380px, calc(100vw - 48px))', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, boxShadow: '0 18px 42px rgba(31,47,39,.18)', padding: 12 }}
-                >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: C.g800 }}>법령 검증 필요 항목</div>
-                <button type="button" onClick={() => setReviewQueueTooltipOpen(false)} aria-label="검토 큐 닫기" style={{ border: 'none', background: 'transparent', color: C.g500, cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
-              </div>
-              <div style={{ display: 'grid', gap: 8, maxHeight: 250, overflowY: 'auto', paddingRight: 2 }}>
-                {queueProjects.length === 0 ? (
-                  <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, background: '#FBFCFB', padding: 12, fontSize: 12, fontWeight: 700, color: C.g500, lineHeight: 1.5 }}>
-                    현재 법령 검증이 필요한 월별 사용내역서가 없습니다.
-                  </div>
-                ) : queueProjects.map((item) => {
-                  const meta = STATUS_META[item.status];
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => openReviewQueueProject(item)}
-                      style={{ border: `1px solid ${meta.color}`, borderRadius: 10, background: meta.bg, padding: 10, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, fontSize: 10, fontWeight: 700, color: C.g400 }}>
+                  <span>법령 검증 필요</span>
+                  <span className="review-needed-info-wrap" style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span aria-label="도움말" role="img" style={{ width: 14, height: 14, color: C.g500, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+                        <path d="M12 11v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M12 8h.01" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                      </svg>
+                    </span>
+                    <span
+                      className="review-needed-tooltip"
+                      role="tooltip"
+                      style={{
+                        position: 'absolute',
+                        right: -8,
+                        bottom: 'calc(100% + 7px)',
+                        zIndex: 3,
+                        display: 'none',
+                        width: 200,
+                        border: `1px solid ${C.g200}`,
+                        borderRadius: 6,
+                        background: C.g800,
+                        color: C.white,
+                        padding: '7px 8px',
+                        fontSize: 10,
+                        fontWeight: 800,
+                        lineHeight: 1.45,
+                        boxShadow: '0 10px 22px rgba(31,55,43,.18)',
+                        whiteSpace: 'normal',
+                      }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-	                        <div style={{ minWidth: 0, fontSize: 12, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.projectName}</div>
-                        <span style={{ flexShrink: 0, border: `1px solid ${meta.color}`, borderRadius: 999, background: C.white, color: meta.color, padding: '3px 7px', fontSize: 10, fontWeight: 800, lineHeight: 1 }}>{meta.label}</span>
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.g600, lineHeight: 1.45 }}>
-                        {formatMonthLabel(item.month)} · 담당 {item.assignee}
-                      </div>
-	                      <div style={{ marginTop: 5, fontSize: 11, fontWeight: 750, color: meta.color, lineHeight: 1.45, whiteSpace: 'normal', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                        {item.title}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                      법령 검증이 필요한 프로젝트만 볼 수 있습니다.
+                    </span>
+                  </span>
                 </div>
-              )}
+                <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{dashboardSummary?.reviewRequiredCount ?? reviewNeededProjectCount}</div>
+              </button>
             </div>
 		          </div>
 	          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>
@@ -778,17 +785,14 @@ export default function DashboardPage() {
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', overflow: 'visible' }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>프로젝트 현황</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>진행 중인 프로젝트 현황</div>
               <Link href="/projects" style={{ fontSize: 12, fontWeight: 700, color: C.primary, textDecoration: 'none' }}>전체 프로젝트 보기 〉</Link>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(138px, 1.1fr) minmax(100px, .8fr) minmax(92px, .66fr) minmax(92px, .66fr) minmax(118px, .72fr)', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(138px, 1.1fr) minmax(100px, .8fr) minmax(92px, .66fr) minmax(118px, .72fr) max-content', gap: 8, marginBottom: 12 }}>
               <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
               <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={compactFieldStyle} />
               <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={compactFieldStyle}>
                 {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '담당자' : item}</option>)}
-              </select>
-              <select aria-label="상태" value={status} onChange={(event) => setStatus(event.target.value)} style={compactFieldStyle}>
-                {filterOptions.statuses.map((item) => <option key={item} value={item}>{item === filterOptions.statuses[0] ? '상태' : item}</option>)}
               </select>
               <DateRangePicker
                 start={rangeStart}
@@ -801,6 +805,16 @@ export default function DashboardPage() {
                 popupAlign="right"
                 placeholder="기간 선택"
               />
+              <label style={legalReviewFilterStyle(legalReviewNeededChecked)}>
+                <input
+                  type="checkbox"
+                  checked={legalReviewNeededChecked}
+                  onChange={(event) => setStatus(event.target.checked ? '법령 검증 필요' : (filterOptions.statuses[0] || '전체'))}
+                  style={hiddenCheckboxStyle}
+                />
+                <span aria-hidden="true" style={legalReviewCheckStyle(legalReviewNeededChecked)}>{legalReviewNeededChecked ? '✓' : ''}</span>
+                <span>법령 검증 필요</span>
+              </label>
             </div>
             <div style={{ overflow: 'auto', maxHeight: 278, minHeight: 0, border: `1px solid ${C.g100}`, borderRadius: 8 }}>
               <table style={{ minWidth: 720, tableLayout: 'fixed', borderCollapse: 'collapse' }}>
@@ -869,7 +883,7 @@ export default function DashboardPage() {
             </table>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, color: C.g600, fontSize: 12, fontWeight: 700 }}>
-              <span>전체 {projects.length}건</span>
+              <span>진행 중 {activeProjects.length}건</span>
             </div>
           </Card>
 
@@ -962,7 +976,7 @@ export default function DashboardPage() {
                 <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap' }}>AI 사용 금액</div>
                   <div style={{ color: C.g500, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }}>
-                    {adminDashboard ? '전체 기간 기준' : `${dashboardMonthPeriod.year}년 ${Number(dashboardMonthPeriod.month)}월 기준`}
+                    {`${dashboardMonthPeriod.year}년 ${Number(dashboardMonthPeriod.month)}월 기준`}
                   </div>
                 </div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
@@ -1120,6 +1134,12 @@ export default function DashboardPage() {
           <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g500, lineHeight: 1.35 }}>{chartTooltip.body}</div>
         </div>
       )}
+      <style jsx>{`
+        .review-needed-info-wrap:hover .review-needed-tooltip {
+          display: block !important;
+        }
+      `}</style>
+      <DashboardChatbot />
     </AppFrame>
   );
 }

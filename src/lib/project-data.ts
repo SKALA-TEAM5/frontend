@@ -70,6 +70,7 @@ export interface ProjectSummary {
   projectStatusCode: ProjectStatusCode;
   status: ProjectStatus;
   latestUsageStatementStatusCode?: string | null;
+  hasLegalReviewNeededMonth?: boolean;
   hasUploads: boolean;
   hasActionRequest: boolean;
   actionRequestDetails?: {
@@ -137,6 +138,7 @@ export const EMPTY_PROJECT: ProjectSummary = {
   projectStatusCode: PROJECT_STATUS_CODE.ACTIVE,
   status: PROJECT_STATUS.IN_PROGRESS,
   latestUsageStatementStatusCode: null,
+  hasLegalReviewNeededMonth: false,
   hasUploads: false,
   hasActionRequest: false,
   reportReady: false,
@@ -155,7 +157,8 @@ export const normalizeProjectStatus = (value?: string | null): ProjectStatus => 
   if (value === PROJECT_STATUS.OPEN || value === PROJECT_STATUS.IN_PROGRESS || value === PROJECT_STATUS.CLOSED) return value;
   if (value === PROJECT_STATUS_CODE.ACTIVE) return PROJECT_STATUS.IN_PROGRESS;
   if (value === PROJECT_STATUS_CODE.COMPLETED) return PROJECT_STATUS.CLOSED;
-  return PROJECT_STATUS.OPEN;
+  if (value === PROJECT_STATUS_CODE.SUSPENDED) return PROJECT_STATUS.OPEN;
+  return PROJECT_STATUS.IN_PROGRESS;
 };
 
 export const normalizeUsageWorkflowStatus = (value?: string | null): UsageWorkflowStatus | undefined => {
@@ -172,19 +175,19 @@ export const normalizeUsageWorkflowStatus = (value?: string | null): UsageWorkfl
 export const PROJECT_STATUS_META: Record<ProjectStatusCode, { label: string; color: string; bg: string }> = {
   [PROJECT_STATUS_CODE.ACTIVE]: { label: '진행 중', color: C.primary, bg: C.bg },
   [PROJECT_STATUS_CODE.COMPLETED]: { label: '완료', color: C.ok, bg: '#F4FBF6' },
-  [PROJECT_STATUS_CODE.SUSPENDED]: { label: '중단', color: C.g600, bg: C.g100 },
+  [PROJECT_STATUS_CODE.SUSPENDED]: { label: '중단됨', color: C.g600, bg: C.g100 },
 };
 
 export const PROJECT_LIFECYCLE_STATUS_META: Record<ProjectStatus, { label: string; color: string; bg: string }> = {
-  [PROJECT_STATUS.OPEN]: { label: '생성됨', color: C.g600, bg: C.g100 },
+  [PROJECT_STATUS.OPEN]: { label: '중단됨', color: C.g600, bg: C.g100 },
   [PROJECT_STATUS.IN_PROGRESS]: { label: '진행 중', color: C.primary, bg: C.white },
-  [PROJECT_STATUS.CLOSED]: { label: '종료됨', color: C.ok, bg: '#F4FBF6' },
+  [PROJECT_STATUS.CLOSED]: { label: '완료됨', color: C.ok, bg: '#F4FBF6' },
 };
 
 export const getProjectLifecycleStatus = (project: ProjectSummary): ProjectStatus => {
   if (project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED || project.status === PROJECT_STATUS.CLOSED) return PROJECT_STATUS.CLOSED;
-  if (project.hasUploads || Boolean(project.latestUsageStatementStatusCode)) return PROJECT_STATUS.IN_PROGRESS;
-  return PROJECT_STATUS.OPEN;
+  if (project.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED || project.status === PROJECT_STATUS.OPEN) return PROJECT_STATUS.OPEN;
+  return PROJECT_STATUS.IN_PROGRESS;
 };
 
 export const getProjectLifecycleMeta = (project: ProjectSummary) => PROJECT_LIFECYCLE_STATUS_META[getProjectLifecycleStatus(project)];
@@ -194,9 +197,20 @@ const splitManagerNames = (value: string) =>
 
 export const getProjectManagers = (project: ProjectSummary) => splitManagerNames(project.manager);
 
+export const LEGAL_REVIEW_STATUS_FILTER = {
+  ALL: '전체',
+  NEEDED: '법령 검증 필요',
+} as const;
+
+export const hasLegalReviewNeededMonth = (project: ProjectSummary) =>
+  Boolean(project.hasLegalReviewNeededMonth)
+  || project.hasActionRequest
+  || normalizeUsageWorkflowStatus(project.latestUsageStatementStatusCode) === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED
+  || normalizeUsageWorkflowStatus(project.latestUsageStatementStatusCode) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
+
 export const getSheFilterOptionsFromProjects = (projects: ProjectSummary[]) => {
   return {
     managers: ['전체', ...Array.from(new Set(projects.flatMap((project) => getProjectManagers(project))))],
-    statuses: ['전체', ...Object.values(PROJECT_LIFECYCLE_STATUS_META).map((meta) => meta.label)],
+    statuses: [LEGAL_REVIEW_STATUS_FILTER.ALL, LEGAL_REVIEW_STATUS_FILTER.NEEDED],
   };
 };

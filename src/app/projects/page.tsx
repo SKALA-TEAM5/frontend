@@ -1,7 +1,7 @@
 ﻿'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
@@ -9,11 +9,12 @@ import ProjectInfoEditorModal from '../../components/project/ProjectInfoEditorMo
 import { AppFrame, DateRangePicker } from '../../components/common';
 import { type BackendUserProfile } from '../../lib/auth-api';
 import { C } from '../../lib/theme';
-import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getSheFilterOptionsFromProjects, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
+import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, USAGE_WORKFLOW_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
 import { createProject, deleteProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees, updateProject } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getVisibleProjects, type PeriodMode } from '../../lib/project-list';
+import { listUsageStatementArchives } from '../../lib/archive-api';
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -29,6 +30,51 @@ const inputStyle: React.CSSProperties = {
   color: C.g800,
   background: C.white,
 };
+
+const hiddenCheckboxStyle: React.CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  opacity: 0,
+  pointerEvents: 'none',
+};
+
+const legalReviewFilterStyle = (active: boolean): React.CSSProperties => ({
+  height: 38,
+  boxSizing: 'border-box',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 7,
+  padding: '0 10px',
+  borderRadius: 8,
+  border: `1px solid ${active ? C.light : C.g200}`,
+  background: active ? '#F4FBF6' : C.white,
+  color: active ? C.primary : C.g800,
+  fontFamily: 'inherit',
+  fontSize: 12,
+  fontWeight: 900,
+  cursor: 'pointer',
+  boxShadow: active ? 'inset 0 0 0 1px rgba(24, 111, 67, .06)' : 'none',
+  transition: 'background .16s ease, border-color .16s ease, color .16s ease',
+  whiteSpace: 'nowrap',
+});
+
+const legalReviewCheckStyle = (active: boolean): React.CSSProperties => ({
+  width: 18,
+  height: 18,
+  flex: '0 0 auto',
+  borderRadius: 5,
+  border: `1px solid ${active ? C.primary : C.g400}`,
+  background: active ? C.primary : '#FAFBFA',
+  color: C.white,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 13,
+  fontWeight: 900,
+  lineHeight: 1,
+});
 
 const supplementRequestBadgeStyle: React.CSSProperties = {
   display: 'inline-flex',
@@ -77,14 +123,42 @@ const createRequiredFields: Array<keyof NewProjectInput> = [
 
 const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActionRequest;
 
+const isLegalReviewWorkflow = (status?: string | null) => {
+  const normalized = normalizeUsageWorkflowStatus(status);
+  return normalized === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || normalized === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
+};
+
+const hydrateProjectLegalReviewFilter = async (project: ProjectSummary): Promise<ProjectSummary> => {
+  if (project.hasActionRequest || isLegalReviewWorkflow(project.latestUsageStatementStatusCode)) {
+    return { ...project, hasLegalReviewNeededMonth: true };
+  }
+  try {
+    const archives = await listUsageStatementArchives(project.id);
+    const reviewNeededArchive = archives.find((archive) => isLegalReviewWorkflow(archive.workflowStatus));
+    if (!reviewNeededArchive) {
+      return { ...project, hasLegalReviewNeededMonth: false };
+    }
+    const workflowStatus = normalizeUsageWorkflowStatus(reviewNeededArchive.workflowStatus);
+    return {
+      ...project,
+      hasLegalReviewNeededMonth: true,
+      hasActionRequest: project.hasActionRequest || workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
+      latestUsageStatementStatusCode: project.latestUsageStatementStatusCode || workflowStatus || null,
+    };
+  } catch {
+    return project;
+  }
+};
+
 const projectAccordionSections: ProjectStatus[] = [
   PROJECT_STATUS.IN_PROGRESS,
   PROJECT_STATUS.OPEN,
   PROJECT_STATUS.CLOSED,
 ];
 
-export default function ProjectsPage() {
+function ProjectsPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useCurrentUser();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,7 +180,9 @@ export default function ProjectsPage() {
   const [period, setPeriod] = useState('');
   const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
   const [manager, setManager] = useState(filterOptions.managers[0] || '전체');
-  const [status, setStatus] = useState(filterOptions.statuses[0] || '전체');
+  const [status, setStatus] = useState<string>(filterOptions.statuses[0] || '전체');
+  const legalReviewNeededChecked = status === '법령 검증 필요';
+  const requestedStatus = searchParams.get('status') || '';
   const [openSections, setOpenSections] = useState<Record<ProjectStatus, boolean>>({
     [PROJECT_STATUS.OPEN]: false,
     [PROJECT_STATUS.IN_PROGRESS]: true,
@@ -118,6 +194,7 @@ export default function ProjectsPage() {
     setLoading(true);
     setLoadError('');
     listProjects({ size: 10 })
+      .then((items) => Promise.all(items.map(hydrateProjectLegalReviewFilter)))
       .then((items) => {
         if (!alive) return;
         setProjects(items);
@@ -142,6 +219,13 @@ export default function ProjectsPage() {
       .then(setManagerCandidates)
       .catch(() => setManagerCandidates([]));
   }, []);
+  useEffect(() => {
+    if (!requestedStatus)
+      return;
+    if (!(filterOptions.statuses as readonly string[]).includes(requestedStatus))
+      return;
+    setStatus(requestedStatus);
+  }, [filterOptions.statuses, requestedStatus]);
 
   const visibleProjects = useMemo(() => {
     return getVisibleProjects(projects, {
@@ -156,8 +240,6 @@ export default function ProjectsPage() {
       includeManagerStatus: true,
     }, 'name', 'asc');
   }, [contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, projects, status]);
-  const statusFilterActive = status !== (filterOptions.statuses[0] || '전체');
-
   const groupedVisibleProjects = useMemo(() => {
     return projectAccordionSections.reduce<Record<ProjectStatus, ProjectSummary[]>>((groups, section) => ({
       ...groups,
@@ -321,7 +403,7 @@ export default function ProjectsPage() {
               }}
               style={{ border: `1px solid ${projectClosed ? C.g200 : C.ok}`, borderRadius: 999, background: projectClosed ? C.g100 : '#F4FBF6', color: projectClosed ? C.g400 : C.ok, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: projectClosed || closingProjectId === project.id ? 'not-allowed' : 'pointer', boxSizing: 'border-box', opacity: closingProjectId === project.id ? .65 : 1 }}
             >
-              {closingProjectId === project.id ? '종료 중' : projectClosed ? '종료됨' : '프로젝트 종료'}
+              {closingProjectId === project.id ? '완료 처리 중' : projectClosed ? '완료됨' : '프로젝트 완료'}
             </span>
             <span
               role="button"
@@ -396,14 +478,14 @@ export default function ProjectsPage() {
         <div style={{ padding: '20px 22px 12px' }}>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 종료</div>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
-            {closeTarget?.constructionName || closeTarget?.name} 프로젝트를 종료됨 상태로 변경합니다. <br/> 종료 후에는 전체 프로젝트 목록에서 종료됨으로 표시됩니다.
+            {closeTarget?.constructionName || closeTarget?.name} 프로젝트를 완료됨 상태로 변경합니다. <br/> 완료 후에는 전체 프로젝트 목록에서 완료됨으로 표시됩니다.
           </div>
         </div>
         <div style={{ padding: '16px 22px 18px' }}>
           {closeError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 900, lineHeight: 1.5, marginBottom: 14 }}>{closeError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" onClick={closeCloseModal} disabled={Boolean(closingProjectId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: closingProjectId ? 'not-allowed' : 'pointer', opacity: closingProjectId ? 0.45 : 1 }}>취소</button>
-            <button type="button" onClick={confirmCloseProject} disabled={Boolean(closingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: closingProjectId ? C.g200 : C.ok, color: closingProjectId ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: closingProjectId ? 'wait' : 'pointer' }}>{closingProjectId ? '종료 중' : '종료'}</button>
+            <button type="button" onClick={confirmCloseProject} disabled={Boolean(closingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: closingProjectId ? C.g200 : C.ok, color: closingProjectId ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: closingProjectId ? 'wait' : 'pointer' }}>{closingProjectId ? '완료 처리 중' : '완료 처리'}</button>
           </div>
         </div>
       </div>
@@ -444,14 +526,11 @@ export default function ProjectsPage() {
           <div style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>전체 {visibleProjects.length}건</div>
         </div>
 
-        <div data-ui="projects.1" style={{ display: 'grid', gridTemplateColumns: 'minmax(145px, 1.1fr) minmax(110px, .85fr) minmax(105px, .78fr) minmax(105px, .78fr) minmax(190px, 1.25fr)', gap: 8, marginBottom: 24 }}>
+        <div data-ui="projects.1" style={{ display: 'grid', gridTemplateColumns: 'minmax(145px, 1.1fr) minmax(110px, .85fr) minmax(105px, .78fr) minmax(190px, 1.25fr) max-content', gap: 8, marginBottom: 24 }}>
           <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={inputStyle} />
           <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={inputStyle} />
           <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={inputStyle}>
             {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '담당자' : item}</option>)}
-          </select>
-          <select aria-label="상태" value={status} onChange={(event) => setStatus(event.target.value)} style={inputStyle}>
-            {filterOptions.statuses.map((item) => <option key={item} value={item}>{item === filterOptions.statuses[0] ? '상태' : item}</option>)}
           </select>
           <DateRangePicker
             start={periodMode === 'custom' ? period.split('~')[0] || '' : ''}
@@ -462,18 +541,23 @@ export default function ProjectsPage() {
             }}
             buttonStyle={inputStyle}
           />
+          <label style={legalReviewFilterStyle(legalReviewNeededChecked)}>
+            <input
+              type="checkbox"
+              checked={legalReviewNeededChecked}
+              onChange={(event) => setStatus(event.target.checked ? '법령 검증 필요' : (filterOptions.statuses[0] || '전체'))}
+              style={hiddenCheckboxStyle}
+            />
+            <span aria-hidden="true" style={legalReviewCheckStyle(legalReviewNeededChecked)}>{legalReviewNeededChecked ? '✓' : ''}</span>
+            <span>법령 검증 필요</span>
+          </label>
         </div>
 
         <div style={{ display: 'grid', gap: 10, alignItems: 'start' }}>
           {loading && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 13, fontWeight: 900 }}>프로젝트 목록을 불러오는 중입니다.</div>}
           {!loading && loadError && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.danger, fontSize: 13, fontWeight: 900 }}>{loadError}</div>}
           {!loading && !loadError && visibleProjects.length === 0 && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 13, fontWeight: 900 }}>조회된 프로젝트가 없습니다.</div>}
-          {!loading && !loadError && visibleProjects.length > 0 && statusFilterActive && (
-            <div data-ui="projects.filtered-card-grid" className="projects-card-grid">
-              {visibleProjects.map(renderProjectCard)}
-            </div>
-          )}
-          {!loading && !loadError && visibleProjects.length > 0 && !statusFilterActive && projectAccordionSections.map((section) => {
+          {!loading && !loadError && visibleProjects.length > 0 && projectAccordionSections.map((section) => {
             const sectionProjects = groupedVisibleProjects[section];
             const sectionMeta = PROJECT_LIFECYCLE_STATUS_META[section];
             const open = openSections[section];
@@ -517,5 +601,13 @@ export default function ProjectsPage() {
       {closeProjectModal}
       {deleteProjectModal}
     </AppFrame>
+  );
+}
+
+export default function ProjectsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ProjectsPageContent />
+    </Suspense>
   );
 }

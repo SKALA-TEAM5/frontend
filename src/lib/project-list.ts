@@ -1,4 +1,4 @@
-import { getProjectLifecycleMeta, getProjectManagers, type ProjectSummary } from './project-data';
+import { LEGAL_REVIEW_STATUS_FILTER, getProjectManagers, hasLegalReviewNeededMonth, type ProjectSummary } from './project-data';
 
 export type ProjectSortField = 'name' | 'contractNumber' | 'startDate' | 'endDate' | 'progress' | 'usageRate' | 'manager';
 export type SortDirection = 'asc' | 'desc';
@@ -133,7 +133,7 @@ export const filterProjects = (projects: ProjectSummary[], options: ProjectFilte
       !includeManagerStatus ||
       !options.status ||
       options.status === allStatusLabel ||
-      getProjectLifecycleMeta(project).label === options.status;
+      (options.status === LEGAL_REVIEW_STATUS_FILTER.NEEDED && hasLegalReviewNeededMonth(project));
 
     return matchesKeyword && matchesProjectName && matchesContractNumber && matchesPeriod && matchesManager && matchesStatus;
   });
