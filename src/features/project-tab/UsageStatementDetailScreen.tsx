@@ -9,7 +9,7 @@ import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
 import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
-import { getOrchestratorStatus, listSafeLeeEvidenceRequirements, parseAndMatchEvidenceWithOcr, runEvidenceReviewAgent, safeLeeRequirementsToMap, type OrchestratorTodo } from '../../lib/agent-api';
+import { getOrchestratorStatus, getVisionValidationResults, listSafeLeeEvidenceRequirements, runEvidenceReviewAgent, safeLeeRequirementsToMap, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 type UsageDetailValidationStatus = 'idle' | 'running' | 'done';
@@ -61,7 +61,13 @@ const toOrchestratorTodo = (todo: OrchestratorTodo, usageItems: UsageLineItem[])
         detail: toNounPhraseDetail(reason),
     };
 };
-const buildVisionValidation = (file: EvidenceFile, usageItem: UsageLineItem | undefined, reason?: string): NonNullable<EvidenceFile['visionValidation']> => {
+const buildVisionValidation = (file: EvidenceFile, usageItem: UsageLineItem | undefined, reason?: string, storedResult?: VisionValidationResult): NonNullable<EvidenceFile['visionValidation']> => {
+    if (storedResult) {
+        return {
+            ...storedResult,
+            itemName: usageItem?.name || storedResult.itemName,
+        };
+    }
     const normalizedReason = toNounPhraseDetail(reason || '');
     const hasProblem = Boolean(normalizedReason) || /미착용|부적합|불명확|부족|fail|위험|미확인/i.test(`${file.name} ${usageItem?.name || ''}`);
     return {
@@ -69,14 +75,7 @@ const buildVisionValidation = (file: EvidenceFile, usageItem: UsageLineItem | un
         checkedAt: new Date().toISOString(),
         itemName: usageItem?.name || '현장사진',
         summary: hasProblem ? (normalizedReason || '현장사진 검증 결과 보완 필요') : '현장사진 검증 결과 적합',
-        detections: hasProblem
-            ? [
-                { label: '현장사진 확인 필요', confidence: 0.91, box: [0.16, 0.18, 0.62, 0.72], status: 'bad' },
-                { label: '증빙 적합성 확인', confidence: 0.78, box: [0.58, 0.22, 0.34, 0.58], status: 'ok' },
-            ]
-            : [
-                { label: '현장사진 적합', confidence: 0.94, box: [0.12, 0.16, 0.76, 0.72], status: 'ok' },
-            ],
+        detections: [],
     };
 };
 type AddUsageItemDraft = {
@@ -201,6 +200,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const [completedTodoIds, setCompletedTodoIds] = useState<Record<string, boolean>>({});
     const [dismissedTodoIds, setDismissedTodoIds] = useState<Record<string, boolean>>({});
     const [orchestratorTodoItems, setOrchestratorTodoItems] = useState<UsageDetailTodoItem[]>([]);
+    const [visionValidationByFileId, setVisionValidationByFileId] = useState<Record<string, VisionValidationResult>>({});
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
     const [addUsageItemModalOpen, setAddUsageItemModalOpen] = useState(false);
@@ -304,8 +304,23 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             return [] as UsageDetailTodoItem[];
         }
     };
+    const refreshVisionValidationResults = async () => {
+        if (!usageStatementId) {
+            setVisionValidationByFileId({});
+            return {} as Record<string, VisionValidationResult>;
+        }
+        try {
+            const results = await getVisionValidationResults(projectId, usageStatementId);
+            setVisionValidationByFileId(results);
+            return results;
+        } catch {
+            setVisionValidationByFileId({});
+            return {} as Record<string, VisionValidationResult>;
+        }
+    };
     useEffect(() => {
         void refreshOrchestratorStatusTodos();
+        void refreshVisionValidationResults();
     }, [projectId, usageStatementId, resolvedUsageItems]);
     const usageDetailTodoItems = useMemo<UsageDetailTodoItem[]>(() => {
         const hasVisionValidatedPhotos = Object.values(fileData.categories || {}).some((lineMap) =>
@@ -438,7 +453,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const usageDetailVerificationRunning = Boolean(usageDetailVerificationStep) || matchingStatus === 'running' || photoValidationStatus === 'running';
     const usageDetailVerificationDone = matchingStatus === 'done' || photoValidationStatus === 'done';
     const usageDetailVerificationLabel = usageDetailVerificationRunning ? '검증 중...' : '유효성 검증';
-    const applyVisionValidationResults = (todos: UsageDetailTodoItem[] = orchestratorTodoItems) => {
+    const applyVisionValidationResults = (todos: UsageDetailTodoItem[] = orchestratorTodoItems, validationByFileId: Record<string, VisionValidationResult> = visionValidationByFileId) => {
         const visionTodos = todos.filter((todo) => todo.source === 'vision');
         commitFileData((prev) => ({
             ...prev,
@@ -457,16 +472,24 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                         usageItemId,
                         {
                             ...kindMap,
-                            site_photo: (kindMap.site_photo || []).map((file) => ({
-                                ...file,
-                                visionValidation: buildVisionValidation(file, usageItem, matchingVisionTodo?.detail),
-                            })),
+                            site_photo: (kindMap.site_photo || []).map((file) => {
+                                const storedResult = file.fileId == null ? undefined : validationByFileId[String(file.fileId)];
+                                return {
+                                    ...file,
+                                    visionValidation: buildVisionValidation(file, usageItem, matchingVisionTodo?.detail, storedResult),
+                                };
+                            }),
                         },
                     ];
                 })),
             ])) as ArchiveSeed['categories'],
         }));
     };
+    useEffect(() => {
+        if (!Object.keys(visionValidationByFileId).length)
+            return;
+        applyVisionValidationResults(orchestratorTodoItems, visionValidationByFileId);
+    }, [visionValidationByFileId, orchestratorTodoItems]);
     const isSupplementTarget = (catId: number, usageItemId?: string) => {
         if (usageItemId)
             return usageDetailTodoItems.some((todo) => {
@@ -885,8 +908,11 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setPhotoValidationStatus('running');
         try {
             await runEvidenceReviewAgent(projectId, usageStatementId);
-            const nextTodos = await refreshOrchestratorStatusTodos();
-            applyVisionValidationResults(nextTodos);
+            const [nextTodos, nextVisionResults] = await Promise.all([
+                refreshOrchestratorStatusTodos(),
+                refreshVisionValidationResults(),
+            ]);
+            applyVisionValidationResults(nextTodos, nextVisionResults);
             setPhotoValidationStatus('done');
             setPhotoValidationNotice({ type: 'ok', message: 'Vision 실행 결과가 저장되었습니다.' });
         } catch {
@@ -895,30 +921,6 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         }
     };
     const waitForVerificationStep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-    const runOcrLinkValidation = async () => {
-        if (!usageStatementId) {
-            setAgentFailureTarget('evidence-matching');
-            return;
-        }
-        const evidenceFiles = Object.entries(fileData.categories || {}).flatMap(([, lineMap]) =>
-            Object.entries(lineMap).flatMap(([usageItemId, kindMap]) =>
-                Object.values(kindMap).flatMap((files) =>
-                    (files || [])
-                        .filter((file) => file.fileId)
-                        .map((file) => ({ fileId: file.fileId as number | string, usageItemId }))
-                )
-            )
-        );
-        if (!evidenceFiles.length)
-            return;
-        await Promise.all(evidenceFiles.map((file) => parseAndMatchEvidenceWithOcr(projectId, {
-            fileId: file.fileId,
-            usageStatementId,
-            usageStatementItemId: file.usageItemId,
-        }))).catch(() => {
-            setMatchingNotice('link agent 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.');
-        });
-    };
     const runUsageDetailVerification = async () => {
         if (usageDetailVerificationRunning)
             return;
@@ -939,20 +941,25 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setUsageDetailVerificationStep('vision');
             await waitForVerificationStep(2100);
             await reviewTask;
-            const nextTodos = await refreshOrchestratorStatusTodos();
-            applyVisionValidationResults(nextTodos);
+            const [nextTodos, nextVisionResults] = await Promise.all([
+                refreshOrchestratorStatusTodos(),
+                refreshVisionValidationResults(),
+            ]);
+            applyVisionValidationResults(nextTodos, nextVisionResults);
             setMatchingStatus('done');
             setPhotoValidationStatus('done');
             setMatchingNotice('증빙 유효성 검증 결과를 보완 TODO에 반영했습니다.');
             setPhotoValidationNotice({ type: 'ok', message: '현장사진 검증 결과를 확인했습니다.' });
         } catch {
             await Promise.allSettled([
-                runOcrLinkValidation(),
                 runSafetyDocMatching(),
                 runVisionPhotoValidation(),
             ]);
-            const nextTodos = await refreshOrchestratorStatusTodos();
-            applyVisionValidationResults(nextTodos);
+            const [nextTodos, nextVisionResults] = await Promise.all([
+                refreshOrchestratorStatusTodos(),
+                refreshVisionValidationResults(),
+            ]);
+            applyVisionValidationResults(nextTodos, nextVisionResults);
         } finally {
             setUsageDetailVerificationStep(null);
         }

@@ -1,6 +1,6 @@
 import { apiFetch } from './api-client';
 import type { BackendRoleCode, BackendUserProfile } from './auth-api';
-import { PROJECT_STATUS_CODE, normalizeProjectStatus, type NewProjectInput, type ProjectStatus, type ProjectStatusCode, type ProjectSummary } from './project-data';
+import { PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, normalizeProjectStatus, type NewProjectInput, type ProjectStatus, type ProjectStatusCode, type ProjectSummary } from './project-data';
 
 export interface ProjectAssignee {
   userId: number;
@@ -28,9 +28,12 @@ interface ProjectCardResponse {
   constructionStartDate: string | null;
   constructionEndDate: string | null;
   latestCumulativeProgressRate: number | string | null;
+  usageRate: number | string | null;
   status: ProjectStatusCode;
-  hasActionRequest: boolean;
+  needCheck?: boolean;
+  hasActionRequest?: boolean;
   latestUsageStatementStatusCode: string | null;
+  uncheckedMatchedFileCount?: number;
 }
 
 interface ProjectDetailDataResponse {
@@ -140,11 +143,19 @@ const emptyProjectBase = (id: number, name: string, status: ProjectStatusCode, h
 });
 
 export const projectCardToSummary = (project: ProjectCardResponse): ProjectSummary => ({
-  ...emptyProjectBase(project.id, project.projectName, project.status, project.hasActionRequest, project.latestUsageStatementStatusCode),
+  ...emptyProjectBase(
+    project.id,
+    project.projectName,
+    project.status,
+    Boolean(project.hasActionRequest) || project.latestUsageStatementStatusCode === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
+    project.latestUsageStatementStatusCode,
+  ),
   contractNumber: project.contractNo || '',
   manager: managerText(project.assigneeNames || []),
   period: formatPeriod(project.constructionStartDate, project.constructionEndDate),
   progressRate: progressText(project.latestCumulativeProgressRate),
+  usageRate: progressText(project.usageRate),
+  hasLegalReviewNeededMonth: Boolean(project.needCheck),
   participants: project.assigneeNames || [],
 });
 

@@ -14,11 +14,11 @@ import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectMa
 import { getProject, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
 import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
-import { getOrchestratorStatus, parseUsageStatementWithOcr, type OrchestratorDashboardAgent, type OrchestratorTodo } from '../../../lib/agent-api';
+import { getOrchestratorStatus, parseUsageStatementWithOcr, type OrchestratorTodo } from '../../../lib/agent-api';
 import { can } from '../../../lib/permissions';
 import { useCurrentUser } from '../../../lib/dev-user';
 import UsageStatementDetailScreen from '../../../features/project-tab/UsageStatementDetailScreen';
-import VerifyScreen, { type ValidationGateItem, type ValidationGateState } from '../../../features/project-tab/VerifyScreen';
+import VerifyScreen, { type ValidationGateItem } from '../../../features/project-tab/VerifyScreen';
 import ReportScreen from '../../../features/project-tab/ReportScreen';
 import { CATS, type UsageLineItem } from '../../../lib/evidence-utils';
 import type { ArchiveSeed } from '../../../types/domain';
@@ -63,8 +63,9 @@ type MonthUsageStatementArchiveData = UsageStatementArchiveData & {
     workflowStatus?: SharedWorkflowStatus;
     actionRequestDetails?: ProjectSummary['actionRequestDetails'];
     orchestratorTodos?: OrchestratorTodo[];
-    orchestratorAgents?: OrchestratorDashboardAgent[];
     legalResultCode?: string | null;
+    legalReady?: boolean;
+    legalDisabledReason?: string | null;
     reportReady?: boolean;
     reportDisabledReason?: string | null;
 };
@@ -120,6 +121,17 @@ const readStringField = (source: unknown, keys: string[]) => {
     }
     return '';
 };
+const readRecordField = (source: unknown, keys: string[]) => {
+    const record = asRecord(source);
+    if (!record)
+        return null;
+    for (const key of keys) {
+        const value = asRecord(record[key]);
+        if (value)
+            return value;
+    }
+    return null;
+};
 const categoryIdFromCode = (value: string) => {
     const match = value.match(/\d+/);
     if (!match)
@@ -135,20 +147,69 @@ const categoryNameFromClassificationValue = (value: string) => {
     return (category?.short || value).replace(/\s+/g, ' ').trim();
 };
 const extractClassificationMoveNotices = (workflow: unknown): ClassificationMoveNotice[] => {
-    const workflowResult = asRecord(workflow)?.result;
-    const classification = asRecord(workflowResult)?.classification || asRecord(workflow)?.classification || workflow;
-    const items = asArray(asRecord(classification)?.lineItems);
+    const workflowRecord = asRecord(workflow);
+    const workflowResult = workflowRecord?.result;
+    const resultRecord = asRecord(workflowResult);
+    const classifierDetails = readRecordField(workflowResult, ['classifierDetails', 'classifier_details'])
+        || readRecordField(workflow, ['classifierDetails', 'classifier_details'])
+        || readRecordField(workflowResult, ['details'])
+        || readRecordField(workflow, ['details']);
+    const payload = readRecordField(classifierDetails, ['payload'])
+        || readRecordField(workflowResult, ['payload'])
+        || readRecordField(workflow, ['payload']);
+    const classification = resultRecord?.classification || workflowRecord?.classification || workflow;
+    const items = [
+        ...asArray(payload?.changes),
+        ...asArray(payload?.results),
+        ...asArray(asRecord(classification)?.lineItems),
+        ...asArray(asRecord(classification)?.line_items),
+        ...asArray(asRecord(classification)?.items),
+    ];
+    const seen = new Set<string>();
     return items.flatMap((item, index) => {
-        const fromCategory = readStringField(item, ['givenCategoryCode', 'originalCategoryCode', 'previousCategoryCode', 'sourceCategoryCode', 'beforeCategoryCode']);
-        const toCategory = readStringField(item, ['recommendedCategoryCode', 'classifiedCategoryCode', 'targetCategoryCode', 'finalCategoryCode', 'decidedCategoryCode', 'newCategoryCode', 'changedCategoryCode']);
+        const before = readRecordField(item, ['before']);
+        const after = readRecordField(item, ['after']);
+        const fromCategory = readStringField(item, [
+            'givenCategoryCode',
+            'given_category_code',
+            'originalCategoryCode',
+            'original_category_code',
+            'previousCategoryCode',
+            'previous_category_code',
+            'sourceCategoryCode',
+            'source_category_code',
+            'beforeCategoryCode',
+            'before_category_code',
+        ]) || readStringField(before, ['categoryCode', 'category_code']);
+        const toCategory = readStringField(item, [
+            'recommendedCategoryCode',
+            'recommended_category_code',
+            'classifiedCategoryCode',
+            'classified_category_code',
+            'targetCategoryCode',
+            'target_category_code',
+            'finalCategoryCode',
+            'final_category_code',
+            'decidedCategoryCode',
+            'decided_category_code',
+            'newCategoryCode',
+            'new_category_code',
+            'changedCategoryCode',
+            'changed_category_code',
+        ]) || readStringField(after, ['categoryCode', 'category_code']);
         if (!fromCategory || !toCategory || fromCategory === toCategory)
             return [];
+        const id = `${readStringField(item, ['rowId', 'row_id', 'id', 'itemId', 'item_id', 'lineId', 'line_id']) || index}`;
+        const dedupeKey = `${id}:${fromCategory}:${toCategory}`;
+        if (seen.has(dedupeKey))
+            return [];
+        seen.add(dedupeKey);
         return [{
-            id: `${readStringField(item, ['rowId', 'id', 'itemId']) || index}`,
-            itemName: readStringField(item, ['itemName', 'name', 'usageItemName']) || '사용내역서 세부항목',
+            id,
+            itemName: readStringField(item, ['itemName', 'item_name', 'name', 'usageItemName', 'usage_item_name']) || '사용내역서 세부항목',
             fromCategoryName: categoryNameFromClassificationValue(fromCategory),
             toCategoryName: categoryNameFromClassificationValue(toCategory),
-            reason: readStringField(item, ['reason', 'classificationReason', 'decisionReason', 'rationale']),
+            reason: readStringField(item, ['reason', 'classificationReason', 'classification_reason', 'decisionReason', 'decision_reason', 'rationale']),
         }];
     });
 };
@@ -189,60 +250,15 @@ const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string, a
         month,
     };
 };
-const normalizeAgentGateCode = (code?: string | null) => String(code || '').toLowerCase().replace(/[-_\s]/g, '');
-const SUCCESS_AGENT_RESULTS = new Set(['success', 'hil']);
-const agentMatchesGate = (agent: OrchestratorDashboardAgent, gateCode: string) => {
-    const normalized = normalizeAgentGateCode(agent.agentTypeCode);
-    const target = normalizeAgentGateCode(gateCode);
-    if (target === 'safetydocs')
-        return normalized === 'safetydoc' || normalized === 'safetydocs';
-    return normalized === target;
+const formatLegalDisabledReason = (reason?: string | null) => {
+    const text = (reason || '').trim();
+    if (!text)
+        return '세부 내역 탭에서 유효성 검증을 먼저 실행해야 합니다.';
+    if (text.includes('validate를 먼저 실행'))
+        return '세부 내역 탭에서 유효성 검증을 먼저 실행해야 합니다.';
+    return text;
 };
-const findAgentGateLog = (agents: OrchestratorDashboardAgent[] = [], gateCode: string) =>
-    [...agents].reverse().find((agent) => agentMatchesGate(agent, gateCode));
-const buildAgentGateItem = (agents: OrchestratorDashboardAgent[], input: { id: string; label: string; required: boolean; gateCode: string }): ValidationGateItem => {
-    const agent = findAgentGateLog(agents, input.gateCode);
-    if (!agent) {
-        return {
-            id: input.id,
-            label: input.label,
-            required: input.required,
-            state: input.required ? 'waiting' : 'passed',
-            statusText: input.required ? '로그 없음' : '선택 로그 없음',
-            detail: input.required
-                ? '실행 로그가 필요합니다. status_code=success, result_code=success 또는 hil이어야 합니다.'
-                : '로그가 없으면 법령 검증을 막지 않습니다. 로그가 있으면 success/hil 조건을 검사합니다.',
-        };
-    }
-    const statusCode = String(agent.statusCode || '').toLowerCase();
-    const resultCode = String(agent.resultCode || '').toLowerCase();
-    const statusReady = statusCode === 'success';
-    const resultReady = SUCCESS_AGENT_RESULTS.has(resultCode);
-    const pending = statusCode === 'pending' || statusCode === 'running';
-    const state: ValidationGateState = statusReady && resultReady ? 'passed' : pending ? 'waiting' : 'failed';
-    return {
-        id: input.id,
-        label: input.label,
-        required: input.required,
-        state,
-        statusText: `status=${statusCode || '-'}, result=${resultCode || '-'}`,
-        detail: `현재 status_code=${statusCode || '-'}, result_code=${resultCode || '-'}입니다. success / success 또는 hil 조건을 만족해야 합니다.`,
-    };
-};
-const summarizeValidationGateState = (items: ValidationGateItem[]): ValidationGateState => {
-    if (items.some((item) => item.state === 'failed'))
-        return 'failed';
-    if (items.some((item) => item.state === 'waiting'))
-        return 'waiting';
-    return 'passed';
-};
-const buildValidationGateItems = (input: { usageStatementUploaded: boolean; uploadCompleted: boolean; agents: OrchestratorDashboardAgent[] }): ValidationGateItem[] => {
-    const agentGateItems = [
-        buildAgentGateItem(input.agents, { id: 'safety-docs', label: '증빙 매칭 검증', required: true, gateCode: 'safety_docs' }),
-        buildAgentGateItem(input.agents, { id: 'link', label: 'OCR/링크 검증', required: false, gateCode: 'link' }),
-        buildAgentGateItem(input.agents, { id: 'vision', label: '현장사진 검증', required: false, gateCode: 'vision' }),
-    ];
-    const passedAgentGateCount = agentGateItems.filter((item) => item.state === 'passed').length;
+const buildValidationGateItems = (input: { usageStatementUploaded: boolean; uploadCompleted: boolean; legalReady: boolean; legalDisabledReason?: string | null }): ValidationGateItem[] => {
     return [{
         id: 'upload-completed',
         label: '업로드 완료',
@@ -257,9 +273,11 @@ const buildValidationGateItems = (input: { usageStatementUploaded: boolean; uplo
         id: 'validity-check',
         label: '유효성 검증',
         required: true,
-        state: summarizeValidationGateState(agentGateItems),
-        statusText: `${passedAgentGateCount}/${agentGateItems.length}개 내부 검증 조건 충족`,
-        detail: '유효성 검증을 먼저 실행해야 법령 검증을 실행할 수 있습니다.',
+        state: input.legalReady ? 'passed' : 'waiting',
+        statusText: input.legalReady ? '완료' : '대기',
+        detail: input.legalReady
+            ? '유효성 검증 조건이 충족되었습니다.'
+            : formatLegalDisabledReason(input.legalDisabledReason),
     }];
 };
 const getUsageStatementOcrFailureReason = (file: File) => {
@@ -316,6 +334,7 @@ export default function ProjectDetailPage() {
     const [todoClearSignal, setTodoClearSignal] = useState(0);
     const [activeArchiveTodoCount, setActiveArchiveTodoCount] = useState(0);
     const [uploadCompleteConfirmOpen, setUploadCompleteConfirmOpen] = useState(false);
+    const [uploadCompleteSubmitting, setUploadCompleteSubmitting] = useState(false);
     const [uploadCompleteFeedback, setUploadCompleteFeedback] = useState(false);
     const [projectInfoModalOpen, setProjectInfoModalOpen] = useState(false);
     const [monthCreateModalOpen, setMonthCreateModalOpen] = useState(false);
@@ -405,8 +424,9 @@ export default function ProjectDetailPage() {
                     : actionRequestDetails ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : item.workflowStatus,
                 actionRequestDetails,
                 orchestratorTodos: todos,
-                orchestratorAgents: status.agents,
                 legalResultCode: status.legalResultCode,
+                legalReady: status.legalReady,
+                legalDisabledReason: status.legalDisabledReason,
                 reportReady: status.reportReady,
                 reportDisabledReason: status.reportDisabledReason,
             };
@@ -500,7 +520,8 @@ export default function ProjectDetailPage() {
     const selectedValidationGateItems = buildValidationGateItems({
         usageStatementUploaded: selectedMonthHasUploadedStatement,
         uploadCompleted: selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED,
-        agents: selectedStatementArchive?.orchestratorAgents || [],
+        legalReady: Boolean(selectedStatementArchive?.legalReady),
+        legalDisabledReason: selectedStatementArchive?.legalDisabledReason,
     });
     const selectedValidationGateBlockedItem = selectedValidationGateItems.find((item) => item.state !== 'passed');
     const canStartValidationForCurrentView = Boolean(selectedStatementArchive?.usageStatementId)
@@ -703,8 +724,56 @@ export default function ProjectDetailPage() {
     };
     const revertReviewedProjectToDraft = () => {
         patchMonthWorkflow(selectedStatement.month, USAGE_WORKFLOW_STATUS.DRAFT);
+        if (selectedStatement.month) {
+            setDbUsageStatementsByMonth((current) => {
+                const entry = current[selectedStatement.month];
+                if (!entry)
+                    return current;
+                return {
+                    ...current,
+                    [selectedStatement.month]: {
+                        ...entry,
+                        legalReady: false,
+                        legalResultCode: null,
+                        legalDisabledReason: '유효성 검증을 다시 실행해야 합니다.',
+                        reportReady: false,
+                        reportDisabledReason: '법령 검증을 다시 완료해야 보고서를 생성할 수 있습니다.',
+                    },
+                };
+            });
+        }
         setProject((current) => ({ ...current, hasUploads: true }));
         setValidationStatusByMonth((prev) => prev[selectedStatement.month] ? { ...prev, [selectedStatement.month]: 'idle' } : prev);
+    };
+    const refreshSelectedAgentButtonState = async () => {
+        const usageStatementId = selectedStatementArchive?.usageStatementId;
+        if (!usageStatementId || !selectedStatement.month)
+            return;
+        const status = await getOrchestratorStatus(project.id, usageStatementId).catch(() => null);
+        if (!status)
+            return;
+        setDbUsageStatementsByMonth((current) => {
+            const entry = current[selectedStatement.month];
+            if (!entry)
+                return current;
+            const archiveWorkflowStatus = normalizeUsageWorkflowStatus(entry.workflowStatus);
+            const clearedByWorkflow = archiveWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+                && isSupplementClearedWorkflow(archiveWorkflowStatus);
+            const todos = clearedByWorkflow ? [] : status.todos || [];
+            return {
+                ...current,
+                [selectedStatement.month]: {
+                    ...entry,
+                    orchestratorTodos: todos,
+                    actionRequestDetails: orchestratorTodosToDetails(todos, selectedStatement.month, getProjectAssigneeLabel(project)),
+                    legalReady: status.legalReady,
+                    legalDisabledReason: status.legalDisabledReason,
+                    legalResultCode: status.legalResultCode,
+                    reportReady: status.reportReady,
+                    reportDisabledReason: status.reportDisabledReason,
+                },
+            };
+        });
     };
     const flashUploadCompleteFeedback = () => {
         if (uploadCompleteFeedbackTimerRef.current) {
@@ -717,9 +786,9 @@ export default function ProjectDetailPage() {
         }, 1100);
     };
     const completeReviewRequest = async () => {
-        if (!canUploadEvidence || !hasUsageStatement)
+        if (!canUploadEvidence || !hasUsageStatement || uploadCompleteSubmitting)
             return;
-        flashUploadCompleteFeedback();
+        setUploadCompleteSubmitting(true);
         const usageStatementId = selectedStatementArchive?.usageStatementId;
         try {
             if (usageStatementId && selectedMonthWorkflowStatus !== USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED) {
@@ -737,8 +806,12 @@ export default function ProjectDetailPage() {
             setActionGuideClosingMotion(null);
             setTodoClearSignal((signal) => signal + 1);
             setUploadCompleteConfirmOpen(false);
+            flashUploadCompleteFeedback();
         } catch {
+            setUploadCompleteConfirmOpen(false);
             setAgentFailureTarget('server-request');
+        } finally {
+            setUploadCompleteSubmitting(false);
         }
     };
     const sendReviewRequest = () => {
@@ -985,7 +1058,10 @@ export default function ProjectDetailPage() {
       </Modal>
     );
     const uploadCompleteConfirmModal = (
-      <Modal open={uploadCompleteConfirmOpen} onClose={() => setUploadCompleteConfirmOpen(false)} zIndex={990} maxWidth={460}>
+      <Modal open={uploadCompleteConfirmOpen} onClose={() => {
+        if (!uploadCompleteSubmitting)
+          setUploadCompleteConfirmOpen(false);
+      }} zIndex={990} maxWidth={460}>
         <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
           <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>업로드 완료 확인</div>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
@@ -994,9 +1070,10 @@ export default function ProjectDetailPage() {
             <span style={{ color: C.danger, fontWeight: 900 }}>업로드 완료를 진행하면 완료된 TODO는 목록에서 삭제됩니다.</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-            <button type="button" onClick={() => setUploadCompleteConfirmOpen(false)} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>취소</button>
+            <button type="button" disabled={uploadCompleteSubmitting} onClick={() => setUploadCompleteConfirmOpen(false)} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: uploadCompleteSubmitting ? 'not-allowed' : 'pointer', opacity: uploadCompleteSubmitting ? 0.45 : 1 }}>취소</button>
             <button
               type="button"
+              disabled={uploadCompleteSubmitting}
               onClick={completeReviewRequest}
               style={{
                 height: 38,
@@ -1008,12 +1085,13 @@ export default function ProjectDetailPage() {
                 fontFamily: 'inherit',
                 fontSize: 13,
                 fontWeight: 900,
-                cursor: 'pointer',
+                cursor: uploadCompleteSubmitting ? 'not-allowed' : 'pointer',
+                opacity: uploadCompleteSubmitting ? 0.65 : 1,
                 transition: 'transform .16s ease, background .18s ease, color .18s ease, box-shadow .18s ease, border-color .18s ease',
                 ...uploadCompleteFeedbackStyle,
               }}
             >
-              {uploadCompleteFeedbackLabel}
+              {uploadCompleteSubmitting ? '처리 중...' : uploadCompleteFeedbackLabel}
             </button>
           </div>
         </div>
@@ -1382,6 +1460,7 @@ export default function ProjectDetailPage() {
       </div>),
         validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} onValidationComplete={() => {
                 setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
+                void refreshSelectedAgentButtonState();
             }} onValidationApproved={async () => {
                 const usageStatementId = selectedStatementArchive?.usageStatementId;
                 if (!usageStatementId) {
@@ -1497,14 +1576,14 @@ export default function ProjectDetailPage() {
       </Modal>
       <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 변경" body={<div>
         <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>classi 에이전트가 일부 세부항목의 9개 항목 위치를 변경했습니다.</div>
-        <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
+        <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto', marginLeft: -36, width: 'calc(100% + 36px)' }}>
           {classificationMoveNotices.map((notice) => (
             <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
               <div title={notice.itemName} style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-                <span title={notice.fromCategoryName} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.fromCategoryName}</span>
+                <span title={notice.fromCategoryName} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
                 <span style={{ color: C.primary, fontWeight: 900 }}>→</span>
-                <span title={notice.toCategoryName} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.toCategoryName}</span>
+                <span title={notice.toCategoryName} style={{ border: `1px solid ${C.light}`, borderRadius: 6, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
               </div>
               {notice.reason && <div style={{ marginTop: 7, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{notice.reason}</div>}
             </div>

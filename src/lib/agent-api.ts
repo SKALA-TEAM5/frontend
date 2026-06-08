@@ -59,6 +59,7 @@ export interface OrchestratorStatusResponse {
   legalReady: boolean;
   reportReady: boolean;
   legalResultCode?: string | null;
+  legalDisabledReason?: string | null;
   reportDisabledReason?: string | null;
   agents: OrchestratorDashboardAgent[];
   logs: Array<Record<string, unknown>>;
@@ -116,8 +117,128 @@ interface AgentButtonStatesResponse {
   report?: AgentButtonStateResponse;
 }
 
+interface AgentWarningResponse {
+  agentTypeCode?: string | null;
+  agent_type_code?: string | null;
+  usageStatementItemId?: number | null;
+  usage_statement_item_id?: number | null;
+  fileId?: number | null;
+  file_id?: number | null;
+  reason?: string | null;
+  details?: string | Record<string, unknown> | null;
+}
+
+export interface VisionValidationResult {
+  status: 'suitable' | 'unsuitable';
+  checkedAt: string;
+  itemName: string;
+  summary: string;
+  detections: Array<{ label: string; confidence: number; box: [number, number, number, number]; status?: 'ok' | 'bad' }>;
+}
+
 const readField = <T = unknown>(source: Record<string, unknown>, camelKey: string, snakeKey: string): T | undefined =>
   (source[camelKey] ?? source[snakeKey]) as T | undefined;
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+
+const asArray = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
+
+const parseDetails = (value: unknown): Record<string, unknown> | null => {
+  if (typeof value === 'string') {
+    try {
+      return asRecord(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  return asRecord(value);
+};
+
+const readNumberField = (source: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = source[key];
+    const numberValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+    if (Number.isFinite(numberValue))
+      return numberValue;
+  }
+  return undefined;
+};
+
+const normalizeBox = (bbox: unknown, imageWidth?: number, imageHeight?: number): [number, number, number, number] | null => {
+  const values = asArray(bbox).map((value) => Number(value));
+  if (values.length < 4 || values.some((value) => !Number.isFinite(value)))
+    return null;
+  const [x1, y1, x2, y2] = values;
+  if (Math.max(x1, y1, x2, y2) <= 1) {
+    return [x1 * 100, y1 * 100, Math.max(0, x2 - x1) * 100, Math.max(0, y2 - y1) * 100];
+  }
+  if (imageWidth && imageHeight) {
+    return [
+      Math.max(0, Math.min(100, (x1 / imageWidth) * 100)),
+      Math.max(0, Math.min(100, (y1 / imageHeight) * 100)),
+      Math.max(0, Math.min(100, ((x2 - x1) / imageWidth) * 100)),
+      Math.max(0, Math.min(100, ((y2 - y1) / imageHeight) * 100)),
+    ];
+  }
+  return [x1, y1, Math.max(0, x2 - x1), Math.max(0, y2 - y1)];
+};
+
+const extractVisionValidationFromResult = (rawResult: unknown, fallbackReason?: string | null): { fileId?: string; result: VisionValidationResult } | null => {
+  const result = asRecord(rawResult);
+  if (!result)
+    return null;
+  const nestedResult = asRecord(result.result) || result;
+  const imageWidth = readNumberField(nestedResult, ['image_width', 'imageWidth', 'width']);
+  const imageHeight = readNumberField(nestedResult, ['image_height', 'imageHeight', 'height']);
+  const detections = asArray(nestedResult.detections).flatMap((rawDetection) => {
+    const detection = asRecord(rawDetection);
+    if (!detection)
+      return [];
+    const box = normalizeBox(detection.bbox_xyxy ?? detection.bboxXyxy ?? detection.box, imageWidth, imageHeight);
+    if (!box)
+      return [];
+    const needsReview = Boolean(detection.needs_review ?? detection.needsReview);
+    const isWearing = detection.is_wearing ?? detection.isWearing;
+    return [{
+      label: String(detection.label || detection.equipment_label || detection.equipmentLabel || '검출 결과'),
+      confidence: readNumberField(detection, ['confidence', 'score']) ?? 0,
+      box,
+      status: needsReview || isWearing === false ? 'bad' as const : 'ok' as const,
+    }];
+  });
+  const isAppropriate = result.is_appropriate ?? result.isAppropriate ?? nestedResult.is_appropriate ?? nestedResult.isAppropriate;
+  const hasBadDetection = detections.some((detection) => detection.status === 'bad');
+  const status: VisionValidationResult['status'] = isAppropriate === false || hasBadDetection ? 'unsuitable' : 'suitable';
+  return {
+    fileId: String(result.file_id ?? result.fileId ?? ''),
+    result: {
+      status,
+      checkedAt: new Date().toISOString(),
+      itemName: String(result.item_name || result.itemName || result.original_filename || result.originalFilename || '현장사진'),
+      summary: String(result.message || result.reason || fallbackReason || (status === 'unsuitable' ? '현장사진 검증 결과 보완 필요' : '현장사진 검증 결과 적합')),
+      detections,
+    },
+  };
+};
+
+const extractVisionValidationResults = (warning: AgentWarningResponse): Record<string, VisionValidationResult> => {
+  const details = parseDetails(warning.details);
+  if (!details)
+    return {};
+  const payload = asRecord(details.payload) || {};
+  const visionResponse = asRecord(payload.vision_response) || asRecord(payload.visionResponse) || details;
+  const visionDetails = asRecord(visionResponse.details) || visionResponse;
+  const candidateResults = [
+    ...asArray(visionDetails.results),
+    ...asArray(asRecord(visionDetails.result)?.results),
+    ...asArray(asRecord(payload.vision_response)?.results),
+  ];
+  return Object.fromEntries(candidateResults.flatMap((result) => {
+    const validation = extractVisionValidationFromResult(result, warning.reason);
+    return validation?.fileId ? [[validation.fileId, validation.result]] : [];
+  }));
+};
 
 const normalizeOrchestratorStatus = (raw: unknown): OrchestratorStatusResponse => {
   const source = (raw || {}) as Record<string, unknown>;
@@ -132,6 +253,7 @@ const normalizeOrchestratorStatus = (raw: unknown): OrchestratorStatusResponse =
     evidenceReviewReady: Boolean(readField(source, 'evidenceReviewReady', 'evidence_review_ready')),
     legalReady: Boolean(readField(source, 'legalReady', 'legal_ready')),
     reportReady: Boolean(readField(source, 'reportReady', 'report_ready')),
+    legalDisabledReason: (readField(source, 'legalDisabledReason', 'legal_disabled_reason') as string | undefined) ?? null,
     agents: [],
     logs: (source.logs as Array<Record<string, unknown>>) || [],
     todos: rawTodos.map((todo) => ({
@@ -232,21 +354,6 @@ export const parseUsageStatementWithOcr = async (projectId: string, fileId: numb
   return response.data;
 };
 
-export const parseAndMatchEvidenceWithOcr = async (
-  projectId: string,
-  input: { fileId: number | string; usageStatementId: number; usageStatementItemId: number | string },
-) => {
-  const response = await apiFetch<OcrWorkflowResponse>(`/projects/${projectId}/agents/ocr/evidence/parse-and-match`, {
-    method: 'POST',
-    body: {
-      fileId: Number(input.fileId),
-      usageStatementId: input.usageStatementId,
-      usageStatementItemId: Number(input.usageStatementItemId),
-    },
-  });
-  return response.data;
-};
-
 export const runValidationAgent = async (projectId: string, usageStatementId: number, rerun = false) => {
   const response = await apiFetch<LawAgentRunResponse>(`/projects/${projectId}/validations`, {
     method: 'POST',
@@ -292,11 +399,20 @@ export const getOrchestratorStatus = async (projectId: string, usageStatementId:
     legalReady: Boolean(buttonStates.legal?.enabled),
     reportReady: Boolean(buttonStates.report?.enabled),
     legalResultCode: legalAgent?.resultCode ?? null,
+    legalDisabledReason: buttonStates.legal?.reason ?? null,
     reportDisabledReason: buttonStates.report?.reason ?? null,
     agents: dashboard?.agents || [],
     logs: [],
     todos,
   };
+};
+
+export const getVisionValidationResults = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<AgentWarningResponse[]>(`/projects/${projectId}/agents/warnings?usageStatementId=${usageStatementId}`);
+  const warnings = response.data || [];
+  return warnings
+    .filter((warning) => String(readField(warning as Record<string, unknown>, 'agentTypeCode', 'agent_type_code') || '') === 'vision')
+    .reduce<Record<string, VisionValidationResult>>((result, warning) => ({ ...result, ...extractVisionValidationResults(warning) }), {});
 };
 
 export const getOrchestratorDashboard = async (projectId: string, usageStatementId?: number) => {
