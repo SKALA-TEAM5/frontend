@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -156,7 +156,7 @@ const projectAccordionSections: ProjectStatus[] = [
   PROJECT_STATUS.CLOSED,
 ];
 
-export default function ProjectsPage() {
+function ProjectsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useCurrentUser();
@@ -601,5 +601,13 @@ export default function ProjectsPage() {
       {closeProjectModal}
       {deleteProjectModal}
     </AppFrame>
+  );
+}
+
+export default function ProjectsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ProjectsPageContent />
+    </Suspense>
   );
 }

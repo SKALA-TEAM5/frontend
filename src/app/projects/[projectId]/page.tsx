@@ -1,5 +1,5 @@
 ﻿'use client';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Card from '../../../components/ui/Card';
@@ -294,7 +294,7 @@ const getUsageStatementOcrFailureReason = (file: File) => {
         return '문서 이미지의 화질이 낮아 금액과 날짜를 정확히 읽을 수 없습니다.';
     return null;
 };
-export default function ProjectDetailPage() {
+function ProjectDetailPageContent() {
     const router = useRouter();
     const params = useParams<{
         projectId: string;
@@ -1615,4 +1615,12 @@ export default function ProjectDetailPage() {
         </Card>
       </div>
     </AppFrame>);
+}
+
+export default function ProjectDetailPage() {
+    return (
+      <Suspense fallback={null}>
+        <ProjectDetailPageContent />
+      </Suspense>
+    );
 }
