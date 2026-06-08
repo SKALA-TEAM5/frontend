@@ -51,7 +51,8 @@ interface ProjectFileUploadResponse {
   mimeType: string | null;
   sizeBytes: number | null;
   uploadedAt: string | null;
-  statusCode: FileStatusCode | string;
+  statusCode?: FileStatusCode | string;
+  detail?: string | null;
 }
 
 interface ArchiveCategoryListResponse {
@@ -103,7 +104,7 @@ interface EvidenceLinkResponse {
 
 interface LinkedEvidenceFileUploadResponse {
   linkId: number;
-  fileId?: number;
+  fileId: number;
   originalFilename?: string;
   uploadedEvidenceTypeCode?: BackendEvidenceTypeCode | string;
   uploadedEvidenceTypeName?: string;
@@ -571,21 +572,23 @@ export const uploadEvidenceFileToItem = async (projectId: string, itemId: string
     body: formData,
   });
   const fileId = response.data.fileId;
+  const linkId = response.data.linkId;
+  const entry = makeEntry(response.data.originalFilename || file.name, kind, {
+    fileId,
+    uploadedAt: formatDate(response.data.uploadedAt) || new Date().toISOString().slice(0, 10),
+    uploadedBy: '',
+    documentType: response.data.uploadedEvidenceTypeName,
+    statusCode: response.data.statusCode,
+    previewUrl: fileId && (response.data.mimeType || file.type)?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, fileId) : '',
+  });
   return {
-    ...makeEntry(response.data.originalFilename || file.name, kind, {
-      fileId,
-      uploadedAt: formatDate(response.data.uploadedAt),
-      uploadedBy: '',
-      documentType: response.data.uploadedEvidenceTypeName,
-      statusCode: response.data.statusCode,
-      previewUrl: fileId && response.data.mimeType?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, fileId) : '',
-    }),
-    id: `evidence-link-${response.data.linkId}`,
-    linkId: response.data.linkId,
+    ...entry,
+    id: linkId ? `evidence-link-${linkId}` : fileId ? `project-file-${fileId}` : entry.id,
+    linkId,
     kind,
     categoryIds: [],
     usageItemIds: [itemId],
-  };
+  } as EvidenceFile;
 };
 
 export const deleteProjectFile = async (projectId: string, fileId: number | string) => {

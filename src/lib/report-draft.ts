@@ -32,7 +32,6 @@ export interface ReportDraft {
   conclusion: string;
   item_reviews: Array<{ no: number; category_code: string; item_name: string; amount: string; decision: string; decision_label: string; summary_reason: string; risk_level: string }>;
   issue_details: Array<{ issue_type: string; no: number; title: string; amount_label: string; problem: string; legal_basis: string; agent_conclusion: string; required_action: string }>;
-  supplement_actions: Array<{ no: number; title: string; action: string; due_date_label: string; assignee: string }>;
   overall_opinion: string;
   report_sections: ReportSection[];
   needs_human_review: string[];
@@ -100,16 +99,6 @@ export const buildReportDraftJson = (project: ProjectSummary | null, result: Val
     agent_conclusion: issue.description,
     required_action: issue.requiredAction,
   }));
-  const supplementActions = issueDetails.map((issue) => ({
-    no: issue.no,
-    title: issue.title,
-    action: issue.required_action,
-    due_date_label: '담당자 지정 필요',
-    assignee: project?.manager || '미지정',
-  }));
-  const taxSettlementRows = issues.length
-    ? issues.map((issue) => [issue.title, '', fmt(issue.category.usageAmount), '', '확인 필요'])
-    : [['검토 대상 없음', '-', '-', '-', '-']];
   const conclusion = issues.length
     ? `${issues.length}건의 부적정 또는 보완 필요 사항이 확인되어 담당자 확인 및 자료 보완이 필요합니다.`
     : '검토 대상 항목에서 즉시 보완이 필요한 리스크는 확인되지 않았습니다.';
@@ -154,7 +143,6 @@ export const buildReportDraftJson = (project: ProjectSummary | null, result: Val
       risk_level: riskLabel[category.riskLevel],
     })),
     issue_details: issueDetails,
-    supplement_actions: supplementActions,
     overall_opinion: overallOpinion,
     report_sections: [
       {
@@ -189,36 +177,22 @@ export const buildReportDraftJson = (project: ProjectSummary | null, result: Val
         tables: [{ title: null, headers: ['증빙 유형', '제출', '통과', '오류', '누락', '주요 내용'], rows: [...evidenceSummaries.map((item) => [item.evidence_type_name, `${item.submitted_count}건`, `${item.passed_count}건`, `${item.error_count}건`, `${item.missing_count}건`, item.major_error]), ['합   계', `${evidenceSummaries.reduce((sum, item) => sum + item.submitted_count, 0)}건`, `${evidenceSummaries.reduce((sum, item) => sum + item.passed_count, 0)}건`, `${evidenceSummaries.reduce((sum, item) => sum + item.error_count, 0)}건`, `${evidenceSummaries.reduce((sum, item) => sum + item.missing_count, 0)}건`, conclusion]] }],
       },
       {
-        section_id: 'tax_settlement',
-        title: '4. 세금 및 정산 검토',
-        kind: 'table',
-        paragraphs: ['※ 세금계산서와 영수증 금액이 다른 경우 담당자가 직접 확인 후 수정합니다.'],
-        tables: [{ title: null, headers: ['항목', '세금계산서 금액', '영수증 기재액', '부가세', '일치 여부'], rows: [...taxSettlementRows, ['소   계', '', '', '', '']] }],
-      },
-      {
         section_id: 'item_reviews',
-        title: '5. 항목별 적정성 검토 결과',
+        title: '4. 항목별 적정성 검토 결과',
         kind: 'table',
         paragraphs: [],
         tables: [{ title: null, headers: ['No.', '집행 항목', '집행액', '판정', '요약 사유'], rows: result.categories.length ? result.categories.map((category, index) => [String(index + 1), category.categoryName, fmt(category.usageAmount), decisionLabel[category.decision], category.issues[0]?.title || '특이사항 없음']) : [['-', '검토 대상 없음', '-', '-', '-']] }],
       },
       {
         section_id: 'issue_details',
-        title: '6. 부적정 및 검토 필요 상세 내역',
+        title: '5. 부적정 및 검토 필요 상세 내역',
         kind: 'detail',
         paragraphs: [],
-        tables: issueDetails.length ? issueDetails.map((issue) => ({ title: `6.${issue.no} ${issue.title}`, headers: [], rows: [['집행 금액', issue.amount_label], ['확인된 문제', issue.problem], ['법령 근거', issue.legal_basis], ['필요 조치', issue.required_action]] })) : [{ title: null, headers: [], rows: [['확인 결과', '부적정 및 검토 필요 상세 내역이 없습니다.']] }],
-      },
-      {
-        section_id: 'supplement_actions',
-        title: '7. 보완 필요 사항',
-        kind: 'table',
-        paragraphs: [],
-        tables: [{ title: null, headers: ['No.', '보완 항목', '실행 내용'], rows: supplementActions.length ? supplementActions.map((item) => [String(item.no), item.title, item.action]) : [['-', '보완 필요 사항 없음', '-']] }],
+        tables: issueDetails.length ? issueDetails.map((issue) => ({ title: `5.${issue.no} ${issue.title}`, headers: [], rows: [['집행 금액', issue.amount_label], ['확인된 문제', issue.problem], ['법령 근거', issue.legal_basis], ['필요 조치', issue.required_action]] })) : [{ title: null, headers: [], rows: [['확인 결과', '부적정 및 검토 필요 상세 내역이 없습니다.']] }],
       },
       {
         section_id: 'overall_opinion',
-        title: '8. 종합 의견',
+        title: '6. 종합 의견',
         kind: 'opinion',
         paragraphs: ['본 보고서는 AI 증빙 검토 시스템(v2.1)에 의해 자동 생성되었으며, 최종 판단 및 결재는 담당자 및 책임자의 확인을 거쳐야 합니다.', overallOpinion, '검 토 자 :   SHE 담당자          (서명)  ______________________', `검토 일자 :   ${writtenDate}`, '[회사명] 안전관리팀'],
         tables: [],
