@@ -214,7 +214,7 @@ export const buildReportDraftJson = (project: ProjectSummary | null, result: Val
         title: '7. 보완 필요 사항',
         kind: 'table',
         paragraphs: [],
-        tables: [{ title: null, headers: ['No.', '보완 항목', '실행 내용', '완료 기한', '담당자'], rows: supplementActions.length ? supplementActions.map((item) => [String(item.no), item.title, item.action, item.due_date_label, item.assignee]) : [['-', '보완 필요 사항 없음', '-', '-', '-']] }],
+        tables: [{ title: null, headers: ['No.', '보완 항목', '실행 내용'], rows: supplementActions.length ? supplementActions.map((item) => [String(item.no), item.title, item.action]) : [['-', '보완 필요 사항 없음', '-']] }],
       },
       {
         section_id: 'overall_opinion',
