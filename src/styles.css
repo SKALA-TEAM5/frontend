@@ -78,6 +78,46 @@
     background: color-mix(in srgb, var(--c-light) 54%, #BBDCC7);
     border-radius: 99px;
   }
+  .report-document-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--c-g200) 76%, #AEB9B2) transparent;
+  }
+  .report-document-scroll::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  .report-document-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .report-document-scroll::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--c-g200) 76%, #AEB9B2);
+    border-radius: 99px;
+  }
+  .report-edit-field {
+    transition: background-color .16s ease, box-shadow .16s ease, outline-color .16s ease;
+  }
+  .report-edit-field:hover {
+    background: color-mix(in srgb, var(--c-bg) 22%, #fff) !important;
+  }
+  .report-edit-field:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-bg) 58%, transparent) !important;
+    background: #fff !important;
+  }
+  .usage-detail-y-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--c-light) 34%, #DDE8E2) transparent;
+  }
+  .usage-detail-y-scroll::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  .usage-detail-y-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .usage-detail-y-scroll::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--c-light) 34%, #DDE8E2);
+    border-radius: 99px;
+  }
   .date-range-year-grid::-webkit-scrollbar {
     width: 0;
     height: 0;
@@ -186,11 +226,11 @@
     0%, 100% { transform: translateY(0) scale(1); }
     50% { transform: translateY(-4px) scale(1.02); }
   }
-  .archive-verification-loader {
+  .usage-detail-verification-loader {
     display: grid;
     gap: 18px;
   }
-  .archive-loader-ocean {
+  .usage-detail-loader-ocean {
     position: relative;
     aspect-ratio: 2.7 / 1;
     min-height: 180px;
@@ -225,7 +265,7 @@
       animation: none;
       background-position: 50% 50%;
     }
-    .archive-loader-ocean {
+    .usage-detail-loader-ocean {
       animation: none;
     }
   }
@@ -266,7 +306,7 @@
     top: 0;
     left: 0;
     right: 0;
-    z-index: 55;
+    z-index: 120;
     height: var(--app-header-height);
     box-sizing: border-box;
     background: rgba(255, 255, 255, .94);
@@ -304,10 +344,10 @@
     box-shadow: none;
   }
   .app-main.project-detail-main {
-    width: 100%;
-    max-width: 1840px;
-    padding-left: clamp(132px, 8vw, 172px);
-    padding-right: clamp(132px, 8vw, 172px);
+    width: min(1360px, 100vw);
+    max-width: 1360px;
+    padding-left: clamp(52px, 4vw, 72px);
+    padding-right: clamp(52px, 4vw, 72px);
     background:
       radial-gradient(circle at 10% 2%, color-mix(in srgb, var(--c-bg) 58%, transparent) 0, transparent 34%),
       linear-gradient(135deg, color-mix(in srgb, #fff 84%, var(--c-bg)) 0%, color-mix(in srgb, var(--c-soft) 88%, var(--c-bg)) 100%);
@@ -350,10 +390,10 @@
     background-attachment: fixed;
   }
   .app-footer.project-detail-main-footer {
-    width: 100%;
-    max-width: 1840px;
-    padding-left: clamp(132px, 8vw, 172px);
-    padding-right: clamp(132px, 8vw, 172px);
+    width: min(1360px, 100vw);
+    max-width: 1360px;
+    padding-left: clamp(52px, 4vw, 72px);
+    padding-right: clamp(52px, 4vw, 72px);
   }
   [data-ui="project-detail.31"] {
     max-width: 100%;
@@ -413,17 +453,17 @@
   .history-date-tabs::-webkit-scrollbar {
     display: none;
   }
-  button:hover > .archive-todo-reason,
-  button:focus-visible > .archive-todo-reason {
+  button:hover > .usage-detail-todo-reason,
+  button:focus-visible > .usage-detail-todo-reason {
     display: block !important;
   }
-  .archive-todo-scroll::-webkit-scrollbar {
+  .usage-detail-todo-scroll::-webkit-scrollbar {
     width: 9px;
   }
-  .archive-todo-scroll::-webkit-scrollbar-track {
+  .usage-detail-todo-scroll::-webkit-scrollbar-track {
     background: transparent;
   }
-  .archive-todo-scroll::-webkit-scrollbar-thumb {
+  .usage-detail-todo-scroll::-webkit-scrollbar-thumb {
     background: var(--c-g200);
     border: 2px solid var(--c-white);
     border-radius: 999px;

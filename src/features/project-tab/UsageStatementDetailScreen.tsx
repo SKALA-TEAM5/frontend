@@ -8,20 +8,20 @@ import { C } from '../../lib/theme';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
-import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadProjectFile, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
+import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
 import { getOrchestratorStatus, listSafeLeeEvidenceRequirements, parseAndMatchEvidenceWithOcr, runEvidenceReviewAgent, safeLeeRequirementsToMap, type OrchestratorTodo } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
-type ArchiveValidationStatus = 'idle' | 'running' | 'done';
-interface ArchiveScreenProps {
+type UsageDetailValidationStatus = 'idle' | 'running' | 'done';
+interface UsageStatementDetailScreenProps {
     projectId: string;
     usageStatementId?: number;
-    archiveSeed: ArchiveSeed | null;
+    usageDetailSeed: ArchiveSeed | null;
     usageItems?: UsageLineItem[];
     onUsageItemsChange?: (items: UsageLineItem[]) => void;
-    onArchiveSeedChange?: (seed: ArchiveSeed) => void;
+    onUsageDetailSeedChange?: (seed: ArchiveSeed) => void;
     onFilesUploaded?: (files: EvidenceFile[], context?: { categoryName: string; itemName: string }) => void;
-    onArchiveContentMutated?: (mutation: 'upload' | 'delete' | 'move' | 'rename' | 'add-item' | 'edit-item' | 'delete-item') => void;
+    onUsageDetailContentMutated?: (mutation: 'upload' | 'delete' | 'move' | 'rename' | 'add-item' | 'edit-item' | 'delete-item') => void;
     actionRequest?: { title: string; message: string; dueDate?: string };
     contentVisible?: boolean;
     todoStorageKey?: string;
@@ -30,11 +30,11 @@ interface ArchiveScreenProps {
     onBackToOverview?: () => void;
     uploadCompleteAction?: ReactNode;
 }
-type ArchiveTodoSource = 'matching' | 'vision' | 'law';
-type ArchiveTodoItem = {
+type UsageDetailTodoSource = 'matching' | 'vision' | 'law';
+type UsageDetailTodoItem = {
     id: string;
     mode: 'add' | 'remove';
-    source: ArchiveTodoSource;
+    source: UsageDetailTodoSource;
     kind: FolderEvidenceCategory;
     title: string;
     context: string;
@@ -43,7 +43,7 @@ type ArchiveTodoItem = {
     detail?: string;
 };
 
-const toOrchestratorTodo = (todo: OrchestratorTodo, usageItems: UsageLineItem[]): ArchiveTodoItem | null => {
+const toOrchestratorTodo = (todo: OrchestratorTodo, usageItems: UsageLineItem[]): UsageDetailTodoItem | null => {
     const usageItem = todo.usageStatementItemId == null
         ? undefined
         : usageItems.find((item) => String(item.id) === String(todo.usageStatementItemId));
@@ -87,6 +87,7 @@ const EVIDENCE_SECTIONS: Array<{ id: FolderEvidenceCategory; label: string }> = 
     { id: 'tax_invoice', label: '세금계산서' },
     { id: 'other_document', label: '기타' },
 ];
+
 const addUsageItemInputStyle = {
     height: 42,
     minWidth: 0,
@@ -167,65 +168,61 @@ const toNounPhraseDetail = (value?: string) => {
         .replace(/[.。]$/u, '')
         .trim();
 };
-const getArchiveTodoStorageKey = (projectId: string, key?: string) => `iveri-mvp-archive-todos:${projectId}:${key || 'default'}`;
+const getUsageDetailTodoStorageKey = (projectId: string, key?: string) => `iveri-mvp-usage-detail-todos:${projectId}:${key || 'default'}`;
+const getLegacyArchiveTodoStorageKey = (projectId: string, key?: string) => `iveri-mvp-archive-todos:${projectId}:${key || 'default'}`;
 const isApiStatus = (error: unknown, status: number) => error instanceof ApiClientError && error.status === status;
-const buildExampleRequiredEvidence = (items: UsageLineItem[]): SafetyDocAgentRequiredEvidenceMap => {
-    const candidates = items.slice(0, 3);
-    if (!candidates.length)
-        return {};
-    return candidates.reduce<SafetyDocAgentRequiredEvidenceMap>((result, item, index) => {
-        result[item.id] = index === 0
-            ? { receipt: ['영수증'], other_document: ['이체확인증'] }
-            : index === 1
-                ? { site_photo: ['현장사진'], other_document: ['지급대장'] }
-                : { tax_invoice: ['세금계산서'], other_document: ['계약서'] };
-        return result;
-    }, {});
-};
-type StoredArchiveTodoState = {
+type StoredUsageDetailTodoState = {
     requiredEvidenceByLine: SafetyDocAgentRequiredEvidenceMap;
     completedTodoIds: Record<string, boolean>;
     dismissedTodoIds: Record<string, boolean>;
 };
 
-const EMPTY_ARCHIVE_TODO_STATE: StoredArchiveTodoState = {
+const EMPTY_USAGE_DETAIL_TODO_STATE: StoredUsageDetailTodoState = {
     requiredEvidenceByLine: {},
     completedTodoIds: {},
     dismissedTodoIds: {},
 };
 
-const readStoredArchiveTodos = (projectId: string, key?: string): StoredArchiveTodoState => {
+const readStoredUsageDetailTodos = (projectId: string, key?: string): StoredUsageDetailTodoState => {
     if (typeof window === 'undefined')
-        return EMPTY_ARCHIVE_TODO_STATE;
+        return EMPTY_USAGE_DETAIL_TODO_STATE;
     try {
-        const raw = window.localStorage.getItem(getArchiveTodoStorageKey(projectId, key));
+        const nextKey = getUsageDetailTodoStorageKey(projectId, key);
+        const legacyKey = getLegacyArchiveTodoStorageKey(projectId, key);
+        const stored = window.localStorage.getItem(nextKey);
+        const legacy = stored ? null : window.localStorage.getItem(legacyKey);
+        const raw = stored || legacy;
         if (!raw)
-            return EMPTY_ARCHIVE_TODO_STATE;
-        const parsed = JSON.parse(raw) as Partial<StoredArchiveTodoState>;
+            return EMPTY_USAGE_DETAIL_TODO_STATE;
+        if (!stored && legacy) {
+            window.localStorage.setItem(nextKey, legacy);
+            window.localStorage.removeItem(legacyKey);
+        }
+        const parsed = JSON.parse(raw) as Partial<StoredUsageDetailTodoState>;
         return {
             requiredEvidenceByLine: parsed.requiredEvidenceByLine || {},
             completedTodoIds: parsed.completedTodoIds || {},
             dismissedTodoIds: parsed.dismissedTodoIds || {},
         };
     } catch {
-        return EMPTY_ARCHIVE_TODO_STATE;
+        return EMPTY_USAGE_DETAIL_TODO_STATE;
     }
 };
-export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onArchiveSeedChange, onFilesUploaded, onArchiveContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onBackToOverview, uploadCompleteAction }: ArchiveScreenProps) {
+export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onBackToOverview, uploadCompleteAction }: UsageStatementDetailScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
-    const initialTodoState = readStoredArchiveTodos(projectId, todoStorageKey);
-    const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(archiveSeed || createDefaultArchiveData()));
+    const initialTodoState = readStoredUsageDetailTodos(projectId, todoStorageKey);
+    const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(usageDetailSeed || createDefaultArchiveData()));
     const [matchingStatus, setMatchingStatus] = useState<'idle' | 'running' | 'done'>('idle');
     const [requiredEvidenceByLine, setRequiredEvidenceByLine] = useState<SafetyDocAgentRequiredEvidenceMap>(initialTodoState.requiredEvidenceByLine);
     const [matchingError, setMatchingError] = useState('');
     const [matchingNotice, setMatchingNotice] = useState('');
-    const [archiveActionError, setArchiveActionError] = useState('');
-    const [photoValidationStatus, setPhotoValidationStatus] = useState<ArchiveValidationStatus>('idle');
-    const [archiveVerificationStep, setArchiveVerificationStep] = useState<'ocr' | 'safety' | 'vision' | null>(null);
+    const [usageDetailActionError, setUsageDetailActionError] = useState('');
+    const [photoValidationStatus, setPhotoValidationStatus] = useState<UsageDetailValidationStatus>('idle');
+    const [usageDetailVerificationStep, setUsageDetailVerificationStep] = useState<'ocr' | 'safety' | 'vision' | null>(null);
     const [photoValidationNotice, setPhotoValidationNotice] = useState<{ type: 'ok' | 'bad'; message: string } | null>(null);
     const [completedTodoIds, setCompletedTodoIds] = useState<Record<string, boolean>>(initialTodoState.completedTodoIds);
     const [dismissedTodoIds, setDismissedTodoIds] = useState<Record<string, boolean>>(initialTodoState.dismissedTodoIds);
-    const [orchestratorTodoItems, setOrchestratorTodoItems] = useState<ArchiveTodoItem[]>([]);
+    const [orchestratorTodoItems, setOrchestratorTodoItems] = useState<UsageDetailTodoItem[]>([]);
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
     const [addUsageItemModalOpen, setAddUsageItemModalOpen] = useState(false);
@@ -238,9 +235,9 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
     const [todoHoverBlocked, setTodoHoverBlocked] = useState(false);
     const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(resolvedUsageItems[0]?.categoryId || 1);
     const [selectedUsageItemId, setSelectedUsageItemId] = useState(resolvedUsageItems[0]?.id || '');
-    const pendingArchiveSeedRef = useRef<ArchiveSeed | null>(null);
-    const syncingArchiveSeedRef = useRef(false);
-    const archiveSeedSnapshotRef = useRef('');
+    const pendingUsageDetailSeedRef = useRef<ArchiveSeed | null>(null);
+    const syncingUsageDetailSeedRef = useRef(false);
+    const usageDetailSeedSnapshotRef = useRef('');
     const hydratingTodoRef = useRef(false);
     const clearTodoSignalRef = useRef(clearTodoSignal);
     const todoPanelRef = useRef<HTMLElement | null>(null);
@@ -258,18 +255,18 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         return () => document.removeEventListener('pointerdown', closeOnOutsidePointerDown);
     }, [todoSidebarOpen]);
     useEffect(() => {
-        if (!archiveSeed)
+        if (!usageDetailSeed)
             return;
-        const normalizedSeed = normalizeArchiveData(archiveSeed);
+        const normalizedSeed = normalizeArchiveData(usageDetailSeed);
         const nextSnapshot = JSON.stringify(normalizedSeed);
-        if (archiveSeedSnapshotRef.current === nextSnapshot)
+        if (usageDetailSeedSnapshotRef.current === nextSnapshot)
             return;
-        archiveSeedSnapshotRef.current = nextSnapshot;
-        syncingArchiveSeedRef.current = true;
+        usageDetailSeedSnapshotRef.current = nextSnapshot;
+        syncingUsageDetailSeedRef.current = true;
         setFileData(normalizedSeed);
-    }, [archiveSeed]);
+    }, [usageDetailSeed]);
     useEffect(() => {
-        const stored = readStoredArchiveTodos(projectId, todoStorageKey);
+        const stored = readStoredUsageDetailTodos(projectId, todoStorageKey);
         hydratingTodoRef.current = true;
         setRequiredEvidenceByLine(stored.requiredEvidenceByLine);
         setCompletedTodoIds(stored.completedTodoIds);
@@ -282,7 +279,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         }
         if (typeof window === 'undefined')
             return;
-        window.localStorage.setItem(getArchiveTodoStorageKey(projectId, todoStorageKey), JSON.stringify({
+        window.localStorage.setItem(getUsageDetailTodoStorageKey(projectId, todoStorageKey), JSON.stringify({
             requiredEvidenceByLine,
             completedTodoIds,
             dismissedTodoIds,
@@ -300,21 +297,21 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         setSelectedUsageItemId(categoryItems[0].id);
     }, [resolvedUsageItems, selectedHierarchyCatId, selectedUsageItemId]);
     useEffect(() => {
-        if (syncingArchiveSeedRef.current) {
-            syncingArchiveSeedRef.current = false;
+        if (syncingUsageDetailSeedRef.current) {
+            syncingUsageDetailSeedRef.current = false;
             return;
         }
-        if (!pendingArchiveSeedRef.current)
+        if (!pendingUsageDetailSeedRef.current)
             return;
-        const nextSeed = pendingArchiveSeedRef.current;
-        pendingArchiveSeedRef.current = null;
-        archiveSeedSnapshotRef.current = JSON.stringify(nextSeed);
-        onArchiveSeedChange?.(nextSeed);
-    }, [fileData, onArchiveSeedChange]);
+        const nextSeed = pendingUsageDetailSeedRef.current;
+        pendingUsageDetailSeedRef.current = null;
+        usageDetailSeedSnapshotRef.current = JSON.stringify(nextSeed);
+        onUsageDetailSeedChange?.(nextSeed);
+    }, [fileData, onUsageDetailSeedChange]);
     const commitFileData = (updater: (prev: ArchiveSeed) => ArchiveSeed) => {
         setFileData((prev) => {
             const next = updater(prev);
-            pendingArchiveSeedRef.current = next;
+            pendingUsageDetailSeedRef.current = next;
             return next;
         });
     };
@@ -330,31 +327,14 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         const files = getFilesForCategory(kind, catId, usageItemId);
         if (kind !== 'site_photo')
             return files;
-        return files.map((file, index) => {
-            if (file.visionValidation || index !== 0)
-                return file;
-            return {
-                ...file,
-                visionValidation: {
-                    status: 'unsuitable' as const,
-                    checkedAt: '2026-05-15',
-                    itemName: resolvedUsageItems.find((item) => item.id === usageItemId)?.name || '현장사진',
-                    summary: '예시 비전 결과, 작업자 안전벨트 착용 여부가 불명확합니다.',
-                    detections: [
-                        { label: 'worker', confidence: 0.91, box: [14, 12, 48, 76] as [number, number, number, number], status: 'ok' as const },
-                        { label: 'safety_belt', confidence: 0.38, box: [24, 42, 36, 42] as [number, number, number, number], status: 'bad' as const },
-                        { label: 'helmet', confidence: 0.74, box: [22, 16, 18, 16] as [number, number, number, number], status: 'ok' as const },
-                    ],
-                },
-            };
-        });
+        return files;
     };
     const refreshOrchestratorStatusTodos = async () => {
         if (!usageStatementId)
             return;
         try {
             const status = await getOrchestratorStatus(projectId, usageStatementId);
-            setOrchestratorTodoItems((status.todos || []).map((todo) => toOrchestratorTodo(todo, resolvedUsageItems)).filter((todo): todo is ArchiveTodoItem => Boolean(todo)));
+            setOrchestratorTodoItems((status.todos || []).map((todo) => toOrchestratorTodo(todo, resolvedUsageItems)).filter((todo): todo is UsageDetailTodoItem => Boolean(todo)));
         } catch {
             setOrchestratorTodoItems([]);
         }
@@ -362,8 +342,8 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
     useEffect(() => {
         void refreshOrchestratorStatusTodos();
     }, [projectId, usageStatementId, resolvedUsageItems]);
-    const archiveTodoItems = useMemo<ArchiveTodoItem[]>(() => {
-        const todos: ArchiveTodoItem[] = [...orchestratorTodoItems];
+    const usageDetailTodoItems = useMemo<UsageDetailTodoItem[]>(() => {
+        const todos: UsageDetailTodoItem[] = [...orchestratorTodoItems];
         const actionRequestText = normalizeTodoIdText(`${actionRequest?.title || ''} ${actionRequest?.message || ''}`);
         const actionRequestUsageItem = actionRequestText
             ? resolvedUsageItems.find((item) => {
@@ -457,14 +437,14 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             return true;
         });
     }, [actionRequest?.message, actionRequest?.title, dismissedTodoIds, fileData.categories, orchestratorTodoItems, requiredEvidenceByLine, resolvedUsageItems]);
-    const activeTodoCount = archiveTodoItems.filter((todo) => !completedTodoIds[todo.id]).length;
+    const activeTodoCount = usageDetailTodoItems.filter((todo) => !completedTodoIds[todo.id]).length;
     useEffect(() => {
         if (clearTodoSignalRef.current === clearTodoSignal)
             return;
         clearTodoSignalRef.current = clearTodoSignal;
         setDismissedTodoIds((current) => {
             const next = { ...current };
-            archiveTodoItems.forEach((todo) => {
+            usageDetailTodoItems.forEach((todo) => {
                 if (completedTodoIds[todo.id])
                     next[todo.id] = true;
             });
@@ -472,7 +452,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         });
         setCompletedTodoIds((current) => {
             const next = { ...current };
-            archiveTodoItems.forEach((todo) => {
+            usageDetailTodoItems.forEach((todo) => {
                 if (current[todo.id])
                     delete next[todo.id];
             });
@@ -481,20 +461,20 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         setMatchingStatus('idle');
         setMatchingNotice('');
         setPhotoValidationNotice(null);
-    }, [archiveTodoItems, clearTodoSignal, completedTodoIds]);
+    }, [usageDetailTodoItems, clearTodoSignal, completedTodoIds]);
     useEffect(() => {
         onTodoCountChange?.(activeTodoCount);
     }, [activeTodoCount, onTodoCountChange]);
-    const archiveVerificationRunning = Boolean(archiveVerificationStep) || matchingStatus === 'running' || photoValidationStatus === 'running';
-    const archiveVerificationDone = matchingStatus === 'done' || photoValidationStatus === 'done';
-    const archiveVerificationLabel = archiveVerificationRunning ? '검증 중...' : '유효성 검증';
+    const usageDetailVerificationRunning = Boolean(usageDetailVerificationStep) || matchingStatus === 'running' || photoValidationStatus === 'running';
+    const usageDetailVerificationDone = matchingStatus === 'done' || photoValidationStatus === 'done';
+    const usageDetailVerificationLabel = usageDetailVerificationRunning ? '검증 중...' : '유효성 검증';
     const isSupplementTarget = (catId: number, usageItemId?: string) => {
         if (usageItemId)
-            return archiveTodoItems.some((todo) => {
+            return usageDetailTodoItems.some((todo) => {
                 const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
                 return usageItem?.categoryId === catId && (todo.usageItemId === usageItemId || todo.context === usageItem.name);
             });
-        return archiveTodoItems.some((todo) => {
+        return usageDetailTodoItems.some((todo) => {
             const usageItem = resolvedUsageItems.find((item) => item.name === todo.context);
             if (usageItem)
                 return usageItem.categoryId === catId;
@@ -513,17 +493,14 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             const pickedFiles = Array.from((event.target as HTMLInputElement).files || []);
             if (!pickedFiles.length)
                 return;
-            setArchiveActionError('');
+            setUsageDetailActionError('');
             try {
                 const nextEntries = await Promise.all(pickedFiles.map(async (file) => {
-                    const uploadedEntry = await uploadProjectFile(projectId, file, kind);
+                    const uploadedEntry = await uploadEvidenceFileToItem(projectId, usageItemId, file, kind);
                     if (!uploadedEntry.fileId)
                         return createEntryFromFile(file, kind, { ...uploadedEntry, categoryIds: [catId], usageItemIds: [usageItemId] });
-                    const link = await linkEvidenceFile(projectId, usageItemId, uploadedEntry.fileId, kind);
                     return {
                         ...uploadedEntry,
-                        id: `evidence-link-${link.linkId}`,
-                        linkId: link.linkId,
                         kind,
                         previewUrl: uploadedEntry.previewUrl || (file.type.startsWith('image/') ? getProjectFilePreviewUrl(projectId, uploadedEntry.fileId) : ''),
                         categoryIds: [catId],
@@ -548,17 +525,17 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                 const categoryName = CATS.find((cat) => cat.id === catId)?.short || '선택 항목';
                 const itemName = resolvedUsageItems.find((item) => item.id === usageItemId)?.name || categoryName;
                 onFilesUploaded?.(nextEntries, { categoryName, itemName });
-                onArchiveContentMutated?.('upload');
+                onUsageDetailContentMutated?.('upload');
             } catch (error) {
-                setArchiveActionError(error instanceof Error ? error.message : '파일 업로드에 실패했습니다.');
+                setUsageDetailActionError(error instanceof Error ? error.message : '파일 업로드에 실패했습니다.');
             }
         };
         input.click();
     };
-    const removeArchiveFile = (kind: FolderEvidenceCategory, catId: number, fileId: string, usageItemId?: string) => {
+    const removeUsageDetailFile = (kind: FolderEvidenceCategory, catId: number, fileId: string, usageItemId?: string) => {
         setDeleteTarget({ kind, catId, fileId, usageItemId });
     };
-    const renameArchiveFile = (kind: FolderEvidenceCategory, catId: number, fileId: string, nextName: string, usageItemId?: string) => {
+    const renameUsageDetailFile = (kind: FolderEvidenceCategory, catId: number, fileId: string, nextName: string, usageItemId?: string) => {
         const trimmedName = nextName.trim();
         if (!trimmedName)
             return;
@@ -580,7 +557,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                 ])),
             ])) as ArchiveSeed['categories'],
         }));
-        onArchiveContentMutated?.('rename');
+        onUsageDetailContentMutated?.('rename');
     };
     const confirmRemoveArchiveFile = async () => {
         if (!deleteTarget)
@@ -589,7 +566,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         const targetFile = usageItemId
             ? fileData.categories?.[catId]?.[usageItemId]?.[kind]?.find((file) => file.id === fileId)
             : Object.values(fileData.categories?.[catId] || {}).flatMap((line) => line[kind] || []).find((file) => file.id === fileId);
-        setArchiveActionError('');
+        setUsageDetailActionError('');
         try {
             if (targetFile?.linkId) {
                 await deleteEvidenceFileLink(projectId, targetFile.linkId);
@@ -597,7 +574,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                 await deleteProjectFile(projectId, targetFile.fileId);
             }
         } catch (error) {
-            setArchiveActionError(error instanceof Error ? error.message : '파일 삭제에 실패했습니다.');
+            setUsageDetailActionError(error instanceof Error ? error.message : '파일 삭제에 실패했습니다.');
             return;
         }
         commitFileData((prev) => {
@@ -613,18 +590,18 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             next.categories[catId] = lineMap;
             return next;
         });
-        onArchiveContentMutated?.('delete');
+        onUsageDetailContentMutated?.('delete');
         setDeleteTarget(null);
     };
     const removeHierarchyFile = (kind: HierarchyEvidenceKind, catId: number, usageItemId: string, fileId: string) => {
         if (kind !== 'misc') {
-            removeArchiveFile(kind, catId, fileId, usageItemId);
+            removeUsageDetailFile(kind, catId, fileId, usageItemId);
             return;
         }
     };
     const renameHierarchyFile = (kind: HierarchyEvidenceKind, catId: number, usageItemId: string, file: EvidenceFile, nextName: string) => {
         if (kind !== 'misc')
-            renameArchiveFile(kind, catId, file.id, nextName, usageItemId);
+            renameUsageDetailFile(kind, catId, file.id, nextName, usageItemId);
     };
     const moveHierarchyFile = async (fromKind: HierarchyEvidenceKind, fromCatId: number, fromUsageItemId: string, toKind: HierarchyEvidenceKind, toCatId: number, fileEntry: EvidenceFile, toUsageItemId?: string) => {
         if (fromKind === toKind && fromCatId === toCatId && fromUsageItemId === toUsageItemId)
@@ -633,7 +610,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             return;
         const nextKind: EvidenceCategory = toKind;
         const targetUsageItemId = toUsageItemId || resolvedUsageItems.find((item) => item.categoryId === toCatId)?.id || `cat-${toCatId}`;
-        setArchiveActionError('');
+        setUsageDetailActionError('');
         let movedLinkId = fileEntry.linkId;
         try {
             if (fileEntry.linkId) {
@@ -644,7 +621,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                 movedLinkId = link.linkId;
             }
         } catch (error) {
-            setArchiveActionError(error instanceof Error ? error.message : '파일 이동에 실패했습니다.');
+            setUsageDetailActionError(error instanceof Error ? error.message : '파일 이동에 실패했습니다.');
             return;
         }
         const movedFile: EvidenceFile = { ...fileEntry, id: movedLinkId ? `evidence-link-${movedLinkId}` : fileEntry.id, linkId: movedLinkId, kind: nextKind, categoryIds: [toCatId] };
@@ -662,7 +639,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             };
             return next;
         });
-        onArchiveContentMutated?.('move');
+        onUsageDetailContentMutated?.('move');
         const nextUsageItem = resolvedUsageItems.find((item) => item.id === toUsageItemId) || resolvedUsageItems.find((item) => item.categoryId === toCatId);
         if (nextUsageItem)
             setSelectedUsageItemId(nextUsageItem.id);
@@ -674,10 +651,10 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             return;
         if (!usageStatementId) {
             const error = new Error('사용내역서 ID가 없어 세부항목을 수정할 수 없습니다.');
-            setArchiveActionError(error.message);
+            setUsageDetailActionError(error.message);
             throw error;
         }
-        setArchiveActionError('');
+        setUsageDetailActionError('');
         let nextItem: UsageLineItem;
         try {
             const updatedItem = await updateUsageStatementItem(projectId, usageStatementId, usageItemId, {
@@ -697,7 +674,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : '세부항목 수정에 실패했습니다.';
-            setArchiveActionError(message);
+            setUsageDetailActionError(message);
             throw error;
         }
         onUsageItemsChange?.(resolvedUsageItems.map((item) => item.id === usageItemId ? nextItem : item));
@@ -721,7 +698,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                 return next;
             });
         }
-        onArchiveContentMutated?.('edit-item');
+        onUsageDetailContentMutated?.('edit-item');
         setSelectedHierarchyCatId(nextItem.categoryId);
         setSelectedUsageItemId(usageItemId);
     };
@@ -792,7 +769,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                     reason: '입력한 항목명을 기준으로 classi 에이전트가 더 적합한 9개 항목 위치를 선택했습니다.',
                 }]);
             }
-            onArchiveContentMutated?.('add-item');
+            onUsageDetailContentMutated?.('add-item');
         } catch (error) {
             setAddUsageItemError(error instanceof Error ? error.message : '세부항목 추가에 실패했습니다.');
             setAddUsageItemModalOpen(true);
@@ -802,14 +779,14 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
     };
     const deleteUsageItem = async (targetItem: UsageLineItem) => {
         if (!usageStatementId) {
-            setArchiveActionError('사용내역서 ID가 없어 세부항목을 삭제할 수 없습니다.');
+            setUsageDetailActionError('사용내역서 ID가 없어 세부항목을 삭제할 수 없습니다.');
             return;
         }
-        setArchiveActionError('');
+        setUsageDetailActionError('');
         try {
             await deleteUsageStatementItem(projectId, usageStatementId, targetItem.id);
         } catch (error) {
-            setArchiveActionError(error instanceof Error ? error.message : '세부항목 삭제에 실패했습니다.');
+            setUsageDetailActionError(error instanceof Error ? error.message : '세부항목 삭제에 실패했습니다.');
             return;
         }
         const nextItems = resolvedUsageItems.filter((item) => item.id !== targetItem.id);
@@ -835,20 +812,20 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         const nextSelected = nextItems.find((item) => item.categoryId === targetItem.categoryId) || nextItems[0];
         setSelectedHierarchyCatId(nextSelected?.categoryId || 1);
         setSelectedUsageItemId(nextSelected?.id || '');
-        onArchiveContentMutated?.('delete-item');
+        onUsageDetailContentMutated?.('delete-item');
     };
     const isProblemFile = (file: EvidenceFile) => file.kind === 'site_photo' && file.visionValidation?.status === 'unsuitable';
-    const archiveLoadingMessage = archiveVerificationStep === 'ocr'
+    const usageDetailLoadingMessage = usageDetailVerificationStep === 'ocr'
             ? {
                 title: 'OCR 매칭 결과를 확인하고 있어요',
                 body: '영수증과 사용내역서의 날짜, 빈값, 연결 가능성을 link agent가 먼저 점검합니다.',
             }
-            : archiveVerificationStep === 'safety'
+            : usageDetailVerificationStep === 'safety'
                 ? {
                     title: '필수 증빙 규칙을 대조하고 있어요',
                     body: 'safety-doc agent가 세부 항목별로 필요한 증빙과 보완 대상을 확인합니다.',
                 }
-                : archiveVerificationStep === 'vision'
+                : usageDetailVerificationStep === 'vision'
                     ? {
                         title: '현장사진을 확인하고 있어요',
                         body: 'vision model이 사진 속 현장 상태와 세부 항목의 적합성을 판단합니다.',
@@ -885,23 +862,17 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         } catch (error) {
             if (isApiStatus(error, 501)) {
                 const storedRequiredEvidence = await loadStoredRequirements();
-                if (!Object.keys(storedRequiredEvidence).length) {
-                    setRequiredEvidenceByLine(buildExampleRequiredEvidence(resolvedUsageItems));
-                    setFileData((current) => normalizeArchiveData(current));
-                }
                 setMatchingStatus('done');
                 setMatchingNotice(Object.keys(storedRequiredEvidence).length
                     ? 'Safety Doc Agent 실행 API가 아직 구현되지 않아 저장된 필수 증빙 데이터를 표시합니다.'
-                    : 'Safety Doc Agent 실행 API가 아직 구현되지 않아 예시 필수 증빙 결과를 표시합니다.');
+                    : 'Safety Doc Agent 실행 API가 아직 구현되지 않아 표시할 필수 증빙 결과가 없습니다.');
                 return;
             }
             const storedRequiredEvidence = await loadStoredRequirements();
-            if (!Object.keys(storedRequiredEvidence).length) {
-                setRequiredEvidenceByLine(buildExampleRequiredEvidence(resolvedUsageItems));
-                setFileData((current) => normalizeArchiveData(current));
-            }
             setMatchingStatus('done');
-            setMatchingNotice('Safety Doc Agent 응답을 받지 못해 예시 필수 증빙 결과를 표시합니다.');
+            setMatchingNotice(Object.keys(storedRequiredEvidence).length
+                ? 'Safety Doc Agent 응답을 받지 못해 저장된 필수 증빙 데이터를 표시합니다.'
+                : 'Safety Doc Agent 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.');
         }
     };
     const runVisionPhotoValidation = async () => {
@@ -911,80 +882,6 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             setAgentFailureTarget('photo-validation');
             return;
         }
-        const applyExampleVisionValidation = () => {
-            const today = new Date().toISOString().slice(0, 10);
-            const fallbackItem = resolvedUsageItems[0];
-            commitFileData((prev) => {
-                const next: ArchiveSeed = { ...prev, categories: { ...(prev.categories || {}) } };
-                let applied = false;
-                Object.entries(next.categories).forEach(([catId, lineMap]) => {
-                    next.categories[catId] = { ...lineMap };
-                    Object.entries(lineMap).forEach(([usageItemId, kindMap]) => {
-                        const photos = kindMap.site_photo || [];
-                        if (!photos.length)
-                            return;
-                        const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
-                        next.categories[catId][usageItemId] = {
-                            ...kindMap,
-                            site_photo: photos.map((file, index) => ({
-                                ...file,
-                                visionValidation: index === 0 && !applied
-                                    ? {
-                                        status: 'unsuitable',
-                                        checkedAt: today,
-                                        itemName: usageItem?.name || '현장사진',
-                                        summary: '예시 비전 검증 결과, 작업자 안전벨트 착용 여부가 불명확하고 촬영 각도가 지출 항목 확인에 부족합니다.',
-                                        detections: [
-                                            { label: 'worker', confidence: 0.91, box: [18, 16, 42, 70], status: 'ok' },
-                                            { label: 'safety_belt', confidence: 0.38, box: [25, 44, 38, 58], status: 'bad' },
-                                        ],
-                                    }
-                                    : file.visionValidation || {
-                                        status: 'suitable',
-                                        checkedAt: today,
-                                        itemName: usageItem?.name || '현장사진',
-                                        summary: '예시 비전 검증 결과, 현장 상태와 지출 항목이 확인됩니다.',
-                                        detections: [{ label: 'site', confidence: 0.87, box: [8, 10, 86, 78], status: 'ok' }],
-                                    },
-                            })),
-                        };
-                        applied = true;
-                    });
-                });
-                if (!applied && fallbackItem) {
-                    const catId = String(fallbackItem.categoryId);
-                    const lineMap = { ...(next.categories[catId] || {}) };
-                    const kindMap = { ...(lineMap[fallbackItem.id] || {}) };
-                    lineMap[fallbackItem.id] = {
-                        ...kindMap,
-                        site_photo: [
-                            ...(kindMap.site_photo || []),
-                            {
-                                id: `example-vision-${fallbackItem.id}`,
-                                name: '예시_현장사진_비전검증.jpg',
-                                kind: 'site_photo',
-                                uploadedAt: today,
-                                uploadedBy: '예시 데이터',
-                                categoryIds: [fallbackItem.categoryId],
-                                usageItemIds: [fallbackItem.id],
-                                visionValidation: {
-                                    status: 'unsuitable',
-                                    checkedAt: today,
-                                    itemName: fallbackItem.name,
-                                    summary: '예시 비전 검증 결과, 사진만으로 실제 설치 상태와 보호구 착용 여부를 충분히 확인하기 어렵습니다.',
-                                    detections: [
-                                        { label: 'site_photo', confidence: 0.82, box: [10, 12, 88, 76], status: 'ok' },
-                                        { label: 'required_object', confidence: 0.31, box: [42, 28, 64, 58], status: 'bad' },
-                                    ],
-                                },
-                            },
-                        ],
-                    };
-                    next.categories[catId] = lineMap;
-                }
-                return next;
-            });
-        };
         setPhotoValidationNotice(null);
         setPhotoValidationStatus('running');
         try {
@@ -992,9 +889,8 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             setPhotoValidationStatus('done');
             setPhotoValidationNotice({ type: 'ok', message: 'Vision 실행 결과가 저장되었습니다.' });
         } catch {
-            applyExampleVisionValidation();
-            setPhotoValidationStatus('done');
-            setPhotoValidationNotice({ type: 'ok', message: 'Vision 응답을 받지 못해 예시 검증 결과를 표시합니다.' });
+            setPhotoValidationStatus('idle');
+            setPhotoValidationNotice({ type: 'bad', message: 'Vision 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.' });
         }
     };
     const waitForVerificationStep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1019,17 +915,17 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             usageStatementId,
             usageStatementItemId: file.usageItemId,
         }))).catch(() => {
-            setMatchingNotice('link agent 응답을 받지 못해 예시 매칭 흐름으로 계속 진행합니다.');
+            setMatchingNotice('link agent 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.');
         });
     };
-    const runArchiveVerification = async () => {
-        if (archiveVerificationRunning)
+    const runUsageDetailVerification = async () => {
+        if (usageDetailVerificationRunning)
             return;
         if (!usageStatementId) {
             setAgentFailureTarget('evidence-matching');
             return;
         }
-        setArchiveVerificationStep('ocr');
+        setUsageDetailVerificationStep('ocr');
         setMatchingStatus('running');
         setPhotoValidationStatus('running');
         setMatchingNotice('');
@@ -1037,9 +933,9 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         try {
             const reviewTask = runEvidenceReviewAgent(projectId, usageStatementId);
             await waitForVerificationStep(1800);
-            setArchiveVerificationStep('safety');
+            setUsageDetailVerificationStep('safety');
             await waitForVerificationStep(2100);
-            setArchiveVerificationStep('vision');
+            setUsageDetailVerificationStep('vision');
             await waitForVerificationStep(2100);
             await reviewTask;
             await refreshOrchestratorStatusTodos();
@@ -1055,10 +951,10 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             ]);
             await refreshOrchestratorStatusTodos();
         } finally {
-            setArchiveVerificationStep(null);
+            setUsageDetailVerificationStep(null);
         }
     };
-    const renderTodoList = (items: ArchiveTodoItem[]) => (
+    const renderTodoList = (items: UsageDetailTodoItem[]) => (
       <div style={{ display: 'grid', gap: 7 }}>
         {items.map((todo, index) => {
           const done = Boolean(completedTodoIds[todo.id]);
@@ -1116,7 +1012,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                     whiteSpace: 'normal',
                     wordBreak: 'keep-all',
                   }}
-                  className="archive-todo-reason"
+                  className="usage-detail-todo-reason"
                 >
                   {reasonText}
                 </span>
@@ -1152,7 +1048,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
       </div>
     );
     const renderTodoGroup = (kind: FolderEvidenceCategory) => {
-        const items = archiveTodoItems.filter((todo) => todo.kind === kind);
+        const items = usageDetailTodoItems.filter((todo) => todo.kind === kind);
         if (!items.length)
             return null;
         const activeCount = items.filter((todo) => !completedTodoIds[todo.id]).length;
@@ -1167,12 +1063,12 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
         );
     };
     const renderTodoSidebar = () => {
-        if (!archiveTodoItems.length)
+        if (!usageDetailTodoItems.length)
             return null;
         return (
           <>
             {todoSidebarOpen && (
-              <aside ref={todoPanelRef} data-ui="archive-screen.todo-panel" onClick={() => setTodoSidebarPinned(true)} onMouseLeave={() => { if (!todoSidebarPinned) setTodoSidebarOpen(false); }} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 320, maxWidth: 'calc(100vw - 24px)', height: 'calc(100vh - var(--app-header-height))', zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '10px 0 0 10px', background: C.white, boxShadow: '-18px 0 42px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)', overscrollBehavior: 'contain', opacity: todoSidebarPinned ? 1 : 0.95, transition: 'opacity .16s ease' }}>
+              <aside ref={todoPanelRef} data-ui="usage-detail-screen.todo-panel" onClick={() => setTodoSidebarPinned(true)} onMouseLeave={() => { if (!todoSidebarPinned) setTodoSidebarOpen(false); }} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 320, maxWidth: 'calc(100vw - 24px)', height: 'calc(100vh - var(--app-header-height))', zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '10px 0 0 10px', background: C.white, boxShadow: '-18px 0 42px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)', overscrollBehavior: 'contain', opacity: todoSidebarPinned ? 1 : 0.95, transition: 'opacity .16s ease' }}>
                 <div style={{ position: 'sticky', top: 0, zIndex: 2, background: C.white, borderBottom: `1px solid ${C.g200}`, padding: '16px 16px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                     <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>보완 TODO</div>
@@ -1184,13 +1080,13 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                     </div>
                   </div>
                 </div>
-                <div className="archive-todo-scroll" style={{ overflowY: 'auto', overflowX: 'hidden', padding: '12px 8px 12px 12px', scrollbarWidth: 'thin', scrollbarColor: `${C.g200} transparent`, background: C.white, overscrollBehavior: 'contain' }}>
+                <div className="usage-detail-todo-scroll" style={{ overflowY: 'auto', overflowX: 'hidden', padding: '12px 8px 12px 12px', scrollbarWidth: 'thin', scrollbarColor: `${C.g200} transparent`, background: C.white, overscrollBehavior: 'contain' }}>
                   {EVIDENCE_SECTIONS.map((section) => renderTodoGroup(section.id))}
                 </div>
               </aside>
             )}
             {!todoSidebarOpen && (
-              <aside data-ui="archive-screen.todo-rail" onMouseEnter={() => { if (!todoHoverBlocked) setTodoSidebarOpen(true); }} onMouseLeave={() => setTodoHoverBlocked(false)} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 45, height: 180, zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '14px 0 0 14px', background: C.white, boxShadow: '-10px 0 28px rgba(31,47,39,.10)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '10px 6px' }}>
+              <aside data-ui="usage-detail-screen.todo-rail" onMouseEnter={() => { if (!todoHoverBlocked) setTodoSidebarOpen(true); }} onMouseLeave={() => setTodoHoverBlocked(false)} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 45, height: 180, zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '14px 0 0 14px', background: C.white, boxShadow: '-10px 0 28px rgba(31,47,39,.10)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '10px 6px' }}>
                 <button type="button" aria-label="보완 TODO 펼치기" onClick={() => { setTodoHoverBlocked(false); setTodoSidebarPinned(true); setTodoSidebarOpen(true); }} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 20, fontWeight: 900, lineHeight: 1, boxShadow: '0 8px 18px rgba(31,47,39,.10)' }}>
                   «
                 </button>
@@ -1204,9 +1100,9 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
           </>
         );
     };
-    const archiveVerificationStepIndex = archiveVerificationStep === 'ocr' ? 0 : archiveVerificationStep === 'safety' ? 1 : archiveVerificationStep === 'vision' ? 2 : -1;
-    const renderArchiveVerificationLoader = () => {
-        if (!archiveVerificationStep || !archiveLoadingMessage)
+    const usageDetailVerificationStepIndex = usageDetailVerificationStep === 'ocr' ? 0 : usageDetailVerificationStep === 'safety' ? 1 : usageDetailVerificationStep === 'vision' ? 2 : -1;
+    const renderUsageDetailVerificationLoader = () => {
+        if (!usageDetailVerificationStep || !usageDetailLoadingMessage)
             return null;
         const steps = [
             { id: 'ocr', label: 'OCR/link agent' },
@@ -1214,15 +1110,15 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             { id: 'vision', label: 'vision model' },
         ];
         return (
-          <div className="archive-verification-loader">
-            <div className="archive-loader-ocean" aria-hidden="true" />
+          <div className="usage-detail-verification-loader">
+            <div className="usage-detail-loader-ocean" aria-hidden="true" />
             <div style={{ display: 'grid', gap: 10, minWidth: 0 }}>
-              <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>{archiveLoadingMessage.title}</div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.55 }}>{archiveLoadingMessage.body}</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>{usageDetailLoadingMessage.title}</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.55 }}>{usageDetailLoadingMessage.body}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 4 }}>
                 {steps.map((step, index) => {
-                    const active = index === archiveVerificationStepIndex;
-                    const done = index < archiveVerificationStepIndex;
+                    const active = index === usageDetailVerificationStepIndex;
+                    const done = index < usageDetailVerificationStepIndex;
                     return (
                       <div key={step.id} style={{ border: `1px solid ${active ? C.primary : done ? C.light : C.g200}`, borderRadius: 999, background: active ? C.bg : done ? '#F4FBF6' : C.white, color: active ? C.primary : done ? C.ok : C.g400, padding: '7px 8px', textAlign: 'center', fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {done ? '완료 · ' : active ? '진행 · ' : ''}{step.label}
@@ -1234,10 +1130,10 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
           </div>
         );
     };
-    return (<div data-ui="archive-screen.1" style={{ background: 'transparent', position: 'relative' }}>
+    return (<div data-ui="usage-detail-screen.1" style={{ background: 'transparent', position: 'relative' }}>
       {contentVisible && renderTodoSidebar()}
-      <div data-ui="archive-screen.2" className="screen-enter" style={{ display: contentVisible ? 'grid' : 'none', gap: 12, minWidth: 0 }}>
-        <div data-ui="archive-screen.detail-header" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', alignItems: 'center', gap: 10, marginBottom: 4, minWidth: 0 }}>
+      <div data-ui="usage-detail-screen.2" className="screen-enter" style={{ display: contentVisible ? 'grid' : 'none', gap: 12, minWidth: 0 }}>
+        <div data-ui="usage-detail-screen.detail-header" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', alignItems: 'center', gap: 10, marginBottom: 4, minWidth: 0 }}>
           <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap' }}>세부 내역</div>
             <div style={{ fontSize: 12, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>사용내역서 세부 내역 및 증빙 파일 보기</div>
@@ -1245,7 +1141,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
           <div />
           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
             {onBackToOverview && <button type="button" onClick={onBackToOverview} style={{ height: 40, border: 'none', borderRadius: 999, background: C.primary, color: C.white, cursor: 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>사용내역서 보기</button>}
-            <button type="button" onClick={() => void runArchiveVerification()} disabled={archiveVerificationRunning} style={{ height: 40, border: `1px solid ${archiveVerificationDone ? C.primary : C.g800}`, borderRadius: 999, background: archiveVerificationDone ? C.bg : C.white, color: archiveVerificationDone ? C.primary : C.g800, cursor: archiveVerificationRunning ? 'wait' : 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{archiveVerificationLabel}</button>
+            <button type="button" onClick={() => void runUsageDetailVerification()} disabled={usageDetailVerificationRunning} style={{ height: 40, border: `1px solid ${usageDetailVerificationDone ? C.primary : C.g800}`, borderRadius: 999, background: usageDetailVerificationDone ? C.bg : C.white, color: usageDetailVerificationDone ? C.primary : C.g800, cursor: usageDetailVerificationRunning ? 'wait' : 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{usageDetailVerificationLabel}</button>
           </div>
         </div>
         <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
@@ -1257,11 +1153,11 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             </div>
           </Card>
         )}
-        {archiveActionError && (
+        {usageDetailActionError && (
           <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: C.danger, lineHeight: 1.5 }}>{archiveActionError}</div>
-              <button type="button" onClick={() => setArchiveActionError('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+              <div style={{ fontSize: 13, fontWeight: 900, color: C.danger, lineHeight: 1.5 }}>{usageDetailActionError}</div>
+              <button type="button" onClick={() => setUsageDetailActionError('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
             </div>
           </Card>
         )}
@@ -1279,7 +1175,7 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
             </div>
           </Card>
         )}
-        <div data-ui="archive-screen.6" className="screen-enter" style={{ paddingTop: 0, position: 'relative', minHeight: 560 }}>
+        <div data-ui="usage-detail-screen.6" className="screen-enter" style={{ paddingTop: 0, position: 'relative', minHeight: 560 }}>
           <UsageDetailFileView cats={CATS} usageItems={resolvedUsageItems} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} actionRequest={actionRequest} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} isSupplementTarget={isSupplementTarget} onSelectCat={(catId) => {
                 setSelectedHierarchyCatId(catId);
                 setSelectedUsageItemId(resolvedUsageItems.find((item) => item.categoryId === catId)?.id || '');
@@ -1287,10 +1183,10 @@ export default function ArchiveScreen({ projectId, usageStatementId, archiveSeed
                 setSelectedUsageItemId(item.id);
                 setSelectedHierarchyCatId(item.categoryId);
             }} onRemove={removeHierarchyFile} onRename={renameHierarchyFile} onMove={moveHierarchyFile} onEditUsageItem={editUsageItem} onAddUsageItem={openAddUsageItemModal} onDeleteUsageItem={deleteUsageItem} onUpload={uploadFilesToSection} onDownloadFile={openFileDownload} fileHeaderAction={uploadCompleteAction}/>
-          {archiveVerificationStep && archiveLoadingMessage && (
+          {usageDetailVerificationStep && usageDetailLoadingMessage && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 20, display: 'grid', placeItems: 'center', padding: 24, background: 'rgba(247, 252, 248, .62)', backdropFilter: 'blur(1px)' }}>
               <div style={{ width: 'min(100%, 680px)', background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 22 }}>
-                {renderArchiveVerificationLoader()}
+                {renderUsageDetailVerificationLoader()}
               </div>
             </div>
           )}
