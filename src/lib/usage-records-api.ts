@@ -27,7 +27,7 @@ const ENDPOINTS: Record<UsageRecordScope, string> = {
   date: '/usage-records/by-date',
 };
 
-const TOKEN_COST_KRW = 0.0715;
+const DEFAULT_INPUT_COST_USD_PER_1M_TOKENS = 0.40;
 
 const asArray = (value: unknown): UsageRecordRaw[] => {
   if (Array.isArray(value)) return value.filter((item): item is UsageRecordRaw => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
@@ -121,7 +121,7 @@ const parseUsageRecordPeriod = (item: UsageRecordRaw): UsageRecordPeriod | undef
   ]));
 };
 
-const estimateCost = (tokens: number) => Math.round((tokens * TOKEN_COST_KRW) / 100) * 100;
+const estimateCostUsd = (tokens: number) => (tokens / 1_000_000) * DEFAULT_INPUT_COST_USD_PER_1M_TOKENS;
 
 const formatUsagePeriodLabel = (period?: UsageRecordPeriod) => {
   if (!period) return '';
@@ -152,6 +152,7 @@ export const normalizeUsageRecord = (scope: UsageRecordScope, item: UsageRecordR
   const tokens = readNumber(item, ['totalToken', 'total_token', 'totalTokens', 'total_tokens', 'tokens', 'token', 'inputTokens', 'input_tokens']);
   const calls = readNumber(item, ['callCount', 'call_count', 'calls', 'count', 'requestCount', 'request_count', 'totalCount', 'total_count']);
   const cost = readNumber(item, ['cost', 'totalCost', 'total_cost', 'amount', 'totalAmount', 'total_amount', 'price', 'krw']);
+  const costUsd = readNumber(item, ['costUsd', 'cost_usd', 'totalCostUsd', 'total_cost_usd']);
   const period = parseUsageRecordPeriod(item);
   const label = getLabel(scope, item, period) || `항목 ${index + 1}`;
   return {
@@ -160,15 +161,24 @@ export const normalizeUsageRecord = (scope: UsageRecordScope, item: UsageRecordR
     subLabel: getSubLabel(scope, item),
     tokens,
     calls,
-    cost: cost || estimateCost(tokens),
+    cost: costUsd || cost || estimateCostUsd(tokens),
     period,
   };
 };
 
 export const buildUsageRecordQuery = (params?: { year?: string; month?: string }) => {
   const query = new URLSearchParams();
-  if (params?.year) query.set('year', params.year);
-  if (params?.month) query.set('month', String(Number(params.month)));
+  const year = Number(params?.year);
+  const month = Number(params?.month);
+  if (Number.isFinite(year) && year > 0 && Number.isFinite(month) && month > 0) {
+    const from = new Date(Date.UTC(year, month - 1, 1));
+    const to = new Date(Date.UTC(year, month, 0));
+    query.set('from', from.toISOString().slice(0, 10));
+    query.set('to', to.toISOString().slice(0, 10));
+  } else if (Number.isFinite(year) && year > 0) {
+    query.set('from', `${year}-01-01`);
+    query.set('to', `${year}-12-31`);
+  }
   const text = query.toString();
   return text ? `?${text}` : '';
 };

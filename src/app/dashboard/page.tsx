@@ -9,12 +9,12 @@ import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { C } from '../../lib/theme';
 import { STATUS_META, USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
-import { listProjects } from '../../lib/project-api';
 import { listUsageStatementArchives } from '../../lib/archive-api';
 import { getOrchestratorStatus, type OrchestratorTodo } from '../../lib/agent-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { listUsageRecords, summarizeTopUsageRecords, type UsageRecordSummary } from '../../lib/usage-records-api';
+import { getAdminDashboard, listAdminDashboardProjects, type AdminDashboardResponse } from '../../lib/admin-dashboard-api';
 
 const FALLBACK_ACTION_ASSIGNEE = '프로젝트 담당자';
 const ALL_REASON_PROJECTS = 'all';
@@ -91,6 +91,12 @@ const getAiUsageDisplayRole = (view: 'user' | 'project', row: UsageRecordSummary
 };
 
 const getAiUsageTooltipTitle = (row: AiUsageCostRow) => row.role ? `${row.user} · ${row.role}` : row.user;
+const formatUsd = (value: number | string) => `$${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const roleCodeToDashboardLabel = (roleCode: string) => {
+  if (roleCode === 'user') return '프로젝트 담당자';
+  if (roleCode === 'system_admin') return '시스템 관리자';
+  return 'SHE 담당자';
+};
 
 const isSupplementClearedWorkflow = (status?: string | null) => {
   const normalized = normalizeUsageWorkflowStatus(status);
@@ -318,6 +324,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const { user, clearCurrentUser } = useCurrentUser();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [adminDashboard, setAdminDashboard] = useState<AdminDashboardResponse | null>(null);
   const filterOptions = useMemo(() => getSheFilterOptionsFromProjects(projects), [projects]);
   const [projectName, setProjectName] = useState('');
   const [contractNumber, setContractNumber] = useState('');
@@ -377,10 +384,15 @@ export default function DashboardPage() {
   const refreshDashboardProjects = useCallback(async () => {
     setDashboardRefreshing(true);
     try {
-      const items = await listProjects({ size: 10 });
+      const [items, dashboard] = await Promise.all([
+        listAdminDashboardProjects(),
+        getAdminDashboard().catch(() => null),
+      ]);
+      setAdminDashboard(dashboard);
       setProjects(await Promise.all(items.map(hydrateProjectWorkflowStatus)));
     } catch {
       setProjects([]);
+      setAdminDashboard(null);
     } finally {
       setDashboardRefreshing(false);
     }
@@ -389,13 +401,20 @@ export default function DashboardPage() {
   useEffect(() => {
     let alive = true;
     setDashboardRefreshing(true);
-    listProjects({ size: 10 })
-      .then((items) => Promise.all(items.map(hydrateProjectWorkflowStatus)))
-      .then((items) => {
-        if (alive) setProjects(items);
+    Promise.all([
+      listAdminDashboardProjects(),
+      getAdminDashboard().catch(() => null),
+    ])
+      .then(([items, dashboard]) => Promise.all(items.map(hydrateProjectWorkflowStatus)).then((hydrated) => ({ hydrated, dashboard })))
+      .then(({ hydrated, dashboard }) => {
+        if (!alive) return;
+        setProjects(hydrated);
+        setAdminDashboard(dashboard);
       })
       .catch(() => {
-        if (alive) setProjects([]);
+        if (!alive) return;
+        setProjects([]);
+        setAdminDashboard(null);
       })
       .finally(() => {
         if (alive) setDashboardRefreshing(false);
@@ -499,16 +518,35 @@ export default function DashboardPage() {
     router.push(`/projects/${item.projectId}?${targetSearchParams.toString()}`);
   };
   const selectedAiUsageSourceRows = aiUsageView === 'user' ? aiUsageUserRows : aiUsageProjectRows;
-  const aiUsageRows: readonly AiUsageCostRow[] = summarizeTopUsageRecords(selectedAiUsageSourceRows, 5).map((row) => ({
+  const adminAiUsageRows: readonly AiUsageCostRow[] | null = adminDashboard
+    ? (aiUsageView === 'user'
+      ? adminDashboard.aiUsage.topUsers.map((row) => ({
+        user: row.userName,
+        role: roleCodeToDashboardLabel(row.roleCode),
+        tokens: Number(row.inputTokens || 0) + Number(row.outputTokens || 0),
+        calls: Number(row.callCount || 0),
+        cost: Number(row.costUsd || 0),
+      }))
+      : adminDashboard.aiUsage.topProjects.map((row) => ({
+        user: row.projectName,
+        role: '',
+        tokens: Number(row.inputTokens || 0) + Number(row.outputTokens || 0),
+        calls: Number(row.callCount || 0),
+        cost: Number(row.costUsd || 0),
+      })))
+    : null;
+  const aiUsageRows: readonly AiUsageCostRow[] = adminAiUsageRows || summarizeTopUsageRecords(selectedAiUsageSourceRows, 5).map((row) => ({
     user: row.label,
     role: getAiUsageDisplayRole(aiUsageView, row),
     tokens: row.tokens,
     calls: row.calls,
     cost: row.cost,
   }));
-  const aiUsageTotalCost = aiUsageRows.reduce((sum, row) => sum + row.cost, 0);
-  const aiUsageTotalTokens = aiUsageRows.reduce((sum, row) => sum + row.tokens, 0);
-  const aiUsageTotalCalls = aiUsageRows.reduce((sum, row) => sum + row.calls, 0);
+  const aiUsageTotalCost = adminDashboard ? Number(adminDashboard.aiUsage.total.totalCostUsd || 0) : aiUsageRows.reduce((sum, row) => sum + row.cost, 0);
+  const aiUsageTotalTokens = adminDashboard
+    ? Number(adminDashboard.aiUsage.total.totalInputTokens || 0) + Number(adminDashboard.aiUsage.total.totalOutputTokens || 0)
+    : aiUsageRows.reduce((sum, row) => sum + row.tokens, 0);
+  const aiUsageTotalCalls = adminDashboard ? Number(adminDashboard.aiUsage.total.callCount || 0) : aiUsageRows.reduce((sum, row) => sum + row.calls, 0);
   const aiUsageDonutRadius =42;
   const aiUsageDonutCircumference = 2 * Math.PI * aiUsageDonutRadius;
   let aiUsageDonutOffset = 0;
@@ -606,6 +644,9 @@ export default function DashboardPage() {
       return map;
     }, new Map<string, { actionRequired: number; projectCount: number }>()),
   ).sort((a, b) => b[1].actionRequired - a[1].actionRequired || a[0].localeCompare(b[0], 'ko'));
+  const displayedManagerWorkloads = adminDashboard?.supplementAssignees.length
+    ? adminDashboard.supplementAssignees.map((assignee) => [assignee.userName, { actionRequired: assignee.supplementCount, projectCount: assignee.supplementCount }] as const)
+    : managerWorkloads;
   if (user.role === 'project_manager') {
     return (
       <AppFrame title="프로젝트 대시보드" mainClassName="dashboard-main">
@@ -667,7 +708,7 @@ export default function DashboardPage() {
 	          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
 		            <div style={{ border: `1px solid ${C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0 }}>
 	              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>전체 프로젝트</div>
-		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.g800 }}>{projects.length}</div>
+		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.g800 }}>{adminDashboard?.summary.totalProjects ?? projects.length}</div>
 	            </div>
             <div ref={reviewQueueTooltipRef} style={{ position: 'relative', minWidth: 0 }}>
               <button
@@ -677,7 +718,7 @@ export default function DashboardPage() {
                 style={{ width: '100%', border: `1px solid ${reviewQueueTooltipOpen ? C.primary : C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0, background: C.white, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
               >
                 <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>법령 검증 필요</div>
-                <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{queueProjects.length}</div>
+                <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{adminDashboard?.summary.reviewNeededProjects ?? queueProjects.length}</div>
               </button>
               {reviewQueueTooltipOpen && (
                 <div
@@ -921,7 +962,7 @@ export default function DashboardPage() {
                 <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap' }}>AI 사용 금액</div>
                   <div style={{ color: C.g500, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }}>
-                    {dashboardMonthPeriod.year}년 {Number(dashboardMonthPeriod.month)}월 기준
+                    {adminDashboard ? '전체 기간 기준' : `${dashboardMonthPeriod.year}년 ${Number(dashboardMonthPeriod.month)}월 기준`}
                   </div>
                 </div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
@@ -966,7 +1007,7 @@ export default function DashboardPage() {
                               strokeLinecap="butt"
                               strokeDasharray={`${segment.dash} ${aiUsageDonutCircumference}`}
                               strokeDashoffset={-segment.offset}
-                              onMouseEnter={(event) => showChartTooltip(event, getAiUsageTooltipTitle(segment.row), `₩ ${segment.row.cost.toLocaleString('ko-KR')} · ${segment.row.calls}회`)}
+                              onMouseEnter={(event) => showChartTooltip(event, getAiUsageTooltipTitle(segment.row), `${formatUsd(segment.row.cost)} · ${segment.row.calls}회`)}
                               onMouseMove={moveChartTooltip}
                               onMouseLeave={hideChartTooltip}
                               style={{ cursor: 'default' }}
@@ -976,8 +1017,7 @@ export default function DashboardPage() {
                         <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', pointerEvents: 'none' }}>
                           <div>
                             <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 2, fontSize: 12, fontWeight: 800, color: C.g800, lineHeight: 1 }}>
-                              <span>₩</span>
-                              <span>{aiUsageTotalCost.toLocaleString('ko-KR')}</span>
+                              <span>{formatUsd(aiUsageTotalCost)}</span>
                             </div>
                           </div>
                         </div>
@@ -1019,8 +1059,7 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <div style={{ display: 'inline-flex', alignItems: 'baseline', justifyContent: 'flex-end', gap: 2, fontSize: 14, fontWeight: 700, color: C.g800, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <span>₩</span>
-                        <span>{row.cost.toLocaleString('ko-KR')}</span>
+                        <span>{formatUsd(row.cost)}</span>
                       </div>
                     </div>
                   ))}
@@ -1034,12 +1073,12 @@ export default function DashboardPage() {
               <div style={{ fontSize: 11, fontWeight: 700, color: C.primary }}>{currentMonthKey.replace('-', '년 ')}월</div>
             </div>
             <div style={{ display: 'grid', gap: 10, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', paddingRight: 6, scrollbarGutter: 'stable', overscrollBehavior: 'contain' }}>
-              {managerWorkloads.length === 0 && (
+              {displayedManagerWorkloads.length === 0 && (
                 <div style={{ minHeight: 128, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 12, fontWeight: 700 }}>
                   진행 중인 보완 요청이 없습니다.
                 </div>
               )}
-              {managerWorkloads.map(([managerName, workload]) => (
+              {displayedManagerWorkloads.map(([managerName, workload]) => (
                 <div key={managerName} style={{ display: 'grid', gridTemplateColumns: '34px minmax(0,1fr) auto', gap: 10, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${C.g100}` }}>
                   <div style={{ width: 34, height: 34, borderRadius: 999, background: C.primary, color: C.white, display: 'grid', placeItems: 'center' }}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">

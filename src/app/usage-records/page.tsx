@@ -15,7 +15,7 @@ const SCOPES: Array<{ key: UsageRecordScope; label: string; description: string 
   { key: 'date', label: '일별', description: '일 단위 사용량 추이' },
 ];
 
-const currency = (value: number) => `₩ ${Math.round(value).toLocaleString('ko-KR')}`;
+const currency = (value: number) => `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatTokens = (value: number) => value.toLocaleString('ko-KR');
 
 const getInitialParam = (key: 'year' | 'month') => {
