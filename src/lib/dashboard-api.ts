@@ -45,6 +45,8 @@ export interface DashboardAiUsageResponse {
   total: DashboardAiUsageTotal;
   byUser: DashboardAiUsageByUser[];
   byProject: DashboardAiUsageByProject[];
+  topUsers?: DashboardAiUsageByUser[];
+  topProjects?: DashboardAiUsageByProject[];
 }
 
 const buildAiUsageQuery = (params?: { year?: string; month?: string }) => {
@@ -124,9 +126,9 @@ const normalizeDashboardAiUsage = (value: unknown): DashboardAiUsageResponse => 
   if (!isRecord(value)) return emptyAiUsage;
 
   const totalSource = isRecord(value.total) ? value.total : value;
-  const byUser = readArray(value, ['byUser', 'by_user', 'users', 'userUsage', 'user_usage'])
+  const byUser = readArray(value, ['byUser', 'by_user', 'topUsers', 'top_users', 'users', 'userUsage', 'user_usage'])
     .map(normalizeAiUsageUser);
-  const byProject = readArray(value, ['byProject', 'by_project', 'projects', 'projectUsage', 'project_usage'])
+  const byProject = readArray(value, ['byProject', 'by_project', 'topProjects', 'top_projects', 'projects', 'projectUsage', 'project_usage'])
     .map(normalizeAiUsageProject);
 
   const computedTotal = sumAiUsageRows([...byUser, ...byProject]);

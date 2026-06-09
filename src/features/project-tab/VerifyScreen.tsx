@@ -280,46 +280,6 @@ const normalizeValidationResult = (source: unknown): ValidationDashboardResult =
   };
 };
 
-const buildLegalRunFallbackResult = (source: unknown, usageStatementId?: number): ValidationDashboardResult => {
-  const resultCode = readNestedStringField(source, ['resultCode', 'result_code']).toLowerCase();
-  const statusCode = readNestedStringField(source, ['statusCode', 'status_code', 'status']).toLowerCase();
-  const reason = readNestedStringField(source, ['reason', 'message']) || '법령 검증 실행 결과를 확인했습니다.';
-  const failed = ['fail', 'failed', 'error'].includes(resultCode) || ['fail', 'failed', 'error'].includes(statusCode);
-  const needsReview = resultCode === 'hil' || resultCode === 'warning' || resultCode === 'conditional';
-  const decision: ValidationDecision = failed ? 'inappropriate' : needsReview ? 'conditional' : 'appropriate';
-  return {
-    id: extractValidationId(source) || (usageStatementId ? `legal-${usageStatementId}` : ''),
-    checkedAt: new Date().toLocaleString('ko-KR'),
-    usageStatementFile: '',
-    lawAgent: {
-      name: 'legal_agent',
-      version: '',
-      basis: '산업안전보건관리비 계상 및 사용기준',
-    },
-    categories: [{
-      categoryId: 0,
-      categoryName: '법령 검증 결과',
-      usageAmount: 0,
-      recognizedAmount: 0,
-      disputedAmount: 0,
-      decision,
-      riskLevel: failed ? 'high' : needsReview ? 'medium' : 'low',
-      legalBasis: [{
-        lawName: '산업안전보건관리비 계상 및 사용기준',
-        summary: '',
-        agentReasoning: reason,
-      }],
-      issues: decision === 'appropriate' ? [] : [{
-        title: decision === 'inappropriate' ? '법령 검증 실패' : 'SHE 검토 필요',
-        description: reason,
-        problemFileNames: [],
-        requiredAction: reason,
-        recommendedFiles: [],
-      }],
-    }],
-  };
-};
-
 const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, validationGateItems = [], validationDisabledReason, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
@@ -379,13 +339,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
 
   const handleVerify = async () => {
     if (!canStartValidation) return;
-    let pollTimer: number | null = null;
-    let completedFromPolling = false;
-    const stopPolling = () => {
-      if (!pollTimer) return;
-      window.clearInterval(pollTimer);
-      pollTimer = null;
-    };
+    const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
     const loadDetailedResult = async (nextValidationId?: string) => {
       if (!projectId) return EMPTY_VALIDATION_RESULT;
       if (usageStatementId) {
@@ -399,36 +353,31 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       if (statusResult.categories.length > 0) return statusResult;
       return normalizeValidationResult(await getLatestValidation(projectId).catch(() => null));
     };
-    const pollLegalLog = async () => {
-      if (!projectId || !usageStatementId || completedFromPolling) return;
-      const logs = await getAgentLogs(projectId, usageStatementId).catch(() => []);
-      const legalLog = logs.find((log) => isLegalAgentType(log.agentTypeCode));
-      if (!legalLog) {
-        setValidationStatusText('법령 검증 요청을 처리 중입니다.');
-        return;
+    const waitForCompletedLegalResult = async (nextValidationId?: string) => {
+      if (!projectId || !usageStatementId) throw new Error('검증 로그 확인에 필요한 ID가 없습니다.');
+      const maxAttempts = 45;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const logs = await getAgentLogs(projectId, usageStatementId).catch(() => []);
+        const legalLog = logs.find((log) => isLegalAgentType(log.agentTypeCode));
+        if (!legalLog) {
+          setValidationStatusText('법령 검증 요청을 처리 중입니다.');
+        } else {
+          const logState = extractValidationRunState(legalLog);
+          if (logState === 'failed') {
+            throw new Error(legalLog.reason || '법령 검증 실행 중 오류가 발생했습니다.');
+          }
+          if (logState === 'done') {
+            setValidationStatusText('법령 검증이 완료되어 결과를 불러오는 중입니다.');
+            const latestResult = await loadDetailedResult(nextValidationId);
+            if (latestResult.categories.length > 0) return latestResult;
+            setValidationStatusText('법령 검증 결과 저장을 기다리고 있습니다.');
+          } else {
+            setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
+          }
+        }
+        await wait(LEGAL_VALIDATION_POLL_INTERVAL_MS);
       }
-      const logState = extractValidationRunState(legalLog);
-      if (logState === 'running') {
-        setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
-        return;
-      }
-      if (logState === 'failed') {
-        setValidationStatusText(legalLog.reason || '법령 검증 실행 중 오류가 발생했습니다.');
-        return;
-      }
-      if (logState !== 'done') return;
-      setValidationStatusText('법령 검증이 완료되어 결과를 불러오는 중입니다.');
-      const latestResult = await loadDetailedResult();
-      const resultToShow = latestResult.categories.length > 0
-        ? latestResult
-        : buildLegalRunFallbackResult(legalLog, usageStatementId);
-      completedFromPolling = true;
-      setResult(resultToShow);
-      setValidationId(resultToShow.id || `legal-${usageStatementId}`);
-      setStatus('done');
-      setValidationStatusText('법령 검토가 완료되었습니다.');
-      onValidationComplete?.();
-      stopPolling();
+      throw new Error('법령 검증 결과를 확인하지 못했습니다.');
     };
     try {
       setStatus('loading');
@@ -436,8 +385,6 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       setSheReviewDecision('pending');
       setValidationStatusText('법령 검토를 시작했습니다.');
       if (!projectId || !usageStatementId) throw new Error('검증 API 호출에 필요한 ID가 없습니다.');
-      void pollLegalLog();
-      pollTimer = window.setInterval(() => void pollLegalLog(), LEGAL_VALIDATION_POLL_INTERVAL_MS);
       const validationRun = await runLegalAgent(projectId, usageStatementId);
       const nextValidationId = extractValidationId(validationRun);
       const runState = extractValidationRunState(validationRun);
@@ -445,38 +392,18 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       if (runState === 'failed') {
         throw new Error('법령 검토 실행에 실패했습니다.');
       }
-      const runResult = normalizeValidationResult(validationRun);
-      const detailedResult = runResult.categories.length > 0 ? runResult : await loadDetailedResult(nextValidationId);
-      const resultToShow = detailedResult.categories.length > 0
-        ? detailedResult
-        : buildLegalRunFallbackResult(validationRun, usageStatementId);
+      const resultToShow = await waitForCompletedLegalResult(nextValidationId);
       setResult(resultToShow);
       setValidationId(resultToShow.id || nextValidationId || `legal-${usageStatementId}`);
       setStatus('done');
       setValidationStatusText('법령 검토가 완료되었습니다.');
-      if (!completedFromPolling) onValidationComplete?.();
+      onValidationComplete?.();
     } catch {
-      const logs = projectId && usageStatementId ? await getAgentLogs(projectId, usageStatementId).catch(() => []) : [];
-      const legalLog = logs.find((log) => isLegalAgentType(log.agentTypeCode));
-      if (legalLog && extractValidationRunState(legalLog) === 'done') {
-        const latestResult = await loadDetailedResult();
-        const resultToShow = latestResult.categories.length > 0
-          ? latestResult
-          : buildLegalRunFallbackResult(legalLog, usageStatementId);
-        setResult(resultToShow);
-        setValidationId(resultToShow.id || (usageStatementId ? `legal-${usageStatementId}` : ''));
-        setStatus('done');
-        setValidationStatusText('법령 검토가 완료되었습니다.');
-        if (!completedFromPolling) onValidationComplete?.();
-      } else {
-        setValidationId('');
-        setResult(EMPTY_VALIDATION_RESULT);
-        setStatus('idle');
-        setValidationStatusText('');
-        setAgentFailureTarget('legal-validation');
-      }
-    } finally {
-      stopPolling();
+      setValidationId('');
+      setResult(EMPTY_VALIDATION_RESULT);
+      setStatus('idle');
+      setValidationStatusText('');
+      setAgentFailureTarget('legal-validation');
     }
   };
 

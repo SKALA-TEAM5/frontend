@@ -180,22 +180,22 @@ const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]
     const fallbackKind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason);
     const documentNames = extractEvidenceDocumentNames(reason, fallbackKind);
     const source = todo.agentTypeCode === 'legal' ? 'law' : todo.agentTypeCode === 'vision' ? 'vision' : 'matching';
-    const detail = toNounPhraseDetail(translateEvidenceText(reason));
     const baseId = `orchestrator:${todo.agentTypeCode}:${todo.usageStatementItemId || 'all'}:${todo.fileId || 'none'}`;
     const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(reason, fallbackKind)];
 
     return titles.map((title, index) => {
         const kind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(title || reason);
+        const translatedTitle = translateEvidenceDocumentName(title) || title;
         return {
             id: `${baseId}:${normalizeTodoIdText(title)}:${index}`,
             mode: 'add',
             source,
             kind,
-            title,
+            title: translatedTitle,
             context: usageItem?.name || '사용내역서 세부 항목',
             categoryId: usageItem?.categoryId,
             usageItemId: usageItem?.id,
-            detail,
+            detail: '',
         };
     });
 };
@@ -1121,13 +1121,11 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           const actionText = todo.mode === 'add' ? '업로드 필요' : '삭제 필요';
           const todoUsageItem = resolvedUsageItems.find((item) => item.name === todo.context);
           const categoryName = CATS.find((cat) => cat.id === todoUsageItem?.categoryId)?.short || '9개 항목';
-          const reasonText = todo.detail || '';
           const tooltipOpensUp = index >= items.length - 1;
           return (
             <button
               key={todo.id}
               type="button"
-              title={reasonText || undefined}
               onClick={() => setCompletedTodoIds((current) => ({ ...current, [todo.id]: !current[todo.id] }))}
               style={{
                 width: '100%',
@@ -1143,33 +1141,6 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 boxShadow: done ? 'none' : '0 6px 14px rgba(31,47,39,.06)',
               }}
             >
-              {reasonText && (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: 'absolute',
-                    left: 8,
-                    right: 8,
-                    ...(tooltipOpensUp ? { bottom: 'calc(100% + 6px)' } : { top: 'calc(100% + 6px)' }),
-                    zIndex: 5,
-                    display: 'none',
-                    border: `1px solid ${C.g200}`,
-                    borderRadius: 6,
-                    background: C.white,
-                    color: C.g800,
-                    boxShadow: '0 10px 24px rgba(31,47,39,.14)',
-                    padding: '8px 9px',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    lineHeight: 1.45,
-                    whiteSpace: 'normal',
-                    wordBreak: 'keep-all',
-                  }}
-                  className="usage-detail-todo-reason"
-                >
-                  {reasonText}
-                </span>
-              )}
               <div style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr)', gap: 7, alignItems: 'start' }}>
                 <span
                   aria-hidden="true"

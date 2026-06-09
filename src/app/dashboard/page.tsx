@@ -721,7 +721,7 @@ export default function DashboardPage() {
                         whiteSpace: 'normal',
                       }}
                     >
-                      법령 검증이 필요한 프로젝트만 볼 수 있습니다.
+                      법령 검증이 필요한 업로드 완료, 보완 요청 상태의 프로젝트를 확인할 수 있습니다.
                     </span>
                   </span>
                 </div>
