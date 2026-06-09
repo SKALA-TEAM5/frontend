@@ -11,7 +11,6 @@ import { useCurrentUser } from '../../lib/dev-user';
 import { C } from '../../lib/theme';
 import { LEGAL_REVIEW_STATUS_FILTER, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
 import { listUsageStatementArchives } from '../../lib/archive-api';
-import { getOrchestratorStatus, type OrchestratorTodo } from '../../lib/agent-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { getDashboardAiUsage, getDashboardSummary, type DashboardAiUsageResponse, type DashboardSummaryResponse } from '../../lib/dashboard-api';
@@ -93,11 +92,6 @@ const roleCodeToDashboardLabel = (roleCode: string) => {
   return 'SHE 담당자';
 };
 
-const isSupplementClearedWorkflow = (status?: string | null) => {
-  const normalized = normalizeUsageWorkflowStatus(status);
-  return normalized === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || normalized === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED;
-};
-
 const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActionRequest;
 
 const isLegalReviewWorkflow = (status?: string | null) => {
@@ -120,20 +114,6 @@ const getProjectAssigneeLabel = (project: ProjectSummary) => {
   return names.length > 0 ? names.join(', ') : FALLBACK_ACTION_ASSIGNEE;
 };
 
-const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string, assignee = FALLBACK_ACTION_ASSIGNEE): ProjectSummary['actionRequestDetails'] | undefined => {
-  const openTodos = todos.filter((todo) => todo.statusCode !== 'closed');
-  if (!openTodos.length) return undefined;
-  const firstTodo = openTodos[0];
-  return {
-    title: firstTodo.reason || '보완 요청',
-    reason: openTodos.map((todo, index) => `${index + 1}. ${todo.reason}`).join('\n'),
-    assignee,
-    dueDate: '',
-    requestedAt: '-',
-    month,
-  };
-};
-
 const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<ProjectSummary> => {
   const assigneeLabel = getProjectAssigneeLabel(project);
   try {
@@ -142,21 +122,6 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
     for (const archive of archives) {
       const month = normalizeMonthKey(archive.statementSummary.month);
       const archiveWorkflowStatus = normalizeUsageWorkflowStatus(archive.workflowStatus);
-      const supplementCleared = archiveWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-        && isSupplementClearedWorkflow(archiveWorkflowStatus);
-      if (archive.usageStatementId) {
-        const status = await getOrchestratorStatus(project.id, archive.usageStatementId).catch(() => null);
-        const actionRequestDetails = status && !supplementCleared ? orchestratorTodosToDetails(status.todos || [], month, assigneeLabel) : undefined;
-        if (actionRequestDetails) {
-          return {
-            ...project,
-            hasLegalReviewNeededMonth: true,
-            hasActionRequest: true,
-            actionRequestDetails,
-            reportReady: true,
-          };
-        }
-      }
       if (archiveWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) {
         return {
           ...project,

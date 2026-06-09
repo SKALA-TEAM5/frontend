@@ -60,6 +60,8 @@ export const makeEntry = (name: string, kind: EvidenceCategory, extra: Partial<E
   const categoryIds = extra.categoryIds || classifyEvidenceToCategoryIds(name, extra.description || '');
   return {
     id: extra.id || nextFileId(),
+    fileId: extra.fileId,
+    linkId: extra.linkId,
     name,
     kind,
     description: extra.description || '',
@@ -67,8 +69,11 @@ export const makeEntry = (name: string, kind: EvidenceCategory, extra: Partial<E
     previewUrl: extra.previewUrl || '',
     uploadedAt: extra.uploadedAt || new Date().toISOString().slice(0, 10),
     uploadedBy: extra.uploadedBy || '현재 사용자',
+    documentType: extra.documentType,
+    statusCode: extra.statusCode,
     categoryIds,
     usageItemIds: extra.usageItemIds || getDefaultUsageItemIds(categoryIds),
+    visionValidation: extra.visionValidation,
   };
 };
 
