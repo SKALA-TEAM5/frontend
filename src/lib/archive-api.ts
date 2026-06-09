@@ -477,6 +477,13 @@ const getUsageStatementArchiveByMonth = async (projectId: string, year: number, 
   return toArchiveData(projectId, response.data.statement);
 };
 
+export const getUsageStatementArchiveById = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<{ projectId: number; statement: UsageStatementDetailResponse }>(
+    `/projects/${projectId}/usage-statements/${usageStatementId}`,
+  );
+  return toArchiveData(projectId, response.data.statement);
+};
+
 export const submitUsageStatement = async (projectId: string, usageStatementId: number) => {
   const response = await apiFetch<UsageStatementStatusResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/submit`, {
     method: 'PATCH',

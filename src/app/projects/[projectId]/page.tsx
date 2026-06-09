@@ -12,7 +12,7 @@ import { AppFrame } from '../../../components/common';
 import { C } from '../../../lib/theme';
 import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
 import { getProject, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
-import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
+import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
 import { getOrchestratorStatus, parseUsageStatementWithOcr, type OrchestratorTodo } from '../../../lib/agent-api';
 import { can } from '../../../lib/permissions';
@@ -344,6 +344,7 @@ function ProjectDetailPageContent() {
     const [monthDeleteTarget, setMonthDeleteTarget] = useState<MonthlyUsageStatementSummary | null>(null);
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [ocrFailureReason, setOcrFailureReason] = useState('');
+    const [duplicateUsageMonthWarning, setDuplicateUsageMonthWarning] = useState('');
     const [classificationMoveNotices, setClassificationMoveNotices] = useState<ClassificationMoveNotice[]>([]);
     const [projectInfoDraft, setProjectInfoDraft] = useState<UsageStatementInfoDraft>({
         contractNumber: '',
@@ -863,22 +864,41 @@ function ProjectDetailPageContent() {
                     setOcrFailureReason(ocrFailureReason);
                     return;
                 }
+                const existingUploadedMonths = new Set(
+                    Object.entries(dbUsageStatementsByMonth)
+                        .filter(([, data]) => {
+                            const summary = data.statementSummary;
+                            return Boolean(summary?.sourceFileName && summary.sourceFileName !== '-');
+                        })
+                        .map(([month]) => month),
+                );
                 setUsageUploadStage('ocr');
                 uploadProjectFile(project.id, pickedFile, 'usage_statement')
                     .then(async (uploadedEntry) => {
+                        let savedArchive: UsageStatementArchiveData | null = null;
+                        if (!uploadedEntry.fileId) {
+                            throw new Error('업로드된 사용내역서 파일 ID가 없습니다.');
+                        }
                         if (uploadedEntry.fileId) {
+                            setUsageUploadStage('classifying');
                             const ocrWorkflow = await parseUsageStatementWithOcr(project.id, uploadedEntry.fileId);
                             if (!ocrWorkflow.usageStatementId) {
                                 throw new Error('사용내역서 OCR 결과에 사용내역서 ID가 없습니다.');
                             }
+                            savedArchive = await getUsageStatementArchiveById(project.id, ocrWorkflow.usageStatementId).catch(() => null);
                             const moveNotices = extractClassificationMoveNotices(ocrWorkflow);
                             if (moveNotices.length) {
                                 setClassificationMoveNotices(moveNotices);
                             }
                         }
                         const uploadedAt = uploadedEntry.uploadedAt || new Date().toISOString().slice(0, 10);
-                        const month = selectedMonth || uploadedAt.slice(0, 7);
-                        const statementSummary: MonthlyUsageStatementSummary = {
+                        const month = savedArchive?.statementSummary.month || selectedMonth || uploadedAt.slice(0, 7);
+                        if (savedArchive && existingUploadedMonths.has(month)) {
+                            setDuplicateUsageMonthWarning(`${formatMonthLabel(month)} 사용내역서가 이미 존재합니다. 기존 월은 변경하지 않았습니다. 파일의 세부항목 사용일자를 확인한 뒤 다시 업로드해주세요.`);
+                            setUsageUploadStage('idle');
+                            return;
+                        }
+                        const statementSummary: MonthlyUsageStatementSummary = savedArchive?.statementSummary || {
                             month,
                             label: formatMonthLabel(month),
                             sourceFileName: uploadedEntry.name,
@@ -896,20 +916,23 @@ function ProjectDetailPageContent() {
                         setDbUsageStatementsByMonth((current) => ({
                             ...current,
                             [month]: {
-                                archiveSeed: current[month]?.archiveSeed || { usage_statement: [], categories: {} },
-                                usageItems: current[month]?.usageItems || [],
-                                overviewRows: current[month]?.overviewRows || EMPTY_OVERVIEW_ROWS,
+                                archiveSeed: savedArchive?.archiveSeed || current[month]?.archiveSeed || { usage_statement: [], categories: {} },
+                                usageItems: savedArchive?.usageItems || current[month]?.usageItems || [],
+                                overviewRows: savedArchive?.overviewRows || current[month]?.overviewRows || EMPTY_OVERVIEW_ROWS,
                                 statementSummary,
-                                workflowStatus: USAGE_WORKFLOW_STATUS.DRAFT,
+                                usageStatementId: savedArchive?.usageStatementId || current[month]?.usageStatementId,
+                                workflowStatus: savedArchive?.workflowStatus || USAGE_WORKFLOW_STATUS.DRAFT,
                             },
                         }));
-                        setArchiveSeed((current) => ({
+                        setArchiveSeed((current) => savedArchive?.archiveSeed || ({
                             usage_statement: [uploadedEntry, ...(current?.usage_statement || []).filter((file) => file.fileId !== uploadedEntry.fileId)],
                             categories: current?.categories || {},
                         }));
+                        if (savedArchive) {
+                            setArchiveUsageItems(savedArchive.usageItems);
+                        }
                         setProject((current) => ({ ...current, hasUploads: true }));
                         setSelectedMonth(month);
-                        setUsageUploadStage('classifying');
                         await refreshArchiveData(project.id);
                         setUsageUploadStage('idle');
                         openArchiveView();
@@ -1569,9 +1592,13 @@ function ProjectDetailPageContent() {
         <div style={{ marginBottom: 8 }}>사용내역서를 다시 업로드해주세요.</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800 }}>{ocrFailureReason}</div>
       </div>} actionLabel="확인" onAction={() => setOcrFailureReason('')} />
+      <CenterModal open={Boolean(duplicateUsageMonthWarning)} title="이미 존재하는 사용내역서" body={<div>
+        <div style={{ marginBottom: 8 }}>업로드한 파일의 세부항목 사용일자가 이미 등록된 월에 해당합니다.</div>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800, lineHeight: 1.6 }}>{duplicateUsageMonthWarning}</div>
+      </div>} actionLabel="확인" onAction={() => setDuplicateUsageMonthWarning('')} />
       <Modal open={usageUploadStage === 'classifying'} onClose={() => {}} zIndex={1200} maxWidth={460}>
         <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 24 }}>
-          <InlineLoader title="classi 에이전트가 분류하고 있어요" body="OCR로 추출한 사용내역서 세부 항목을 산업안전보건관리비 9개 항목 기준으로 분류하고 있습니다. 완료될 때까지 다른 작업을 할 수 없습니다." />
+          <InlineLoader title="사용내역서를 분석하고 있어요" body="OCR로 세부 항목과 사용일자를 추출한 뒤 classi 에이전트가 산업안전보건관리비 9개 항목 기준으로 분류합니다. 완료될 때까지 다른 작업을 할 수 없습니다." />
         </div>
       </Modal>
       <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 변경" body={<div>

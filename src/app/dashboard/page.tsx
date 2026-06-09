@@ -768,13 +768,20 @@ export default function DashboardPage() {
               </button>
             </div>
 		          </div>
-	          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>
+	          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
 		            <button
 		              type="button"
 		              onClick={() => router.push('/admin/users')}
 			              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FAFBFA', color: C.g600, fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'pointer', opacity: .9 }}
 		            >
 		              담당자 관리
+		            </button>
+		            <button
+		              type="button"
+		              onClick={() => router.push('/usage-records')}
+			              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FAFBFA', color: C.g600, fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'pointer', opacity: .9 }}
+		            >
+		              AI 사용금액
 		            </button>
 	          </div>
 	        </aside>
