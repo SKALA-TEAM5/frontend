@@ -273,34 +273,6 @@ const extractVisionValidationResults = (warning: AgentWarningResponse): Record<s
   }));
 };
 
-const normalizeOrchestratorStatus = (raw: unknown): OrchestratorStatusResponse => {
-  const source = (raw || {}) as Record<string, unknown>;
-  const rawTodos = (readField<unknown[]>(source, 'todos', 'todos') || []) as Array<Record<string, unknown>>;
-  return {
-    projectId: Number(readField(source, 'projectId', 'project_id') || 0),
-    usageStatementId: Number(readField(source, 'usageStatementId', 'usage_statement_id') || 0),
-    hasUsageStatementItems: Boolean(readField(source, 'hasUsageStatementItems', 'has_usage_statement_items')),
-    hasReceiptsOrTaxInvoices: Boolean(readField(source, 'hasReceiptsOrTaxInvoices', 'has_receipts_or_tax_invoices')),
-    hasSitePhotos: Boolean(readField(source, 'hasSitePhotos', 'has_site_photos')),
-    classiReady: Boolean(readField(source, 'classiReady', 'classi_ready')),
-    evidenceReviewReady: Boolean(readField(source, 'evidenceReviewReady', 'evidence_review_ready')),
-    legalReady: Boolean(readField(source, 'legalReady', 'legal_ready')),
-    reportReady: Boolean(readField(source, 'reportReady', 'report_ready')),
-    legalDisabledReason: (readField(source, 'legalDisabledReason', 'legal_disabled_reason') as string | undefined) ?? null,
-    agents: [],
-    logs: (source.logs as Array<Record<string, unknown>>) || [],
-    todos: rawTodos.map((todo) => ({
-      agentTypeCode: String(readField(todo, 'agentTypeCode', 'agent_type_code') || ''),
-      usageStatementItemId: readField(todo, 'usageStatementItemId', 'usage_statement_item_id') == null
-        ? null
-        : Number(readField(todo, 'usageStatementItemId', 'usage_statement_item_id')),
-      fileId: readField(todo, 'fileId', 'file_id') == null ? null : Number(readField(todo, 'fileId', 'file_id')),
-      reason: String(todo.reason || ''),
-      statusCode: String(readField(todo, 'statusCode', 'status_code') || 'open'),
-    })),
-  };
-};
-
 const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefined): OrchestratorTodo[] => {
   const entries = [...(raw?.validate || []), raw?.legal].filter((entry): entry is AgentTodoEntryResponse => Boolean(entry));
   return entries.flatMap((entry) => {
@@ -328,32 +300,6 @@ const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefine
       };
     });
   });
-};
-
-const normalizeOrchestratorDashboard = (raw: unknown): OrchestratorDashboardResponse => {
-  const source = (raw || {}) as Record<string, unknown>;
-  const rawAgents = (readField<unknown[]>(source, 'agents', 'agents') || []) as Array<Record<string, unknown>>;
-  return {
-    projectId: Number(readField(source, 'projectId', 'project_id') || 0),
-    usageStatementId: readField(source, 'usageStatementId', 'usage_statement_id') == null
-      ? null
-      : Number(readField(source, 'usageStatementId', 'usage_statement_id')),
-    totalLogs: Number(readField(source, 'totalLogs', 'total_logs') || 0),
-    totalToken: Number(readField(source, 'totalToken', 'total_token') || 0),
-    statusCounts: (readField<Record<string, number>>(source, 'statusCounts', 'status_counts') || {}),
-    resultCounts: (readField<Record<string, number>>(source, 'resultCounts', 'result_counts') || {}),
-    hilAgents: (readField<string[]>(source, 'hilAgents', 'hil_agents') || []),
-    agents: rawAgents.map((agent) => ({
-      agentTypeCode: String(readField(agent, 'agentTypeCode', 'agent_type_code') || ''),
-      statusCode: readField(agent, 'statusCode', 'status_code') ?? null,
-      resultCode: readField(agent, 'resultCode', 'result_code') ?? null,
-      usageStatementId: readField(agent, 'usageStatementId', 'usage_statement_id') == null
-        ? null
-        : Number(readField(agent, 'usageStatementId', 'usage_statement_id')),
-      token: Number(readField(agent, 'token', 'token') || 0),
-      reason: (readField(agent, 'reason', 'reason') as string | undefined) ?? null,
-    })),
-  };
 };
 
 export type RequiredEvidenceMap = Record<string, Partial<Record<FolderEvidenceCategory, string[]>>>;
@@ -384,23 +330,7 @@ export const parseUsageStatementWithOcr = async (projectId: string, fileId: numb
     method: 'POST',
     body: { fileId: Number(fileId) },
   });
-  const data = response.data;
-  if (!data.usageStatementId) return data;
-
-  const logs = await getAgentLogs(projectId, data.usageStatementId).catch(() => []);
-  const classiLog = logs.find((log) => log.agentTypeCode === 'classi' && log.details);
-  if (!classiLog?.details) return data;
-
-  return {
-    ...data,
-    classifierDetails: classiLog.details,
-    details: classiLog.details,
-    result: {
-      ...(data.result || {}),
-      classifierDetails: classiLog.details,
-      classifier_details: classiLog.details,
-    },
-  };
+  return response.data;
 };
 
 export const getAgentLogs = async (projectId: string, usageStatementId?: number) => {
@@ -433,16 +363,62 @@ export const runLegalAgent = async (projectId: string, usageStatementId: number)
   return response.data;
 };
 
+const normalizeAgentTypeCode = (value?: string | null) => String(value || '').replace(/[_\s]/g, '-').toLowerCase();
+const isSuccessfulAgentState = (agent?: OrchestratorDashboardAgent) => {
+  if (!agent)
+    return false;
+  const statusCode = String(agent.statusCode || '').toLowerCase();
+  const resultCode = String(agent.resultCode || '').toLowerCase();
+  return statusCode === 'success' && (resultCode === 'success' || resultCode === 'hil');
+};
+const getAgentsByType = (agents: OrchestratorDashboardAgent[], typeCode: string) => {
+  const normalizedType = normalizeAgentTypeCode(typeCode);
+  return agents.filter((agent) => normalizeAgentTypeCode(agent.agentTypeCode) === normalizedType);
+};
+const logsToDashboardAgents = (logs: AgentLogRecord[], usageStatementId: number): OrchestratorDashboardAgent[] => {
+  const latestByType = new Map<string, AgentLogRecord>();
+  for (const log of logs) {
+    const typeCode = normalizeAgentTypeCode(log.agentTypeCode);
+    if (typeCode && !latestByType.has(typeCode)) {
+      latestByType.set(typeCode, log);
+    }
+  }
+  return Array.from(latestByType.values()).map((log) => ({
+    agentTypeCode: normalizeAgentTypeCode(log.agentTypeCode),
+    statusCode: log.statusCode || null,
+    resultCode: log.resultCode,
+    usageStatementId,
+    token: 0,
+    reason: log.reason || null,
+  }));
+};
+const areOptionalAgentsReady = (agents: OrchestratorDashboardAgent[], typeCode: string) => {
+  const typedAgents = getAgentsByType(agents, typeCode);
+  return typedAgents.length === 0 || typedAgents.every(isSuccessfulAgentState);
+};
+const hasRequiredValidateAgentReady = (agents: OrchestratorDashboardAgent[]) => {
+  const safetyDocAgents = [
+    ...getAgentsByType(agents, 'safety-doc'),
+    ...getAgentsByType(agents, 'safety-docs'),
+  ];
+  const safetyDocReady = safetyDocAgents.some(isSuccessfulAgentState);
+  return safetyDocReady
+    && areOptionalAgentsReady(agents, 'link')
+    && areOptionalAgentsReady(agents, 'vision');
+};
+
 export const getOrchestratorStatus = async (projectId: string, usageStatementId: number) => {
-  const [todosResponse, buttonStatesResponse, dashboardResponse] = await Promise.all([
+  const [todosResponse, buttonStatesResponse, logs] = await Promise.all([
     apiFetch<AgentTodoListResponse>(`/projects/${projectId}/agents/todos?usageStatementId=${usageStatementId}`),
     apiFetch<AgentButtonStatesResponse>(`/projects/${projectId}/agents/button-states?usageStatementId=${usageStatementId}`),
-    apiFetch<unknown>(`/projects/${projectId}/agents/orchestrator/dashboard?usageStatementId=${usageStatementId}`).catch(() => null),
+    getAgentLogs(projectId, usageStatementId),
   ]);
   const todos = normalizeBackendAgentTodos(todosResponse.data);
   const buttonStates = buttonStatesResponse.data || {};
-  const dashboard = dashboardResponse ? normalizeOrchestratorDashboard(dashboardResponse.data) : null;
-  const legalAgent = dashboard?.agents.find((agent) => agent.agentTypeCode === 'legal');
+  const agents = logsToDashboardAgents(logs, usageStatementId);
+  const legalAgent = getAgentsByType(agents, 'legal')[0];
+  const validationAgentsReady = hasRequiredValidateAgentReady(agents);
+  const legalReady = Boolean(buttonStates.legal?.enabled) || validationAgentsReady;
   return {
     projectId: Number(projectId),
     usageStatementId,
@@ -451,13 +427,13 @@ export const getOrchestratorStatus = async (projectId: string, usageStatementId:
     hasSitePhotos: true,
     classiReady: true,
     evidenceReviewReady: todos.length === 0,
-    legalReady: Boolean(buttonStates.legal?.enabled),
+    legalReady,
     reportReady: Boolean(buttonStates.report?.enabled),
     legalResultCode: legalAgent?.resultCode ?? null,
-    legalDisabledReason: buttonStates.legal?.reason ?? null,
+    legalDisabledReason: legalReady ? null : buttonStates.legal?.reason ?? null,
     reportDisabledReason: buttonStates.report?.reason ?? null,
-    agents: dashboard?.agents || [],
-    logs: [],
+    agents,
+    logs,
     todos,
   };
 };
@@ -471,9 +447,29 @@ export const getVisionValidationResults = async (projectId: string, usageStateme
 };
 
 export const getOrchestratorDashboard = async (projectId: string, usageStatementId?: number) => {
-  const query = usageStatementId == null ? '' : `?usageStatementId=${usageStatementId}`;
-  const response = await apiFetch<unknown>(`/projects/${projectId}/agents/orchestrator/dashboard${query}`);
-  return normalizeOrchestratorDashboard(response.data);
+  const logs = await getAgentLogs(projectId, usageStatementId);
+  const agents = logsToDashboardAgents(logs, usageStatementId ?? 0);
+  const statusCounts = logs.reduce<Record<string, number>>((result, log) => ({
+    ...result,
+    [log.statusCode]: (result[log.statusCode] || 0) + 1,
+  }), {});
+  const resultCounts = logs.reduce<Record<string, number>>((result, log) => {
+    if (!log.resultCode) return result;
+    return {
+      ...result,
+      [log.resultCode]: (result[log.resultCode] || 0) + 1,
+    };
+  }, {});
+  return {
+    projectId: Number(projectId),
+    usageStatementId: usageStatementId ?? null,
+    totalLogs: logs.length,
+    totalToken: 0,
+    statusCounts,
+    resultCounts,
+    hilAgents: agents.filter((agent) => agent.resultCode === 'hil').map((agent) => agent.agentTypeCode),
+    agents,
+  };
 };
 
 export const getLatestValidation = async (projectId: string) => {

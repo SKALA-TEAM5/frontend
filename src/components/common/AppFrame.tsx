@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { logout } from '../../lib/auth-api';
+import { AUTH_EXPIRED_EVENT } from '../../lib/api-client';
 import { useCurrentUser } from '../../lib/dev-user';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { APP_THEMES, C, useAppTheme, type AppThemeId } from '../../lib/theme';
@@ -122,6 +123,18 @@ export default function AppFrame({ description, actions, mainClassName, children
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [userMenuOpen]);
+
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      clearCurrentUser();
+      setUserMenuOpen(false);
+      router.replace('/');
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+    return () => {
+      window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+    };
+  }, [clearCurrentUser, router]);
 
   const handleLogout = async () => {
     if (logoutPending) return;

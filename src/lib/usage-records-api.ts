@@ -149,7 +149,10 @@ const getSubLabel = (scope: UsageRecordScope, item: UsageRecordRaw) => {
 };
 
 export const normalizeUsageRecord = (scope: UsageRecordScope, item: UsageRecordRaw, index = 0): UsageRecordSummary => {
-  const tokens = readNumber(item, ['totalToken', 'total_token', 'totalTokens', 'total_tokens', 'tokens', 'token', 'inputTokens', 'input_tokens']);
+  const explicitTotalTokens = readNumber(item, ['totalToken', 'total_token', 'totalTokens', 'total_tokens', 'tokens', 'token']);
+  const inputTokens = readNumber(item, ['inputTokens', 'input_tokens']);
+  const outputTokens = readNumber(item, ['outputTokens', 'output_tokens']);
+  const tokens = explicitTotalTokens || inputTokens + outputTokens;
   const calls = readNumber(item, ['callCount', 'call_count', 'calls', 'count', 'requestCount', 'request_count', 'totalCount', 'total_count']);
   const cost = readNumber(item, ['cost', 'totalCost', 'total_cost', 'amount', 'totalAmount', 'total_amount', 'price', 'krw']);
   const costUsd = readNumber(item, ['costUsd', 'cost_usd', 'totalCostUsd', 'total_cost_usd']);

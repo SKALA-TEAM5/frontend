@@ -27,6 +27,7 @@ interface UsageStatementDetailScreenProps {
     todoStorageKey?: string;
     clearTodoSignal?: number;
     onTodoCountChange?: (count: number) => void;
+    onVerificationComplete?: () => void | Promise<void>;
     onBackToOverview?: () => void;
     uploadCompleteAction?: ReactNode;
 }
@@ -43,23 +44,160 @@ type UsageDetailTodoItem = {
     detail?: string;
 };
 
-const toOrchestratorTodo = (todo: OrchestratorTodo, usageItems: UsageLineItem[]): UsageDetailTodoItem | null => {
+const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
+    receipt: '영수증',
+    receipts: '영수증',
+    payment_receipt: '결제 영수증',
+    card_receipt: '카드 영수증',
+    cash_receipt: '현금영수증',
+    transaction_statement: '거래명세서',
+    statement_of_transaction: '거래명세서',
+    bank_transfer_confirmation: '계좌이체 확인증',
+    account_transfer_confirmation: '계좌이체 확인증',
+    transfer_confirmation: '이체확인증',
+    deposit_confirmation: '입금확인증',
+    invoice: '계산서',
+    tax_invoice: '세금계산서',
+    electronic_tax_invoice: '전자세금계산서',
+    third_party_lookup: '제3자발급사실조회서',
+    third_party_issue_lookup: '제3자발급사실조회서',
+    site_photo: '현장사진',
+    site_photos: '현장사진',
+    field_photo: '현장사진',
+    work_photo: '작업사진',
+    installation_photo: '설치 사진',
+    before_after_photo: '설치 전후 비교 사진',
+    wearing_photo: '착용 확인 사진',
+    safety_equipment_photo: '보호구 착용 사진',
+    safety_facility_photo: '안전시설 설치 사진',
+    attendance_list: '참석자 명단',
+    attendee_list: '참석자 명단',
+    training_completion_certificate: '교육 이수증',
+    education_completion_certificate: '교육 이수증',
+    training_material: '교육자료',
+    education_material: '교육자료',
+    certificate: '확인서',
+    confirmation_document: '확인서',
+    contract: '계약서',
+    quotation: '견적서',
+    estimate: '견적서',
+    delivery_note: '납품서',
+    delivery_statement: '납품서',
+    purchase_order: '발주서',
+    work_log: '업무일지',
+    daily_report: '작업일지',
+    inspection_report: '점검표',
+    checklist: '점검표',
+    payroll: '임금대장',
+    wage_statement: '임금명세서',
+    salary_statement: '급여명세서',
+    employment_contract: '근로계약서',
+    worker_roster: '근로자 명부',
+    consultant_report: '컨설팅 보고서',
+    technical_guidance_report: '기술지도 보고서',
+    risk_assessment_report: '위험성평가 보고서',
+    measurement_report: '측정 결과서',
+    test_report: '검사 성적서',
+    other_document: '보완 서류',
+    other_documents: '보완 서류',
+    misc_document: '보완 서류',
+};
+
+const normalizeEvidenceNameKey = (value: string) => value
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[^\p{L}\p{N}]+/gu, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase();
+
+const EVIDENCE_DOCUMENT_MATCHERS = Object.entries(EVIDENCE_DOCUMENT_NAME_LABELS)
+    .sort(([left], [right]) => right.length - left.length)
+    .map(([key, label]) => ({
+        key,
+        label,
+        pattern: new RegExp(`(^|[^A-Za-z0-9])${key.split('_').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[_\\s-]*')}([^A-Za-z0-9]|$)`, 'gi'),
+    }));
+
+const translateEvidenceDocumentName = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed)
+        return '';
+    const key = normalizeEvidenceNameKey(trimmed);
+    if (EVIDENCE_DOCUMENT_NAME_LABELS[key])
+        return EVIDENCE_DOCUMENT_NAME_LABELS[key];
+    const translated = EVIDENCE_DOCUMENT_MATCHERS.reduce((next, matcher) => next.replace(matcher.pattern, (match, prefix, suffix) => `${prefix}${matcher.label}${suffix}`), trimmed);
+    return translated
+        .replace(/\b(?:missing|required|requirement|evidence|document|documents|file|files|upload|needed|need|proof)\b/gi, '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+};
+
+const translateEvidenceText = (value?: string) => {
+    const text = (value || '').trim();
+    if (!text)
+        return '';
+    return EVIDENCE_DOCUMENT_MATCHERS.reduce((next, matcher) => next.replace(matcher.pattern, (match, prefix, suffix) => `${prefix}${matcher.label}${suffix}`), text)
+        .replace(/\bmissing\s*(?:evidence|documents?|files?)?\b/gi, '누락 증빙')
+        .replace(/\brequired\s*(?:evidence|documents?|files?)?\b/gi, '필수 증빙')
+        .replace(/\b(?:evidence|document|documents|file|files)\b/gi, '증빙')
+        .replace(/\b(?:upload|needed|need)\b/gi, '필요')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+};
+
+const extractEvidenceDocumentNames = (value: string, fallbackKind?: FolderEvidenceCategory) => {
+    const source = value || '';
+    const normalizedSource = normalizeEvidenceNameKey(source);
+    const names = EVIDENCE_DOCUMENT_MATCHERS
+        .filter((matcher) => normalizedSource.includes(matcher.key))
+        .map((matcher) => matcher.label)
+        .filter((label) => label !== '보완 서류');
+    const translatedCleaned = cleanEvidenceTodoText(translateEvidenceText(source));
+    const splitNames = translatedCleaned
+        .split(/\s*(?:,|\/|·| 및 |와 |과 |\n)\s*/)
+        .map((name) => cleanEvidenceTodoText(name)
+            .replace(/^(?:누락|필수|필요|증빙)\s*/u, '')
+            .replace(/\s*(?:업로드|제출|필요|누락|미흡|확인|보완|있음)$/u, '')
+            .trim())
+        .filter((name) => name && /[가-힣]/.test(name) && name.length <= 24 && !/문제|사유|항목|세부|사용내역|보완 사항/.test(name));
+    const fallbackName = fallbackKind && fallbackKind !== 'other_document' ? EVIDENCE_KIND_LABELS[fallbackKind] : '';
+    return Array.from(new Set([...names, ...splitNames, fallbackName].filter(Boolean)));
+};
+
+const getTodoDocumentTitle = (reason: string, kind: FolderEvidenceCategory) => {
+    const names = extractEvidenceDocumentNames(reason, kind);
+    if (names.length)
+        return names.join(', ');
+    return kind === 'other_document' ? '보완 서류' : EVIDENCE_KIND_LABELS[kind];
+};
+
+const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]): UsageDetailTodoItem[] => {
     const usageItem = todo.usageStatementItemId == null
         ? undefined
         : usageItems.find((item) => String(item.id) === String(todo.usageStatementItemId));
     const reason = todo.reason || '보완 사항 확인 필요';
-    const kind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason);
-    return {
-        id: `orchestrator:${todo.agentTypeCode}:${todo.usageStatementItemId || 'all'}:${todo.fileId || 'none'}:${normalizeTodoIdText(reason)}`,
-        mode: 'add',
-        source: todo.agentTypeCode === 'legal' ? 'law' : todo.agentTypeCode === 'vision' ? 'vision' : 'matching',
-        kind,
-        title: EVIDENCE_KIND_LABELS[kind] || '보완 요청',
-        context: usageItem?.name || '사용내역서 세부 항목',
-        categoryId: usageItem?.categoryId,
-        usageItemId: usageItem?.id,
-        detail: toNounPhraseDetail(reason),
-    };
+    const fallbackKind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason);
+    const documentNames = extractEvidenceDocumentNames(reason, fallbackKind);
+    const source = todo.agentTypeCode === 'legal' ? 'law' : todo.agentTypeCode === 'vision' ? 'vision' : 'matching';
+    const detail = toNounPhraseDetail(translateEvidenceText(reason));
+    const baseId = `orchestrator:${todo.agentTypeCode}:${todo.usageStatementItemId || 'all'}:${todo.fileId || 'none'}`;
+    const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(reason, fallbackKind)];
+
+    return titles.map((title, index) => {
+        const kind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(title || reason);
+        return {
+            id: `${baseId}:${normalizeTodoIdText(title)}:${index}`,
+            mode: 'add',
+            source,
+            kind,
+            title,
+            context: usageItem?.name || '사용내역서 세부 항목',
+            categoryId: usageItem?.categoryId,
+            usageItemId: usageItem?.id,
+            detail,
+        };
+    });
 };
 const buildVisionValidation = (file: EvidenceFile, usageItem: UsageLineItem | undefined, reason?: string, storedResult?: VisionValidationResult): NonNullable<EvidenceFile['visionValidation']> => {
     if (storedResult) {
@@ -143,11 +281,12 @@ const extractActionRequestEvidenceNames = (message?: string) => {
 };
 const normalizeTodoIdText = (value: string) => value.replace(/\s+/g, '').toLowerCase();
 const inferEvidenceKindFromText = (value: string): FolderEvidenceCategory => {
-    if (/영수증|결제|거래명세|카드|입금|계좌|송금/.test(value))
+    const normalized = normalizeEvidenceNameKey(value);
+    if (/영수증|결제|거래명세|카드|입금|계좌|송금/.test(value) || /(receipt|transaction_statement|bank_transfer|account_transfer|deposit_confirmation|payment)/.test(normalized))
         return 'receipt';
-    if (/사진|현장|착용|설치\s*전후|설치\s*상세/.test(value))
+    if (/사진|현장|착용|설치\s*전후|설치\s*상세/.test(value) || /(photo|site_photo|field_photo|wearing_photo|installation_photo|safety_equipment)/.test(normalized))
         return 'site_photo';
-    if (/세금|계산서|전자세금/.test(value))
+    if (/세금|계산서|전자세금/.test(value) || /(tax_invoice|electronic_tax_invoice|invoice)/.test(normalized))
         return 'tax_invoice';
     return 'other_document';
 };
@@ -186,7 +325,7 @@ const toNounPhraseDetail = (value?: string) => {
         .trim();
 };
 const isApiStatus = (error: unknown, status: number) => error instanceof ApiClientError && error.status === status;
-export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onBackToOverview, uploadCompleteAction }: UsageStatementDetailScreenProps) {
+export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onVerificationComplete, onBackToOverview, uploadCompleteAction }: UsageStatementDetailScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(usageDetailSeed || createDefaultArchiveData()));
     const [matchingStatus, setMatchingStatus] = useState<'idle' | 'running' | 'done'>('idle');
@@ -296,7 +435,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             return [] as UsageDetailTodoItem[];
         try {
             const status = await getOrchestratorStatus(projectId, usageStatementId);
-            const nextTodos = (status.todos || []).map((todo) => toOrchestratorTodo(todo, resolvedUsageItems)).filter((todo): todo is UsageDetailTodoItem => Boolean(todo));
+            const nextTodos = (status.todos || []).flatMap((todo) => toOrchestratorTodos(todo, resolvedUsageItems));
             setOrchestratorTodoItems(nextTodos);
             return nextTodos;
         } catch {
@@ -344,7 +483,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             Object.entries(evidenceMap).forEach(([rawKind, names]) => {
                 const kind = rawKind as FolderEvidenceCategory;
                 (names || []).forEach((name, index) => {
-                    const evidenceName = name || EVIDENCE_KIND_LABELS[kind];
+                    const evidenceName = translateEvidenceDocumentName(name || EVIDENCE_KIND_LABELS[kind]) || EVIDENCE_KIND_LABELS[kind];
                     const categoryName = usageItem ? CATS.find((cat) => cat.id === usageItem.categoryId)?.short : '';
                     todos.push({
                         id: `matching:add:${usageItemId}:${kind}:${normalizeTodoIdText(evidenceName)}:${index}`,
@@ -364,7 +503,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         });
         const legalEvidenceNames = extractActionRequestEvidenceNames(actionRequest?.message);
         if (legalEvidenceNames.length > 0) {
-            legalEvidenceNames.forEach((name, index) => {
+            legalEvidenceNames.map((name) => translateEvidenceDocumentName(name) || name).forEach((name, index) => {
                 const kind = inferEvidenceKindFromText(name);
                 todos.push({
                     id: `law:add:${normalizeTodoIdText(actionRequest?.title || '보완요청')}:${normalizeTodoIdText(name)}:${index}`,
@@ -375,7 +514,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                     context: actionRequestUsageItem?.name || actionRequest?.title || '법령 보완 요청',
                     categoryId: actionRequestUsageItem?.categoryId || actionRequestCategory?.id,
                     usageItemId: actionRequestUsageItem?.id,
-                    detail: toNounPhraseDetail(actionRequest?.message),
+                    detail: toNounPhraseDetail(translateEvidenceText(actionRequest?.message)),
                 });
             });
         } else if (actionRequest?.message) {
@@ -388,7 +527,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 context: actionRequestUsageItem?.name || actionRequest.title || '법령 보완 요청',
                 categoryId: actionRequestUsageItem?.categoryId || actionRequestCategory?.id,
                 usageItemId: actionRequestUsageItem?.id,
-                detail: toNounPhraseDetail(actionRequest.message),
+                detail: toNounPhraseDetail(translateEvidenceText(actionRequest.message)),
             });
         }
         Object.entries(fileData.categories || {}).forEach(([catId, lineMap]) => {
@@ -486,7 +625,9 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         }));
     };
     useEffect(() => {
-        if (!Object.keys(visionValidationByFileId).length)
+        const hasStoredVisionResults = Object.keys(visionValidationByFileId).length > 0;
+        const hasVisionTodos = orchestratorTodoItems.some((todo) => todo.source === 'vision');
+        if (!hasStoredVisionResults && !hasVisionTodos)
             return;
         applyVisionValidationResults(orchestratorTodoItems, visionValidationByFileId);
     }, [visionValidationByFileId, orchestratorTodoItems]);
@@ -950,6 +1091,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setPhotoValidationStatus('done');
             setMatchingNotice('증빙 유효성 검증 결과를 보완 TODO에 반영했습니다.');
             setPhotoValidationNotice({ type: 'ok', message: '현장사진 검증 결과를 확인했습니다.' });
+            await onVerificationComplete?.();
         } catch {
             await Promise.allSettled([
                 runSafetyDocMatching(),
@@ -960,6 +1102,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 refreshVisionValidationResults(),
             ]);
             applyVisionValidationResults(nextTodos, nextVisionResults);
+            await onVerificationComplete?.();
         } finally {
             setUsageDetailVerificationStep(null);
         }
