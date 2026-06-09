@@ -21,7 +21,6 @@ type ReportGenerationStatus = 'idle' | 'generating' | 'done';
 type ReportWorkflowStatus = 'editing' | 'saved';
 
 const REPORT_STEPS = ['항목별 판정 요약', '부적정 사유 정리', '보완 요청 문안 생성', '보고서 초안 저장'];
-const SAMPLE_REPORT_AGENT_LOG_URL = '/templates/report-agent-sample-log.json';
 
 const EVIDENCE_TYPE_LABELS: Record<string, string> = {
   usage_statement: '사용내역서',
@@ -123,13 +122,6 @@ const readReportDraftFromDetail = (detail: Awaited<ReturnType<typeof getReportDe
   return payload.reportDraft || details.reportDraft;
 };
 
-const readReportDraftFromSampleLog = (log: Record<string, unknown>) => {
-  const payload = asRecord(log.payload);
-  const payloadResult = asRecord(payload.result);
-  const payloadResultNested = asRecord(payloadResult.result);
-  return payloadResultNested.reportDraft;
-};
-
 const chipStyle = (color: string, bg: string, border?: string): CSSProperties => ({
   display: 'inline-flex',
   alignItems: 'center',
@@ -145,6 +137,30 @@ const chipStyle = (color: string, bg: string, border?: string): CSSProperties =>
   lineHeight: 1,
   whiteSpace: 'nowrap',
 });
+
+const reportGateChipStyle = (color: string, bg: string, border: string): CSSProperties => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: 22,
+  padding: '4px 8px',
+  borderRadius: 999,
+  border: `1px solid ${border}`,
+  background: bg,
+  color,
+  fontSize: 10,
+  fontWeight: 900,
+  lineHeight: 1,
+  whiteSpace: 'nowrap',
+});
+
+const reportGateCardStyle: CSSProperties = {
+  display: 'grid',
+  gap: 8,
+  margin: '14px 0 0',
+  width: 'min(100%, 680px)',
+  textAlign: 'left',
+};
 
 const reportInputStyle: CSSProperties = {
   width: '100%',
@@ -212,24 +228,6 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
       const reportDraft = readReportDraftFromAgentResponse(response)
         || readReportDraftFromDetail(await getReportDetail(projectId, usageStatementId));
       if (!isReportDraft(reportDraft)) throw new Error('보고서 Agent 응답에 reportDraft가 없습니다.');
-      showReportDraft(reportDraft);
-    } catch {
-      setReportStatus('idle');
-      setReportProgress(0);
-      setAgentFailureTarget('server-request');
-    }
-  };
-
-  const handleSampleReportLoad = async () => {
-    if (reportStatus === 'generating') return;
-    try {
-      setReportStatus('generating');
-      setReportProgress(25);
-      const response = await fetch(SAMPLE_REPORT_AGENT_LOG_URL);
-      if (!response.ok) throw new Error('sample report log load failed');
-      const log = await response.json() as Record<string, unknown>;
-      const reportDraft = readReportDraftFromSampleLog(log);
-      if (!isReportDraft(reportDraft)) throw new Error('샘플 로그에 reportDraft가 없습니다.');
       showReportDraft(reportDraft);
     } catch {
       setReportStatus('idle');
@@ -401,6 +399,32 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     padding: '8px 13px',
     boxShadow: `0 6px 14px ${C.primaryShadow}`,
   };
+  const renderReportGate = () => {
+    if (canGenerateReport) return null;
+    const missingProjectInfo = !projectId || !usageStatementId;
+    const statusMeta = missingProjectInfo
+      ? { label: '대기', color: C.g500, bg: C.g100, border: C.g200 }
+      : { label: '미완료', color: C.warn, bg: C.warnBg, border: '#FFE082' };
+    return (
+      <div style={reportGateCardStyle}>
+        <div style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>보고서 생성 조건</div>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-panel)', background: C.white, overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, alignItems: 'center', padding: '11px 12px' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>{missingProjectInfo ? '사용내역서 선택' : '법령 검증'}</span>
+                <span style={reportGateChipStyle(C.primary, C.bg, C.light)}>필수</span>
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11, fontWeight: 800, color: C.g500, lineHeight: 1.45 }}>
+                {missingProjectInfo ? '보고서를 생성할 월별 사용내역서를 먼저 선택해야 합니다.' : '법령 검증 탭에서 법령 검증을 먼저 실행해야 합니다.'}
+              </div>
+            </div>
+            <span title={reportGenerateDisabledReason} style={reportGateChipStyle(statusMeta.color, statusMeta.bg, statusMeta.border)}>{statusMeta.label}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return <div className="screen-enter" style={{ width: '100%', maxWidth: '100%', background: 'transparent', margin: '0 auto' }}>
     <Card style={{ padding: '14px 16px', marginBottom: 14, boxShadow: '0 1px 2px rgba(31,47,39,.04)' }}>
@@ -410,14 +434,13 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
             <div style={{ fontSize: 14, fontWeight: 800, color: C.g800 }}>보고서 생성</div>
             {reportStatus === 'done' && <span style={{ ...chipStyle(reportWorkflowMeta.color, reportWorkflowMeta.bg), minHeight: 22, fontSize: 10 }}>{reportWorkflowMeta.label}</span>}
           </div>
-          <div style={{ fontSize: 12, color: canGenerateReport ? C.g400 : C.warn, marginTop: 5, lineHeight: 1.6 }}>{canGenerateReport ? '법령 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : reportGenerateDisabledReason}</div>
+          <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{canGenerateReport ? '법령 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '보고서 생성을 위한 조건을 먼저 완료해 주세요.'}</div>
           {reportStatus === 'done' && <div style={{ fontSize: 11, color: C.g400, marginTop: 4 }}>{reportWorkflowMeta.description}</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
           <span title={!canGenerateReport ? reportGenerateDisabledReason : undefined} style={{ display: 'inline-flex' }}>
             <Button size="sm" onClick={handleReportGenerate} disabled={reportStatus === 'generating' || !canGenerateReport} style={{ ...reportActionButtonStyle, boxShadow: canGenerateReport ? reportActionButtonStyle.boxShadow : 'none' }}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
           </span>
-          <Button size="sm" variant="outline" onClick={handleSampleReportLoad} disabled={reportStatus === 'generating'} style={reportActionButtonStyle}>샘플 로그 보기</Button>
           {reportStatus === 'done' && <Button size="sm" variant="outline" onClick={handleSaveDraft} style={{ ...reportActionButtonStyle, boxShadow: 'none' }}>저장</Button>}
           <Button size="sm" variant="outline" onClick={handleDocxExport} disabled={reportStatus !== 'done' || !reportDraft || docxExporting} style={reportActionButtonStyle}>{docxExporting ? '추출 중...' : 'DOCX 추출'}</Button>
         </div>
@@ -426,6 +449,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
         <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}><div style={{ height: '100%', width: `${reportProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} /></div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{REPORT_STEPS.map((step, index) => <span key={step} style={{ fontSize: 11, fontWeight: 800, color: reportProgress >= ((index + 1) * 100) / REPORT_STEPS.length ? C.primary : C.g400, background: C.g100, borderRadius: 999, padding: '5px 9px' }}>{step}</span>)}</div>
       </div>}
+      {renderReportGate()}
     </Card>
 
     {validationComplete && reportStatus === 'idle' && <Card style={{ padding: '22px 24px', marginBottom: 18, background: '#F7F8FA', boxShadow: 'none', border: `1px solid ${C.g200}` }}>

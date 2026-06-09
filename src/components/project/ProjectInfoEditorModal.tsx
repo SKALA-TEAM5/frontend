@@ -67,6 +67,13 @@ const readOnlyStyle: React.CSSProperties = {
   cursor: 'default',
 };
 
+const onlyDigits = (value: string) => value.replace(/[^\d]/g, '');
+
+const formatAmountInput = (value?: string) => {
+  const digits = onlyDigits(value || '');
+  return digits ? Number(digits).toLocaleString('ko-KR') : '';
+};
+
 export default function ProjectInfoEditorModal({
   open,
   mode,
@@ -83,6 +90,14 @@ export default function ProjectInfoEditorModal({
   onChange,
 }: ProjectInfoEditorModalProps) {
   const isCreate = mode === 'create';
+  const amountInput = (key: 'constructionAmount' | 'appropriatedAmount') => (
+    <input
+      inputMode="numeric"
+      value={formatAmountInput(draft[key])}
+      onChange={(event) => onChange({ [key]: onlyDigits(event.target.value) })}
+      style={fieldStyle}
+    />
+  );
   const constructionPeriodField = (
     <div>
       <div style={labelStyle}>공사기간</div>
@@ -140,13 +155,13 @@ export default function ProjectInfoEditorModal({
             ) : (
               <div>
                 <div style={labelStyle}>공사금액</div>
-                <input inputMode="numeric" value={draft.constructionAmount || ''} onChange={(event) => onChange({ constructionAmount: event.target.value.replace(/[^\d]/g, '') })} style={fieldStyle} />
+                {amountInput('constructionAmount')}
               </div>
             )}
             {isCreate ? (
               <div>
                 <div style={labelStyle}>공사금액</div>
-                <input inputMode="numeric" value={draft.constructionAmount || ''} onChange={(event) => onChange({ constructionAmount: event.target.value.replace(/[^\d]/g, '') })} style={fieldStyle} />
+                {amountInput('constructionAmount')}
               </div>
             ) : (
               constructionPeriodField
@@ -154,7 +169,7 @@ export default function ProjectInfoEditorModal({
             {isCreate ? (
               <div>
                 <div style={labelStyle}>계상된 안전관리비</div>
-                <input inputMode="numeric" value={draft.appropriatedAmount || ''} onChange={(event) => onChange({ appropriatedAmount: event.target.value.replace(/[^\d]/g, '') })} style={fieldStyle} />
+                {amountInput('appropriatedAmount')}
               </div>
             ) : (
               <div>
@@ -178,7 +193,7 @@ export default function ProjectInfoEditorModal({
             ) : (
               <div>
                 <div style={labelStyle}>계상된 안전관리비</div>
-                <input inputMode="numeric" value={draft.appropriatedAmount || ''} onChange={(event) => onChange({ appropriatedAmount: event.target.value.replace(/[^\d]/g, '') })} style={fieldStyle} />
+                {amountInput('appropriatedAmount')}
               </div>
             )}
             {!isCreate && (

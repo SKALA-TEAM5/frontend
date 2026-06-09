@@ -1484,8 +1484,7 @@ function ProjectDetailPageContent() {
         {!selectedMonthHasUploadedStatement ? <>
         <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 9 }}>{selectedStatement.label} 사용내역서가 아직 업로드되지 않았습니다</div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.g400, marginBottom: 16 }}>월은 먼저 표시하고, 사용내역서는 업로드 전 상태로 보여줍니다.</div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 9 }}>{selectedStatement.label} 사용내역서가 업로드되지 않았습니다</div>
             {usageUploadButton}
           </div>
         </div>
@@ -1631,9 +1630,12 @@ function ProjectDetailPageContent() {
         <div style={{ marginBottom: 8 }}>파일 업로드 후 OCR/classi 처리 단계에서 문제가 발생했습니다.</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800, lineHeight: 1.6 }}>{usageUploadFailureMessage}</div>
       </div>} actionLabel="확인" onAction={() => setUsageUploadFailureMessage('')} />
-      <Modal open={usageUploadStage === 'classifying'} onClose={() => {}} zIndex={1200} maxWidth={460}>
-        <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 24 }}>
-          <InlineLoader title="사용내역서를 분석하고 있어요" body="OCR로 세부 항목과 사용일자를 추출한 뒤 classi 에이전트가 산업안전보건관리비 9개 항목 기준으로 분류합니다. 완료될 때까지 다른 작업을 할 수 없습니다." />
+      <Modal open={usageUploadStage === 'classifying'} onClose={() => {}} zIndex={1200} maxWidth={360}>
+        <div style={{ background: C.white, borderRadius: 14, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 20 }}>
+          <style>{'.usage-upload-loader [data-ui="card.1"]{margin-top:0!important;}'}</style>
+          <div className="usage-upload-loader">
+          <InlineLoader title="사용내역서를 분석하고 있어요" body="완료될 때까지 다른 작업을 할 수 없습니다." />
+          </div>
         </div>
       </Modal>
       <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 변경" body={<div>
