@@ -14,7 +14,7 @@ import { listUsageStatementArchives } from '../../lib/archive-api';
 import { getOrchestratorStatus, type OrchestratorTodo } from '../../lib/agent-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { ROLE_LABELS } from '../../lib/permissions';
-import { getDashboardAiUsage, getDashboardSummary, getDashboardSupplementProgress, type DashboardAiUsageResponse, type DashboardSummaryResponse, type DashboardSupplementProgress } from '../../lib/dashboard-api';
+import { getDashboardAiUsage, getDashboardSummary, type DashboardAiUsageResponse, type DashboardSummaryResponse } from '../../lib/dashboard-api';
 import { listProjects } from '../../lib/project-api';
 
 const FALLBACK_ACTION_ASSIGNEE = '프로젝트 담당자';
@@ -375,7 +375,6 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummaryResponse | null>(null);
   const [dashboardAiUsage, setDashboardAiUsage] = useState<DashboardAiUsageResponse | null>(null);
-  const [supplementProgress, setSupplementProgress] = useState<DashboardSupplementProgress[]>([]);
   const filterOptions = useMemo(() => getSheFilterOptionsFromProjects(projects), [projects]);
   const [projectName, setProjectName] = useState('');
   const [contractNumber, setContractNumber] = useState('');
@@ -420,18 +419,15 @@ export default function DashboardPage() {
   const refreshDashboardProjects = useCallback(async () => {
     setDashboardRefreshing(true);
     try {
-      const [items, summary, progress] = await Promise.all([
+      const [items, summary] = await Promise.all([
         listProjects({ page: 1, size: 10 }),
         getDashboardSummary().catch(() => null),
-        getDashboardSupplementProgress().catch(() => []),
       ]);
       setDashboardSummary(summary);
-      setSupplementProgress(progress);
       setProjects(await Promise.all(items.map(hydrateProjectWorkflowStatus)));
     } catch {
       setProjects([]);
       setDashboardSummary(null);
-      setSupplementProgress([]);
     } finally {
       setDashboardRefreshing(false);
     }
@@ -443,20 +439,17 @@ export default function DashboardPage() {
     Promise.all([
       listProjects({ page: 1, size: 10 }),
       getDashboardSummary().catch(() => null),
-      getDashboardSupplementProgress().catch(() => []),
     ])
-      .then(([items, summary, progress]) => Promise.all(items.map(hydrateProjectWorkflowStatus)).then((hydrated) => ({ hydrated, summary, progress })))
-      .then(({ hydrated, summary, progress }) => {
+      .then(([items, summary]) => Promise.all(items.map(hydrateProjectWorkflowStatus)).then((hydrated) => ({ hydrated, summary })))
+      .then(({ hydrated, summary }) => {
         if (!alive) return;
         setProjects(hydrated);
         setDashboardSummary(summary);
-        setSupplementProgress(progress);
       })
       .catch(() => {
         if (!alive) return;
         setProjects([]);
         setDashboardSummary(null);
-        setSupplementProgress([]);
       })
       .finally(() => {
         if (alive) setDashboardRefreshing(false);
@@ -658,8 +651,9 @@ export default function DashboardPage() {
       return map;
     }, new Map<string, { actionRequired: number; projectCount: number }>()),
   ).sort((a, b) => b[1].actionRequired - a[1].actionRequired || a[0].localeCompare(b[0], 'ko'));
-  const displayedManagerWorkloads = supplementProgress.length
-    ? supplementProgress.map((assignee) => [assignee.userName, { actionRequired: assignee.supplementCount, projectCount: assignee.supplementCount }] as const)
+  const dashboardSupplementAssignees = dashboardSummary?.supplementAssignees || [];
+  const displayedManagerWorkloads = dashboardSupplementAssignees.length
+    ? dashboardSupplementAssignees.map((assignee) => [assignee.userName, { actionRequired: assignee.supplementCount, projectCount: assignee.supplementCount }] as const)
     : managerWorkloads;
   if (user.role === 'project_manager') {
     return (
@@ -722,7 +716,7 @@ export default function DashboardPage() {
 	          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
 		            <div style={{ border: `1px solid ${C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0 }}>
 	              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>전체 프로젝트</div>
-		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.g800 }}>{dashboardSummary?.totalProjects ?? projects.length}</div>
+		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.g800 }}>{dashboardSummary?.summary.totalProjects ?? projects.length}</div>
 	            </div>
             <div style={{ position: 'relative', minWidth: 0 }}>
               <button
@@ -766,7 +760,7 @@ export default function DashboardPage() {
                     </span>
                   </span>
                 </div>
-                <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{dashboardSummary?.reviewRequiredCount ?? reviewNeededProjectCount}</div>
+                <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{dashboardSummary?.summary.reviewNeededProjects ?? reviewNeededProjectCount}</div>
               </button>
             </div>
 		          </div>
