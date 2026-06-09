@@ -5,7 +5,7 @@ import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import InlineLoader from '../../components/ui/InlineLoader';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { getAgentLogs, getLatestValidation, getValidationStatus, runLegalAgent } from '../../lib/agent-api';
+import { getAgentLogs, getLatestValidation, getLegalDetail, getValidationStatus, runLegalAgent } from '../../lib/agent-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
 import { AGENT_LOG_STATUS } from '../../lib/project-data';
@@ -135,6 +135,15 @@ const flattenIssues = (items: CategoryValidationResult[]) =>
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 
+const parseJsonRecord = (value: unknown): Record<string, unknown> | null => {
+  if (typeof value !== 'string') return asRecord(value);
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    return null;
+  }
+};
+
 const readStringField = (source: unknown, keys: string[]) => {
   const record = asRecord(source);
   if (!record) return '';
@@ -182,6 +191,10 @@ const unwrapValidationPayload = (source: unknown): unknown => {
   if (!record) return source;
   const result = record.result;
   const data = record.data;
+  const details = parseJsonRecord(record.details);
+  const payload = asRecord(record.payload);
+  if (details) return unwrapValidationPayload(details);
+  if (payload) return unwrapValidationPayload(payload);
   if (asRecord(result)) return unwrapValidationPayload(result);
   if (asRecord(data)) return unwrapValidationPayload(data);
   return source;
@@ -336,7 +349,10 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
   useEffect(() => {
     if (initialStatus !== 'done' || !projectId) return;
     let alive = true;
-    getLatestValidation(projectId)
+    const detailPromise = usageStatementId
+      ? getLegalDetail(projectId, usageStatementId)
+      : getLatestValidation(projectId);
+    detailPromise
       .then((latestValidation) => {
         if (!alive) return;
         const latestResult = normalizeValidationResult(latestValidation);
@@ -359,7 +375,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
     return () => {
       alive = false;
     };
-  }, [initialStatus, projectId]);
+  }, [initialStatus, projectId, usageStatementId]);
 
   const handleVerify = async () => {
     if (!canStartValidation) return;
@@ -372,6 +388,11 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
     };
     const loadDetailedResult = async (nextValidationId?: string) => {
       if (!projectId) return EMPTY_VALIDATION_RESULT;
+      if (usageStatementId) {
+        const legalDetail = await getLegalDetail(projectId, usageStatementId).catch(() => null);
+        const legalDetailResult = normalizeValidationResult(legalDetail);
+        if (legalDetailResult.categories.length > 0) return legalDetailResult;
+      }
       const statusResult = nextValidationId
         ? normalizeValidationResult(await getValidationStatus(projectId, nextValidationId).catch(() => null))
         : EMPTY_VALIDATION_RESULT;

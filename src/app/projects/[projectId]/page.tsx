@@ -9,6 +9,7 @@ import Modal from '../../../components/ui/Modal';
 import ProjectInfoEditorModal from '../../../components/project/ProjectInfoEditorModal';
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
+import { ApiClientError } from '../../../lib/api-client';
 import { C } from '../../../lib/theme';
 import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
 import { getProject, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
@@ -343,6 +344,7 @@ function ProjectDetailPageContent() {
     const [newMonthError, setNewMonthError] = useState('');
     const [monthDeleteTarget, setMonthDeleteTarget] = useState<MonthlyUsageStatementSummary | null>(null);
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
+    const [usageUploadFailureMessage, setUsageUploadFailureMessage] = useState('');
     const [ocrFailureReason, setOcrFailureReason] = useState('');
     const [duplicateUsageMonthWarning, setDuplicateUsageMonthWarning] = useState('');
     const [classificationMoveNotices, setClassificationMoveNotices] = useState<ClassificationMoveNotice[]>([]);
@@ -876,20 +878,19 @@ function ProjectDetailPageContent() {
                 uploadProjectFile(project.id, pickedFile, 'usage_statement')
                     .then(async (uploadedEntry) => {
                         let savedArchive: UsageStatementArchiveData | null = null;
-                        if (!uploadedEntry.fileId) {
+                        const uploadedFileId = Number(uploadedEntry.fileId);
+                        if (!Number.isFinite(uploadedFileId) || uploadedFileId <= 0) {
                             throw new Error('업로드된 사용내역서 파일 ID가 없습니다.');
                         }
-                        if (uploadedEntry.fileId) {
-                            setUsageUploadStage('classifying');
-                            const ocrWorkflow = await parseUsageStatementWithOcr(project.id, uploadedEntry.fileId);
-                            if (!ocrWorkflow.usageStatementId) {
-                                throw new Error('사용내역서 OCR 결과에 사용내역서 ID가 없습니다.');
-                            }
-                            savedArchive = await getUsageStatementArchiveById(project.id, ocrWorkflow.usageStatementId).catch(() => null);
-                            const moveNotices = extractClassificationMoveNotices(ocrWorkflow);
-                            if (moveNotices.length) {
-                                setClassificationMoveNotices(moveNotices);
-                            }
+                        setUsageUploadStage('classifying');
+                        const ocrWorkflow = await parseUsageStatementWithOcr(project.id, uploadedFileId);
+                        if (!ocrWorkflow.usageStatementId) {
+                            throw new Error('사용내역서 OCR 결과에 사용내역서 ID가 없습니다.');
+                        }
+                        savedArchive = await getUsageStatementArchiveById(project.id, ocrWorkflow.usageStatementId).catch(() => null);
+                        const moveNotices = extractClassificationMoveNotices(ocrWorkflow);
+                        if (moveNotices.length) {
+                            setClassificationMoveNotices(moveNotices);
                         }
                         const uploadedAt = uploadedEntry.uploadedAt || new Date().toISOString().slice(0, 10);
                         const month = savedArchive?.statementSummary.month || selectedMonth || uploadedAt.slice(0, 7);
@@ -937,15 +938,20 @@ function ProjectDetailPageContent() {
                         setUsageUploadStage('idle');
                         openArchiveView();
                     })
-                    .catch(() => {
+                    .catch((error) => {
                         setUsageUploadStage('idle');
-                        setAgentFailureTarget('usage-classification');
+                        const message = error instanceof ApiClientError
+                            ? error.message
+                            : error instanceof Error
+                                ? error.message
+                                : '사용내역서 업로드 후 OCR/classi 처리에 실패했습니다.';
+                        setUsageUploadFailureMessage(message);
                     });
             } catch {
                 usageUploadTimersRef.current.forEach((timer) => window.clearTimeout(timer));
                 usageUploadTimersRef.current = [];
                 setUsageUploadStage('idle');
-                setAgentFailureTarget('usage-classification');
+                setUsageUploadFailureMessage('사용내역서 업로드 처리를 시작하지 못했습니다.');
             }
         };
         input.click();
@@ -1025,14 +1031,38 @@ function ProjectDetailPageContent() {
         }
         : {};
     const uploadCompleteFeedbackLabel = uploadCompleteFeedbackActive ? '처리됨' : '업로드 완료';
+    const monthCreateInputStyle: CSSProperties = {
+      width: '100%',
+      boxSizing: 'border-box',
+      height: 44,
+      border: `1px solid ${C.g200}`,
+      borderRadius: 10,
+      padding: '0 13px',
+      background: C.white,
+      color: C.g800,
+      fontFamily: 'inherit',
+      fontSize: 15,
+      fontWeight: 900,
+      outline: 'none',
+    };
+    const monthCreateButtonStyle: CSSProperties = {
+      height: 40,
+      borderRadius: 999,
+      padding: '0 18px',
+      fontFamily: 'inherit',
+      fontSize: 13,
+      fontWeight: 900,
+      cursor: 'pointer',
+    };
     const monthCreateModal = (
-      <Modal open={monthCreateModalOpen} onClose={() => setMonthCreateModalOpen(false)} zIndex={970} maxWidth={420}>
-        <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
+      <Modal open={monthCreateModalOpen} onClose={() => setMonthCreateModalOpen(false)} zIndex={970} maxWidth={390}>
+        <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 16, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
+          <div style={{ padding: '22px 22px 18px' }}>
           <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>사용내역서 월 추가</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.g400, lineHeight: 1.55, marginBottom: 16 }}>추가할 사용내역서의 연도와 월을 입력해 주세요.</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.g400, lineHeight: 1.55, marginBottom: 18 }}>추가할 사용내역서의 연도와 월을 입력해 주세요.</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
             <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>년도</span>
+              <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>연도</span>
               <input
                 value={newMonthYear}
                 onChange={(event) => {
@@ -1041,7 +1071,7 @@ function ProjectDetailPageContent() {
                 }}
                 inputMode="numeric"
                 placeholder="2026"
-                style={{ height: 40, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '0 12px', color: C.g800, fontFamily: 'inherit', fontSize: 14, fontWeight: 900, outline: 'none' }}
+                style={monthCreateInputStyle}
               />
             </label>
             <label style={{ display: 'grid', gap: 6 }}>
@@ -1054,14 +1084,15 @@ function ProjectDetailPageContent() {
                 }}
                 inputMode="numeric"
                 placeholder="04"
-                style={{ height: 40, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '0 12px', color: C.g800, fontFamily: 'inherit', fontSize: 14, fontWeight: 900, outline: 'none' }}
+                style={monthCreateInputStyle}
               />
             </label>
           </div>
           {newMonthError && <div style={{ marginTop: 10, borderRadius: 8, background: C.dangerBg, color: C.danger, padding: '9px 10px', fontSize: 12, fontWeight: 900 }}>{newMonthError}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-            <button type="button" onClick={() => setMonthCreateModalOpen(false)} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={addUsageMonth} style={{ height: 38, border: 'none', borderRadius: 999, background: C.primary, color: C.white, padding: '0 16px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>추가</button>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px 18px', borderTop: `1px solid ${C.g100}`, background: '#FAFBFA' }}>
+            <button type="button" onClick={() => setMonthCreateModalOpen(false)} style={{ ...monthCreateButtonStyle, border: `1px solid ${C.g200}`, background: C.white, color: C.g600 }}>취소</button>
+            <button type="button" onClick={addUsageMonth} style={{ ...monthCreateButtonStyle, border: 'none', minWidth: 74, background: C.primary, color: C.white }}>추가</button>
           </div>
         </div>
       </Modal>
@@ -1596,6 +1627,10 @@ function ProjectDetailPageContent() {
         <div style={{ marginBottom: 8 }}>업로드한 파일의 세부항목 사용일자가 이미 등록된 월에 해당합니다.</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800, lineHeight: 1.6 }}>{duplicateUsageMonthWarning}</div>
       </div>} actionLabel="확인" onAction={() => setDuplicateUsageMonthWarning('')} />
+      <CenterModal open={Boolean(usageUploadFailureMessage)} title="사용내역서 처리 실패" body={<div>
+        <div style={{ marginBottom: 8 }}>파일 업로드 후 OCR/classi 처리 단계에서 문제가 발생했습니다.</div>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800, lineHeight: 1.6 }}>{usageUploadFailureMessage}</div>
+      </div>} actionLabel="확인" onAction={() => setUsageUploadFailureMessage('')} />
       <Modal open={usageUploadStage === 'classifying'} onClose={() => {}} zIndex={1200} maxWidth={460}>
         <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 24 }}>
           <InlineLoader title="사용내역서를 분석하고 있어요" body="OCR로 세부 항목과 사용일자를 추출한 뒤 classi 에이전트가 산업안전보건관리비 9개 항목 기준으로 분류합니다. 완료될 때까지 다른 작업을 할 수 없습니다." />

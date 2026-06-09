@@ -22,6 +22,15 @@ export interface ReportDetailResponse {
   createdAt: string;
 }
 
+export interface LegalDetailResponse {
+  agentTypeCode: string;
+  statusCode: AgentLogStatusCode | string;
+  resultCode?: string | null;
+  reason?: string | null;
+  details: string | Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface LawAgentRunResponse {
   workflow: string;
   status: AgentLogStatusCode | string;
@@ -321,6 +330,13 @@ export const runReportAgent = async (projectId: string, usageStatementId: number
 export const getReportDetail = async (projectId: string, usageStatementId: number) => {
   const response = await apiFetch<ReportDetailResponse>(
     `/projects/${projectId}/agents/report?usageStatementId=${usageStatementId}`,
+  );
+  return response.data;
+};
+
+export const getLegalDetail = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<LegalDetailResponse>(
+    `/projects/${projectId}/agents/legal?usageStatementId=${usageStatementId}`,
   );
   return response.data;
 };

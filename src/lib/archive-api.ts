@@ -46,6 +46,7 @@ interface ProjectFileResponse {
 
 interface ProjectFileUploadResponse {
   fileId: number;
+  id?: number;
   originalFilename: string;
   uploadedEvidenceTypeCode: BackendEvidenceTypeCode | string;
   mimeType: string | null;
@@ -342,7 +343,10 @@ const evidenceFileToEntry = (projectId: string, file: EvidenceFileResponse, kind
   });
 
 const projectFileToEntry = (projectId: string, file: ProjectFileResponse | ProjectFileUploadResponse): EvidenceFile => {
-  const fileId = file.fileId;
+  const fileId = file.fileId || ('id' in file ? file.id : undefined);
+  if (!fileId) {
+    throw new Error('업로드 응답에 파일 ID가 없습니다.');
+  }
   const kind = projectFileCodeToKind(file.uploadedEvidenceTypeCode);
   return makeEntry(file.originalFilename || `file-${fileId}`, kind, {
     id: `project-file-${fileId}`,
