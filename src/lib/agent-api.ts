@@ -38,6 +38,8 @@ export interface OcrWorkflowResponse {
   itemCount?: number;
   evidenceFileLinkId?: number | null;
   result?: Record<string, unknown>;
+  classifierDetails?: Record<string, unknown> | null;
+  details?: Record<string, unknown> | null;
 }
 
 export interface OrchestratorTodo {
@@ -128,6 +130,28 @@ interface AgentWarningResponse {
   details?: string | Record<string, unknown> | null;
 }
 
+interface AgentLogResponse {
+  agentTypeCode?: string | null;
+  agent_type_code?: string | null;
+  statusCode?: string | null;
+  status_code?: string | null;
+  resultCode?: string | null;
+  result_code?: string | null;
+  reason?: string | null;
+  details?: string | Record<string, unknown> | null;
+  createdAt?: string | null;
+  created_at?: string | null;
+}
+
+export interface AgentLogRecord {
+  agentTypeCode: string;
+  statusCode: string;
+  resultCode: string | null;
+  reason: string;
+  details: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 export interface VisionValidationResult {
   status: 'suitable' | 'unsuitable';
   checkedAt: string;
@@ -154,6 +178,15 @@ const parseDetails = (value: unknown): Record<string, unknown> | null => {
   }
   return asRecord(value);
 };
+
+const normalizeAgentLog = (log: AgentLogResponse): AgentLogRecord => ({
+  agentTypeCode: String(log.agentTypeCode ?? log.agent_type_code ?? ''),
+  statusCode: String(log.statusCode ?? log.status_code ?? ''),
+  resultCode: log.resultCode ?? log.result_code ?? null,
+  reason: String(log.reason ?? ''),
+  details: parseDetails(log.details),
+  createdAt: String(log.createdAt ?? log.created_at ?? ''),
+});
 
 const readNumberField = (source: Record<string, unknown>, keys: string[]) => {
   for (const key of keys) {
@@ -351,7 +384,29 @@ export const parseUsageStatementWithOcr = async (projectId: string, fileId: numb
     method: 'POST',
     body: { fileId: Number(fileId) },
   });
-  return response.data;
+  const data = response.data;
+  if (!data.usageStatementId) return data;
+
+  const logs = await getAgentLogs(projectId, data.usageStatementId).catch(() => []);
+  const classiLog = logs.find((log) => log.agentTypeCode === 'classi' && log.details);
+  if (!classiLog?.details) return data;
+
+  return {
+    ...data,
+    classifierDetails: classiLog.details,
+    details: classiLog.details,
+    result: {
+      ...(data.result || {}),
+      classifierDetails: classiLog.details,
+      classifier_details: classiLog.details,
+    },
+  };
+};
+
+export const getAgentLogs = async (projectId: string, usageStatementId?: number) => {
+  const query = usageStatementId ? `?usageStatementId=${usageStatementId}` : '';
+  const response = await apiFetch<AgentLogResponse[]>(`/projects/${projectId}/agents/logs${query}`);
+  return (response.data || []).map(normalizeAgentLog);
 };
 
 export const runValidationAgent = async (projectId: string, usageStatementId: number, rerun = false) => {
