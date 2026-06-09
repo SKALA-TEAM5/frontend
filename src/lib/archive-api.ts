@@ -544,7 +544,7 @@ export const listUsageStatementArchives = async (projectId: string) => {
 };
 
 export const listProjectFiles = async (projectId: string) => {
-  const response = await apiFetch<ProjectFileListResponse>(`/projects/${projectId}/files?size=200`);
+  const response = await apiFetch<ProjectFileListResponse>(`/projects/${projectId}/files?size=50`);
   return response.data.items.reduce((buckets, file) => {
     const entry = projectFileToEntry(projectId, file);
     buckets[entry.kind].push(entry);
