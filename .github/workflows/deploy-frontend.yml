@@ -45,7 +45,7 @@ jobs:
           push: true
           tags: ${{ steps.image.outputs.image_uri }}
           build-args: |
-            NEXT_PUBLIC_API_BASE_URL=http://api-team5-iveri.skala25a.project.skala-ai.com
+            NEXT_PUBLIC_API_BASE_URL=https://api-team5-iveri.skala25a.project.skala-ai.com
 
       - name: Checkout deploy repository
         uses: actions/checkout@v4
