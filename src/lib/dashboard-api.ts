@@ -135,7 +135,7 @@ const normalizeDashboardAiUsage = (value: unknown): DashboardAiUsageResponse => 
 };
 
 export const getDashboardSummary = async () => {
-  const response = await apiFetch<DashboardSummaryResponse>('/dashboard/summary');
+  const response = await apiFetch<DashboardSummaryResponse>('/dashboard');
   return response.data;
 };
 
