@@ -1,8 +1,20 @@
 import { apiFetch } from './api-client';
 
-export interface DashboardSummaryResponse {
+export interface DashboardSummaryMetrics {
   totalProjects: number;
-  reviewRequiredCount: number;
+  reviewNeededProjects: number;
+}
+
+export interface DashboardSupplementAssignee {
+  userId: number;
+  userName: string;
+  roleCode: string;
+  supplementCount: number;
+}
+
+export interface DashboardSummaryResponse {
+  summary: DashboardSummaryMetrics;
+  supplementAssignees: DashboardSupplementAssignee[];
 }
 
 export interface DashboardAiUsageTotal {
@@ -33,13 +45,6 @@ export interface DashboardAiUsageResponse {
   total: DashboardAiUsageTotal;
   byUser: DashboardAiUsageByUser[];
   byProject: DashboardAiUsageByProject[];
-}
-
-export interface DashboardSupplementProgress {
-  userId: number;
-  userName: string;
-  roleCode: string;
-  supplementCount: number;
 }
 
 const buildAiUsageQuery = (params?: { year?: string; month?: string }) => {
@@ -134,17 +139,38 @@ const normalizeDashboardAiUsage = (value: unknown): DashboardAiUsageResponse => 
   return { total, byUser, byProject };
 };
 
+const emptyDashboardSummary: DashboardSummaryResponse = {
+  summary: { totalProjects: 0, reviewNeededProjects: 0 },
+  supplementAssignees: [],
+};
+
+const normalizeSupplementAssignee = (row: DashboardRawRecord, index: number): DashboardSupplementAssignee => ({
+  userId: readNumber(row, ['userId', 'user_id', 'id']) || index,
+  userName: readString(row, ['userName', 'user_name', 'username', 'name', 'displayName', 'display_name']) || '담당자',
+  roleCode: readString(row, ['roleCode', 'role_code', 'roleName', 'role_name', 'role']) || '',
+  supplementCount: readNumber(row, ['supplementCount', 'supplement_count', 'count', 'totalCount', 'total_count']),
+});
+
+const normalizeDashboardSummary = (value: unknown): DashboardSummaryResponse => {
+  if (!isRecord(value)) return emptyDashboardSummary;
+
+  const summarySource = isRecord(value.summary) ? value.summary : value;
+  return {
+    summary: {
+      totalProjects: readNumber(summarySource, ['totalProjects', 'total_projects', 'projectCount', 'project_count']),
+      reviewNeededProjects: readNumber(summarySource, ['reviewNeededProjects', 'review_needed_projects', 'reviewRequiredCount', 'review_required_count']),
+    },
+    supplementAssignees: readArray(value, ['supplementAssignees', 'supplement_assignees', 'supplementProgress', 'supplement_progress'])
+      .map(normalizeSupplementAssignee),
+  };
+};
+
 export const getDashboardSummary = async () => {
-  const response = await apiFetch<DashboardSummaryResponse>('/dashboard');
-  return response.data;
+  const response = await apiFetch<unknown>('/dashboard');
+  return normalizeDashboardSummary(response.data);
 };
 
 export const getDashboardAiUsage = async (params?: { year?: string; month?: string }) => {
   const response = await apiFetch<unknown>(`/dashboard/ai-usage${buildAiUsageQuery(params)}`);
   return normalizeDashboardAiUsage(response.data);
-};
-
-export const getDashboardSupplementProgress = async () => {
-  const response = await apiFetch<DashboardSupplementProgress[]>('/dashboard/supplement-progress');
-  return response.data;
 };
