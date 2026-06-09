@@ -5,13 +5,13 @@ import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import InlineLoader from '../../components/ui/InlineLoader';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { getLatestValidation, getValidationStatus, runLegalAgent } from '../../lib/agent-api';
+import { getAgentLogs, getLatestValidation, getValidationStatus, runLegalAgent } from '../../lib/agent-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
 import { AGENT_LOG_STATUS } from '../../lib/project-data';
 import { C } from '../../lib/theme';
 import { CATS, fmt } from '../../lib/evidence-utils';
-import type { CategoryValidationResult, EvidenceCategory, ValidationDashboardResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
+import type { CategoryValidationResult, ValidationDashboardResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
 
 export type ValidationGateState = 'passed' | 'waiting' | 'failed';
 
@@ -40,6 +40,7 @@ interface VerifyScreenProps {
 type VerifyStatus = 'idle' | 'loading' | 'done';
 type SheReviewDecision = 'pending' | 'review_completed' | 'supplement_requested';
 type ValidationRunState = 'unknown' | 'running' | 'done' | 'failed';
+const LEGAL_VALIDATION_POLL_INTERVAL_MS = 4000;
 
 const EMPTY_VALIDATION_RESULT: ValidationDashboardResult = {
   id: '',
@@ -198,6 +199,8 @@ const extractValidationRunState = (source: unknown): ValidationRunState => {
   return 'unknown';
 };
 
+const isLegalAgentType = (value: string) => value.replace(/[_\s]/g, '-').toLowerCase() === 'legal';
+
 const normalizeDecision = (value: string): ValidationDecision => {
   const normalized = value.toLowerCase();
   if (['inappropriate', 'invalid', 'rejected', 'fail', 'failed', 'ng', '부적정'].includes(normalized)) return 'inappropriate';
@@ -211,29 +214,6 @@ const normalizeRiskLevel = (value: string): ValidationRiskLevel => {
   if (['medium', 'middle', '중간'].includes(normalized)) return 'medium';
   return 'low';
 };
-
-const normalizeEvidenceCategory = (value: string): EvidenceCategory => {
-  const normalized = value.toLowerCase();
-  if (['receipt', '영수증'].includes(normalized)) return 'receipt';
-  if (['site_photo', 'sitephoto', 'photo', 'picture', '현장사진', '사진'].includes(normalized)) return 'site_photo';
-  if (['usage_statement', 'usagestatement', 'statement', '사용내역서'].includes(normalized)) return 'usage_statement';
-  if (['tax_invoice', 'taxinvoice', 'invoice', '세금계산서'].includes(normalized)) return 'tax_invoice';
-  return 'other_document';
-};
-
-const normalizeEvidenceFiles = (items: unknown[]) =>
-  items.map((item, index) => ({
-    id: readStringField(item, ['id', 'fileId', 'file_id']) || `submitted-${index}`,
-    name: readStringField(item, ['name', 'fileName', 'file_name', 'originalName', 'original_name']) || '제출 파일',
-    kind: normalizeEvidenceCategory(readStringField(item, ['kind', 'type', 'evidenceType', 'evidence_type'])),
-  }));
-
-const normalizeProblemFiles = (items: unknown[]) =>
-  items.map((item) => ({
-    fileName: readStringField(item, ['fileName', 'file_name', 'name']) || '문제 파일',
-    kind: normalizeEvidenceCategory(readStringField(item, ['kind', 'type', 'evidenceType', 'evidence_type'])),
-    reason: readStringField(item, ['reason', 'message', 'description']) || '검증 기준에 맞지 않습니다.',
-  }));
 
 const normalizeValidationIssues = (items: unknown[]): ValidationIssue[] =>
   items.map((item) => ({
@@ -262,7 +242,6 @@ const normalizeValidationResult = (source: unknown): ValidationDashboardResult =
     const usageAmount = readNumberField(item, ['usageAmount', 'usage_amount', 'amount', 'usedAmount', 'used_amount']);
     const recognizedAmount = readNumberField(item, ['recognizedAmount', 'recognized_amount', 'approvedAmount', 'approved_amount', 'validAmount', 'valid_amount']);
     const disputedAmount = readNumberField(item, ['disputedAmount', 'disputed_amount', 'issueAmount', 'issue_amount', 'invalidAmount', 'invalid_amount']);
-    const evidenceSummarySource = asRecord(item)?.evidenceSummary ?? asRecord(item)?.evidence_summary ?? item;
     return {
       categoryId,
       categoryName,
@@ -271,12 +250,6 @@ const normalizeValidationResult = (source: unknown): ValidationDashboardResult =
       disputedAmount,
       decision: normalizeDecision(readStringField(item, ['decision', 'result', 'resultCode', 'result_code', 'status'])),
       riskLevel: normalizeRiskLevel(readStringField(item, ['riskLevel', 'risk_level', 'risk'])),
-      evidenceSummary: {
-        requiredTypes: readArrayField(evidenceSummarySource, ['requiredTypes', 'required_types', 'requiredEvidenceTypes', 'required_evidence_types']).map((value) => String(value)),
-        submittedFiles: normalizeEvidenceFiles(readArrayField(evidenceSummarySource, ['submittedFiles', 'submitted_files', 'files', 'evidenceFiles', 'evidence_files'])),
-        missingTypes: readArrayField(evidenceSummarySource, ['missingTypes', 'missing_types', 'missingEvidenceTypes', 'missing_evidence_types']).map((value) => String(value)),
-        problematicFiles: normalizeProblemFiles(readArrayField(evidenceSummarySource, ['problematicFiles', 'problematic_files', 'invalidFiles', 'invalid_files'])),
-      },
       legalBasis: normalizeLegalBasis(readArrayField(item, ['legalBasis', 'legal_basis', 'basis', 'laws'])),
       issues: normalizeValidationIssues(readArrayField(item, ['issues', 'validationIssues', 'validation_issues', 'problems'])),
     };
@@ -294,13 +267,52 @@ const normalizeValidationResult = (source: unknown): ValidationDashboardResult =
   };
 };
 
+const buildLegalRunFallbackResult = (source: unknown, usageStatementId?: number): ValidationDashboardResult => {
+  const resultCode = readNestedStringField(source, ['resultCode', 'result_code']).toLowerCase();
+  const statusCode = readNestedStringField(source, ['statusCode', 'status_code', 'status']).toLowerCase();
+  const reason = readNestedStringField(source, ['reason', 'message']) || '법령 검증 실행 결과를 확인했습니다.';
+  const failed = ['fail', 'failed', 'error'].includes(resultCode) || ['fail', 'failed', 'error'].includes(statusCode);
+  const needsReview = resultCode === 'hil' || resultCode === 'warning' || resultCode === 'conditional';
+  const decision: ValidationDecision = failed ? 'inappropriate' : needsReview ? 'conditional' : 'appropriate';
+  return {
+    id: extractValidationId(source) || (usageStatementId ? `legal-${usageStatementId}` : ''),
+    checkedAt: new Date().toLocaleString('ko-KR'),
+    usageStatementFile: '',
+    lawAgent: {
+      name: 'legal_agent',
+      version: '',
+      basis: '산업안전보건관리비 계상 및 사용기준',
+    },
+    categories: [{
+      categoryId: 0,
+      categoryName: '법령 검증 결과',
+      usageAmount: 0,
+      recognizedAmount: 0,
+      disputedAmount: 0,
+      decision,
+      riskLevel: failed ? 'high' : needsReview ? 'medium' : 'low',
+      legalBasis: [{
+        lawName: '산업안전보건관리비 계상 및 사용기준',
+        summary: '',
+        agentReasoning: reason,
+      }],
+      issues: decision === 'appropriate' ? [] : [{
+        title: decision === 'inappropriate' ? '법령 검증 실패' : 'SHE 검토 필요',
+        description: reason,
+        problemFileNames: [],
+        requiredAction: reason,
+        recommendedFiles: [],
+      }],
+    }],
+  };
+};
+
 const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, validationGateItems = [], validationDisabledReason, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
   const [selectedCategoryId, setSelectedCategoryId] = useState(4);
   const [sheReviewDecision, setSheReviewDecision] = useState<SheReviewDecision>('pending');
   const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
-  const [openEvidenceFileCategoryIds, setOpenEvidenceFileCategoryIds] = useState<number[]>([]);
   const [validationId, setValidationId] = useState('');
   const [validationConfirming, setValidationConfirming] = useState(false);
   const [validationStatusText, setValidationStatusText] = useState('');
@@ -349,25 +361,62 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
     };
   }, [initialStatus, projectId]);
 
-  useEffect(() => {
-    if (openEvidenceFileCategoryIds.length === 0) return;
-    const handleOutsidePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Element && target.closest('[data-validation-evidence-tooltip]')) return;
-      setOpenEvidenceFileCategoryIds([]);
-    };
-    document.addEventListener('pointerdown', handleOutsidePointerDown);
-    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
-  }, [openEvidenceFileCategoryIds.length]);
-
   const handleVerify = async () => {
     if (!canStartValidation) return;
+    let pollTimer: number | null = null;
+    let completedFromPolling = false;
+    const stopPolling = () => {
+      if (!pollTimer) return;
+      window.clearInterval(pollTimer);
+      pollTimer = null;
+    };
+    const loadDetailedResult = async (nextValidationId?: string) => {
+      if (!projectId) return EMPTY_VALIDATION_RESULT;
+      const statusResult = nextValidationId
+        ? normalizeValidationResult(await getValidationStatus(projectId, nextValidationId).catch(() => null))
+        : EMPTY_VALIDATION_RESULT;
+      if (statusResult.categories.length > 0) return statusResult;
+      return normalizeValidationResult(await getLatestValidation(projectId).catch(() => null));
+    };
+    const pollLegalLog = async () => {
+      if (!projectId || !usageStatementId || completedFromPolling) return;
+      const logs = await getAgentLogs(projectId, usageStatementId).catch(() => []);
+      const legalLog = logs.find((log) => isLegalAgentType(log.agentTypeCode));
+      if (!legalLog) {
+        setValidationStatusText('법령 검증 요청을 처리 중입니다.');
+        return;
+      }
+      const logState = extractValidationRunState(legalLog);
+      if (logState === 'running') {
+        setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
+        return;
+      }
+      if (logState === 'failed') {
+        setValidationStatusText(legalLog.reason || '법령 검증 실행 중 오류가 발생했습니다.');
+        return;
+      }
+      if (logState !== 'done') return;
+      setValidationStatusText('법령 검증이 완료되어 결과를 불러오는 중입니다.');
+      const latestResult = await loadDetailedResult();
+      const resultToShow = latestResult.categories.length > 0
+        ? latestResult
+        : buildLegalRunFallbackResult(legalLog, usageStatementId);
+      completedFromPolling = true;
+      setResult(resultToShow);
+      setValidationId(resultToShow.id || `legal-${usageStatementId}`);
+      setStatus('done');
+      setValidationStatusText('법령 검토가 완료되었습니다.');
+      onValidationComplete?.();
+      stopPolling();
+    };
     try {
       setStatus('loading');
       setSelectedCategoryId(4);
       setSheReviewDecision('pending');
       setValidationStatusText('법령 검토를 시작했습니다.');
       if (!projectId || !usageStatementId) throw new Error('검증 API 호출에 필요한 ID가 없습니다.');
+      void pollLegalLog();
+      pollTimer = window.setInterval(() => void pollLegalLog(), LEGAL_VALIDATION_POLL_INTERVAL_MS);
       const validationRun = await runLegalAgent(projectId, usageStatementId);
       const nextValidationId = extractValidationId(validationRun);
       const runState = extractValidationRunState(validationRun);
@@ -376,29 +425,37 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
         throw new Error('법령 검토 실행에 실패했습니다.');
       }
       const runResult = normalizeValidationResult(validationRun);
-      const statusResult = runResult.categories.length === 0 && nextValidationId
-        ? normalizeValidationResult(await getValidationStatus(projectId, nextValidationId).catch(() => null))
-        : runResult;
-      const latestResult = statusResult.categories.length === 0
-        ? normalizeValidationResult(await getLatestValidation(projectId).catch(() => null))
-        : statusResult;
-      if (latestResult.categories.length === 0) {
-        setStatus('idle');
-        setResult(EMPTY_VALIDATION_RESULT);
-        setValidationStatusText('');
-        return;
-      }
-      setResult(latestResult);
-      setValidationId(latestResult.id || nextValidationId || `legal-${usageStatementId}`);
+      const detailedResult = runResult.categories.length > 0 ? runResult : await loadDetailedResult(nextValidationId);
+      const resultToShow = detailedResult.categories.length > 0
+        ? detailedResult
+        : buildLegalRunFallbackResult(validationRun, usageStatementId);
+      setResult(resultToShow);
+      setValidationId(resultToShow.id || nextValidationId || `legal-${usageStatementId}`);
       setStatus('done');
       setValidationStatusText('법령 검토가 완료되었습니다.');
-      onValidationComplete?.();
+      if (!completedFromPolling) onValidationComplete?.();
     } catch {
-      setValidationId('');
-      setResult(EMPTY_VALIDATION_RESULT);
-      setStatus('idle');
-      setValidationStatusText('');
-      setAgentFailureTarget('legal-validation');
+      const logs = projectId && usageStatementId ? await getAgentLogs(projectId, usageStatementId).catch(() => []) : [];
+      const legalLog = logs.find((log) => isLegalAgentType(log.agentTypeCode));
+      if (legalLog && extractValidationRunState(legalLog) === 'done') {
+        const latestResult = await loadDetailedResult();
+        const resultToShow = latestResult.categories.length > 0
+          ? latestResult
+          : buildLegalRunFallbackResult(legalLog, usageStatementId);
+        setResult(resultToShow);
+        setValidationId(resultToShow.id || (usageStatementId ? `legal-${usageStatementId}` : ''));
+        setStatus('done');
+        setValidationStatusText('법령 검토가 완료되었습니다.');
+        if (!completedFromPolling) onValidationComplete?.();
+      } else {
+        setValidationId('');
+        setResult(EMPTY_VALIDATION_RESULT);
+        setStatus('idle');
+        setValidationStatusText('');
+        setAgentFailureTarget('legal-validation');
+      }
+    } finally {
+      stopPolling();
     }
   };
 
@@ -439,7 +496,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
   };
 
   const renderProgress = () => (
-    <InlineLoader title="법령 검증을 진행하고 있어요" body={validationStatusText || '사용내역서와 증빙 자료를 항목별로 맞춰 보고, 법령 기준과 인정 가능 금액을 함께 계산하고 있습니다.'} />
+    <InlineLoader title="법령 검증을 진행하고 있어요" body={validationStatusText || '사용내역서 항목을 법령 기준과 대조하고, 인정 가능 금액과 검토 사유를 계산하고 있습니다.'} />
   );
 
   const renderValidationGate = () => {
@@ -473,8 +530,8 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       <img src="/uploads/character.png" alt="캐릭터" style={{ width: 88, height: 'auto', flexShrink: 0, objectFit: 'contain' }} />
       <div style={{ flex: 1 }}>
         <div className="speech-bubble">
-          <div style={{ fontSize: 16, fontWeight: 800, color: C.g800, lineHeight: 1.6 }}>업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.</div>
-          <div style={{ fontSize: 13, color: C.g400, marginTop: 4 }}>9개 항목별 증빙, 문제 파일, 법령 근거, 인정 가능 금액을 함께 확인합니다.</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.g800, lineHeight: 1.6 }}>사용내역서 항목을 법령 기준으로 검증합니다.</div>
+          <div style={{ fontSize: 13, color: C.g400, marginTop: 4 }}>9개 항목별 판정, 법령 근거, 인정 가능 금액을 확인합니다.</div>
         </div>
       </div>
       <Button size="lg" onClick={handleVerify} disabled={status === 'loading'} style={{ flexShrink: 0, alignSelf: 'center' }}>{status === 'loading' ? '검증 중...' : status === 'done' ? '재검증하기' : '검증하기'}</Button>
@@ -484,7 +541,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
   const renderEmpty = () => (
     <div style={{ padding: '48px 32px', borderRadius: 18, border: `2px dashed ${C.g200}`, textAlign: 'center', background: C.white }}>
       <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, marginBottom: 6 }}>{canStartValidation ? (hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료') : '법령 검증 대기'}</div>
-      <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>{canStartValidation ? '업로드한 사용내역서와 증빙을 기준으로 산안비 적정성을 검증합니다.' : validationDisabledReason || '법령 검증 실행 조건을 먼저 충족해야 합니다.'}</div>
+      <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>{canStartValidation ? '사용내역서 항목을 법령 기준으로 검증합니다.' : validationDisabledReason || '법령 검증 실행 조건을 먼저 충족해야 합니다.'}</div>
       <button type="button" onClick={handleVerify} disabled={status === 'loading' || !canStartValidation} style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: canStartValidation ? C.primary : C.g200, color: canStartValidation ? C.white : C.g400, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: status === 'loading' ? 'wait' : canStartValidation ? 'pointer' : 'not-allowed', boxShadow: canStartValidation ? '0 10px 22px rgba(27, 94, 59, .24)' : 'none' }}>{status === 'loading' ? '검증 중...' : '법령 검증'}</button>
       {renderValidationGate()}
     </div>
@@ -494,14 +551,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
     if (!item) return null;
     const meta = decisionMeta[item.decision];
     const risk = riskMeta[item.riskLevel];
-    const submittedCount = item.evidenceSummary.submittedFiles.length;
-    const problemCount = item.evidenceSummary.problematicFiles.length;
-    const missingCount = item.evidenceSummary.missingTypes.length;
-    const evidenceFilesOpen = openEvidenceFileCategoryIds.includes(item.categoryId);
     const selectedDecisionGroup = decisionGroups.find((group) => group.id === item.decision) || decisionGroups[0];
-    const toggleEvidenceFilesOpen = () => {
-      setOpenEvidenceFileCategoryIds((prev) => prev.includes(item.categoryId) ? prev.filter((id) => id !== item.categoryId) : [...prev, item.categoryId]);
-    };
 
     return <div style={{ position: 'relative', borderRadius: 'var(--ui-radius-card)' }}>
       <Card style={{ ...validationShellStyle, padding: 0, overflow: 'hidden', border: `1px solid ${meta.border}` }}>
@@ -544,33 +594,18 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
 
         <div style={{ position: 'relative', border: `1px solid ${C.g100}`, borderRadius: 'var(--ui-radius-panel)' }}>
           <div style={{ padding: '11px 12px', background: '#F7F9F8', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>문제 및 누락 자료</div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 850, color: C.g500 }}>제출 {submittedCount} · 문제 {problemCount} · 누락 {missingCount}</div>
-              <div data-validation-evidence-tooltip style={{ position: 'relative', display: 'inline-flex' }}>
-                <button type="button" onClick={toggleEvidenceFilesOpen} disabled={submittedCount === 0} style={{ border: `1px solid ${evidenceFilesOpen ? C.primary : C.g200}`, borderRadius: 999, background: evidenceFilesOpen ? C.primary : C.white, color: submittedCount === 0 ? C.g400 : evidenceFilesOpen ? C.white : C.primary, padding: '4px 8px', fontSize: 10, fontWeight: 900, fontFamily: 'inherit', cursor: submittedCount === 0 ? 'not-allowed' : 'pointer' }}>제출 자료 보기</button>
-                {evidenceFilesOpen && (
-                  <div role="tooltip" style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 60, width: 200, maxWidth: 'min(200px, calc(100vw - 48px))', border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-panel)', background: C.white, boxShadow: '0 14px 34px rgba(31,47,39,.16)', padding: 9 }}>
-                    <div style={{ position: 'absolute', top: -6, right: 22, width: 10, height: 10, borderTop: `1px solid ${C.g200}`, borderLeft: `1px solid ${C.g200}`, background: C.white, transform: 'rotate(45deg)' }} />
-                    <div style={{ fontSize: 11, fontWeight: 900, color: C.g600, marginBottom: 7 }}>제출된 파일명</div>
-                    <div style={{ display: 'grid', gap: 6, maxHeight: 180, overflowY: 'auto', paddingRight: 2 }}>
-                      {item.evidenceSummary.submittedFiles.map((file) => (
-                        <div key={`${file.kind}-${file.name}`} title={file.name} style={{ minWidth: 0, border: `1px solid ${C.g100}`, borderRadius: 6, background: '#FBFCFB', padding: '7px 9px', fontSize: 12, fontWeight: 850, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {file.name}
-                        </div>
-                      ))}
-                      {submittedCount === 0 && <span style={{ fontSize: 12, color: C.g500, fontWeight: 800 }}>제출된 증빙이 없습니다.</span>}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>검토 사유</div>
+            <div style={{ fontSize: 11, fontWeight: 850, color: C.g500 }}>{item.issues.length}건</div>
           </div>
           <div style={{ padding: 12, display: 'grid', gap: 9 }}>
-            {(problemCount > 0 || missingCount > 0) && <div style={{ display: 'grid', gap: 7 }}>
-              {item.evidenceSummary.problematicFiles.map((file) => <div key={file.fileName} style={{ fontSize: 12, fontWeight: 800, color: C.danger, lineHeight: 1.5 }}>{file.fileName} : <span style={{ color: C.g600 }}>{file.reason}</span></div>)}
-              {missingCount > 0 && <div style={{ fontSize: 12, fontWeight: 800, color: C.warn, lineHeight: 1.5 }}>누락 자료 : <span style={{ color: C.g600 }}>{item.evidenceSummary.missingTypes.join(', ')}</span></div>}
-            </div>}
+            {item.issues.length === 0 && <div style={{ fontSize: 12, fontWeight: 800, color: C.g500, lineHeight: 1.5 }}>legal agent가 확인한 보완 사유가 없습니다.</div>}
+            {item.issues.map((issue) => <div key={`${issue.title}-${issue.requiredAction}`} style={{ display: 'grid', gap: 4 }}>
+              <div style={{ fontSize: 12, fontWeight: 900, color: item.decision === 'inappropriate' ? C.danger : C.warn }}>{issue.title}</div>
+              {issue.problemFileNames.length > 0 && <div style={{ fontSize: 12, fontWeight: 850, color: C.g800, lineHeight: 1.55 }}>
+                문제 파일: <span style={{ color: C.g600 }}>{issue.problemFileNames.join(', ')}</span>
+              </div>}
+              <div style={{ fontSize: 12, fontWeight: 800, color: C.g600, lineHeight: 1.55 }}>{issue.requiredAction || issue.description}</div>
+            </div>)}
           </div>
         </div>
 

@@ -98,7 +98,7 @@ export interface CategoryValidationResult {
   disputedAmount: number;
   decision: ValidationDecision;
   riskLevel: ValidationRiskLevel;
-  evidenceSummary: {
+  evidenceSummary?: {
     requiredTypes: string[];
     submittedFiles: Pick<EvidenceFile, 'id' | 'name' | 'kind'>[];
     missingTypes: string[];

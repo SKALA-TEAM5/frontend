@@ -539,16 +539,18 @@ export default function DashboardPage() {
     const targetSearchParams = new URLSearchParams({ status: LEGAL_REVIEW_STATUS_FILTER.NEEDED });
     router.push(`/projects?${targetSearchParams.toString()}`);
   };
+  const dashboardAiUsageByUser = Array.isArray(dashboardAiUsage?.byUser) ? dashboardAiUsage.byUser : [];
+  const dashboardAiUsageByProject = Array.isArray(dashboardAiUsage?.byProject) ? dashboardAiUsage.byProject : [];
   const aiUsageRows: readonly AiUsageCostRow[] = dashboardAiUsage
     ? (aiUsageView === 'user'
-      ? dashboardAiUsage.byUser.slice(0, AI_USAGE_TOP_LIMIT).map((row) => ({
+      ? dashboardAiUsageByUser.slice(0, AI_USAGE_TOP_LIMIT).map((row) => ({
         user: row.userName,
         role: roleCodeToDashboardLabel(row.roleCode),
         tokens: Number(row.totalTokens || 0),
         calls: Number(row.callCount || 0),
         cost: Number(row.costUsd || 0),
       }))
-      : dashboardAiUsage.byProject.slice(0, AI_USAGE_TOP_LIMIT).map((row) => ({
+      : dashboardAiUsageByProject.slice(0, AI_USAGE_TOP_LIMIT).map((row) => ({
         user: row.projectName,
         role: '',
         tokens: Number(row.totalTokens || 0),
@@ -556,9 +558,9 @@ export default function DashboardPage() {
         cost: Number(row.costUsd || 0),
       })))
     : [];
-  const aiUsageTotalCost = Number(dashboardAiUsage?.total.totalCostUsd || 0);
-  const aiUsageTotalTokens = Number(dashboardAiUsage?.total.totalTokens || 0);
-  const aiUsageTotalCalls = Number(dashboardAiUsage?.total.totalCalls || 0);
+  const aiUsageTotalCost = Number(dashboardAiUsage?.total?.totalCostUsd || 0);
+  const aiUsageTotalTokens = Number(dashboardAiUsage?.total?.totalTokens || 0);
+  const aiUsageTotalCalls = Number(dashboardAiUsage?.total?.totalCalls || 0);
   const aiUsageDonutRadius =42;
   const aiUsageDonutCircumference = 2 * Math.PI * aiUsageDonutRadius;
   let aiUsageDonutOffset = 0;

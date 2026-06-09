@@ -894,7 +894,7 @@ function ProjectDetailPageContent() {
                         const uploadedAt = uploadedEntry.uploadedAt || new Date().toISOString().slice(0, 10);
                         const month = savedArchive?.statementSummary.month || selectedMonth || uploadedAt.slice(0, 7);
                         if (savedArchive && existingUploadedMonths.has(month)) {
-                            setDuplicateUsageMonthWarning(`${formatMonthLabel(month)} 사용내역서가 이미 존재합니다. 기존 월은 변경하지 않았습니다. 파일의 세부항목 사용일자를 확인한 뒤 다시 업로드해주세요.`);
+                            setDuplicateUsageMonthWarning(`${formatMonthLabel(month)} 사용내역서가 이미 존재합니다. 파일의 세부항목 사용일자를 확인한 뒤 다시 업로드해주세요.`);
                             setUsageUploadStage('idle');
                             return;
                         }
@@ -1478,7 +1478,7 @@ function ProjectDetailPageContent() {
                         },
                     };
                 });
-            }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveArchiveTodoCount} onBackToOverview={() => updateTab('overview')} uploadCompleteAction={reviewRequestHeaderButton}/>}
+            }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveArchiveTodoCount} onVerificationComplete={refreshSelectedAgentButtonState} onBackToOverview={() => updateTab('overview')} uploadCompleteAction={reviewRequestHeaderButton}/>}
         </>}
       </div>),
         validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} onValidationComplete={() => {

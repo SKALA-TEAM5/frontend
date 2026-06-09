@@ -1,4 +1,5 @@
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+export const AUTH_EXPIRED_EVENT = 'i-veri:auth-expired';
 
 export const apiUrl = (path: string) => `${API_BASE_URL}${path}`;
 
@@ -56,11 +57,19 @@ async function request<T>(path: string, options: ApiFetchOptions, refreshed: boo
 
   const payload = await readJson<ApiSuccess<T> | ApiFailure>(response);
   if (response.status === 401 && !skipAuthRefresh && !refreshed && shouldRefresh(path)) {
-    await apiFetch('/auth/refresh', { method: 'POST', skipAuthRefresh: true });
+    try {
+      await apiFetch('/auth/refresh', { method: 'POST', skipAuthRefresh: true });
+    } catch {
+      notifyAuthExpired();
+      throw new ApiClientError(401, '로그인이 만료되었습니다. 다시 로그인해 주세요.');
+    }
     return request<T>(path, options, true);
   }
 
   if (!response.ok || !payload.success) {
+    if (response.status === 401 && shouldRefresh(path)) {
+      notifyAuthExpired();
+    }
     throw new ApiClientError(response.status, payload.message || '요청에 실패했습니다.');
   }
 
@@ -69,6 +78,11 @@ async function request<T>(path: string, options: ApiFetchOptions, refreshed: boo
 
 function shouldRefresh(path: string) {
   return !path.startsWith('/auth/');
+}
+
+function notifyAuthExpired() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
 }
 
 async function readJson<T>(response: Response): Promise<T> {
