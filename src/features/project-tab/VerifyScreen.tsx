@@ -280,6 +280,46 @@ const normalizeValidationResult = (source: unknown): ValidationDashboardResult =
   };
 };
 
+const buildLegalRunFallbackResult = (source: unknown, usageStatementId?: number): ValidationDashboardResult => {
+  const resultCode = readNestedStringField(source, ['resultCode', 'result_code']).toLowerCase();
+  const statusCode = readNestedStringField(source, ['statusCode', 'status_code', 'status']).toLowerCase();
+  const reason = readNestedStringField(source, ['reason', 'message']) || '법령 검증 실행 결과를 확인했습니다.';
+  const failed = ['fail', 'failed', 'error'].includes(resultCode) || ['fail', 'failed', 'error'].includes(statusCode);
+  const needsReview = resultCode === 'hil' || resultCode === 'warning' || resultCode === 'conditional';
+  const decision: ValidationDecision = failed ? 'inappropriate' : needsReview ? 'conditional' : 'appropriate';
+  return {
+    id: extractValidationId(source) || (usageStatementId ? `legal-${usageStatementId}` : ''),
+    checkedAt: new Date().toLocaleString('ko-KR'),
+    usageStatementFile: '',
+    lawAgent: {
+      name: 'legal_agent',
+      version: '',
+      basis: '산업안전보건관리비 계상 및 사용기준',
+    },
+    categories: [{
+      categoryId: 0,
+      categoryName: '법령 검증 결과',
+      usageAmount: 0,
+      recognizedAmount: 0,
+      disputedAmount: 0,
+      decision,
+      riskLevel: failed ? 'high' : needsReview ? 'medium' : 'low',
+      legalBasis: [{
+        lawName: '산업안전보건관리비 계상 및 사용기준',
+        summary: '',
+        agentReasoning: reason,
+      }],
+      issues: decision === 'appropriate' ? [] : [{
+        title: decision === 'inappropriate' ? '법령 검증 실패' : 'SHE 검토 필요',
+        description: reason,
+        problemFileNames: [],
+        requiredAction: reason,
+        recommendedFiles: [],
+      }],
+    }],
+  };
+};
+
 const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, validationGateItems = [], validationDisabledReason, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
@@ -307,24 +347,34 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
   const totalRecognized = sumBy(categories, 'recognizedAmount');
   const recognizedRate = totalUsage > 0 ? Math.round((totalRecognized / totalUsage) * 100) : 0;
   useEffect(() => {
-    if (initialStatus !== 'done' || !projectId) return;
+    if (!projectId) return;
     let alive = true;
-    const detailPromise = usageStatementId
-      ? getLegalDetail(projectId, usageStatementId)
-      : getLatestValidation(projectId);
-    detailPromise
-      .then((latestValidation) => {
+    const loadExistingLegalResult = async () => {
+      const legalDetail = usageStatementId
+        ? await getLegalDetail(projectId, usageStatementId).catch(() => null)
+        : null;
+      if (legalDetail) return legalDetail;
+      if (initialStatus === 'done') return getLatestValidation(projectId).catch(() => null);
+      return null;
+    };
+    loadExistingLegalResult()
+      .then((existingResult) => {
         if (!alive) return;
-        const latestResult = normalizeValidationResult(latestValidation);
-        if (latestResult.categories.length === 0) {
+        const latestResult = normalizeValidationResult(existingResult);
+        const resultToShow = latestResult.categories.length > 0
+          ? latestResult
+          : existingResult
+            ? buildLegalRunFallbackResult(existingResult, usageStatementId)
+            : EMPTY_VALIDATION_RESULT;
+        if (resultToShow.categories.length === 0) {
           setStatus('idle');
           setResult(EMPTY_VALIDATION_RESULT);
           setValidationId('');
           return;
         }
         setStatus('done');
-        setResult(latestResult);
-        setValidationId(latestResult.id || extractValidationId(latestValidation));
+        setResult(resultToShow);
+        setValidationId(resultToShow.id || extractValidationId(existingResult));
       })
       .catch(() => {
         if (!alive) return;
