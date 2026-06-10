@@ -128,6 +128,9 @@ interface AgentTodoListResponse {
   legal?: AgentTodoEntryResponse | null;
 }
 
+const isAggregateTodoReason = (reason: string) =>
+  /^(?:필수\s*증빙\s*누락\s*항목\s*\d+\s*건|매칭\s*검토\s*필요\s*\d+\s*건|현장사진\s*\d+\s*건\s*중\s*\d+\s*건\s*보완\s*필요)$/u.test(reason.trim());
+
 export interface AgentButtonStateResponse {
   enabled?: boolean;
   reason?: string | null;
@@ -302,6 +305,7 @@ const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefine
     const entryReason = entry.reason || '';
     const items = entry.items || [];
     if (!items.length) {
+      if (isAggregateTodoReason(entryReason)) return [];
       return [{
         agentTypeCode,
         usageStatementItemId: null,
