@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import Card from '../../components/ui/Card';
 import { AppFrame, DateRangePicker } from '../../components/common';
-import DashboardChatbot from '../../components/common/DashboardChatbot';
 import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
 import { C } from '../../lib/theme';
@@ -1107,7 +1106,6 @@ export default function DashboardPage() {
           display: block !important;
         }
       `}</style>
-      <DashboardChatbot />
     </AppFrame>
   );
 }
