@@ -91,6 +91,14 @@ const validationGateMeta: Record<ValidationGateState, { label: string; color: st
   failed: { label: '확인 필요', color: C.danger, bg: C.dangerBg, border: '#FFCDD2' },
 };
 
+const decisionScrollStyle = (color: string): CSSProperties => ({
+  display: 'flex',
+  gap: 6,
+  paddingBottom: 2,
+  scrollbarColor: `${color} transparent`,
+  ['--thin-scrollbar-thumb' as string]: color,
+});
+
 const validationShellStyle: CSSProperties = {
   border: `1px solid ${C.g200}`,
   borderRadius: 'var(--ui-radius-card)',
@@ -343,6 +351,10 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
     { id: 'appropriate' as ValidationDecision, label: '적정', color: C.ok, bg: '#F4FBF6', items: sortedCategories.filter((item) => item.decision === 'appropriate') },
   ];
   const issues = useMemo(() => flattenIssues(categories), [categories]);
+  const reviewRequiredCategories = useMemo(
+    () => categories.filter((item) => item.decision !== 'appropriate'),
+    [categories],
+  );
   const totalUsage = sumBy(categories, 'usageAmount');
   const totalRecognized = sumBy(categories, 'recognizedAmount');
   const recognizedRate = totalUsage > 0 ? Math.round((totalRecognized / totalUsage) * 100) : 0;
@@ -374,7 +386,8 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
         }
         setStatus('done');
         setResult(resultToShow);
-        setValidationId(resultToShow.id || extractValidationId(existingResult));
+        setValidationId(resultToShow.id || extractValidationId(existingResult) || (usageStatementId ? `legal-${usageStatementId}` : ''));
+        onValidationComplete?.();
       })
       .catch(() => {
         if (!alive) return;
@@ -472,14 +485,19 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
 
   const handleSupplementRequest = async () => {
     if (!can(user, 'requestAction')) return;
-    if (!issues.length) return;
+    if (!issues.length && !reviewRequiredCategories.length) return;
     const firstIssue = issues[0];
-    const reason = firstIssue ? `${firstIssue.categoryName} 항목에서 ${firstIssue.title} 문제가 있습니다. ${firstIssue.requiredAction}` : '제출 자료를 다시 확인해 주세요.';
+    const firstReviewCategory = reviewRequiredCategories[0];
+    const reason = firstIssue
+      ? `${firstIssue.categoryName} 항목에서 ${firstIssue.title} 문제가 있습니다. ${firstIssue.requiredAction}`
+      : firstReviewCategory
+        ? `${firstReviewCategory.categoryName} 항목의 법령 검증 결과가 ${decisionMeta[firstReviewCategory.decision].label}입니다. 제출 자료를 다시 확인해 주세요.`
+        : '제출 자료를 다시 확인해 주세요.';
     if (!validationId || validationConfirming) return;
     setValidationConfirming(true);
     try {
       onActionRequested?.({
-      title: firstIssue?.categoryName || '보완 요청',
+      title: firstIssue?.categoryName || firstReviewCategory?.categoryName || '보완 요청',
       reason,
       assignee: '프로젝트 담당자',
       dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
@@ -570,7 +588,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
               return <button key={group.id} type="button" disabled={group.items.length === 0} onClick={() => group.items[0] && setSelectedCategoryId(group.items[0].categoryId)} style={{ border: 'none', background: active ? group.color : 'transparent', color: group.items.length === 0 ? C.g400 : active ? C.white : C.g600, borderRadius: 999, padding: '7px 11px', fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: group.items.length === 0 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>{group.label} {group.items.length}</button>;
             })}
           </div>
-          <div className="thin-x-scroll" style={{ display: 'flex', gap: 6, paddingBottom: 2 }}>
+          <div className="thin-x-scroll" style={decisionScrollStyle(selectedDecisionGroup.color)}>
             {selectedDecisionGroup.items.map((category) => {
               const active = category.categoryId === item.categoryId;
               return <button key={category.categoryId} type="button" onClick={() => setSelectedCategoryId(category.categoryId)} style={{ border: `1px solid ${active ? meta.color : C.g200}`, borderRadius: 999, background: active ? C.white : 'rgba(255,255,255,.7)', color: active ? meta.color : C.g600, padding: '7px 12px', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{category.categoryName}</button>;
@@ -663,7 +681,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 보완 요청 상태를 보냈습니다. 사용내역서 또는 증빙 자료를 수정한 뒤 다시 업로드 완료를 누르면 재검토할 수 있습니다.' },
     };
     const current = decisionMetaByStatus[sheReviewDecision];
-    const canRequestSupplement = Boolean(validationId && issues.length > 0 && !validationConfirming);
+    const canRequestSupplement = Boolean(validationId && (issues.length > 0 || reviewRequiredCategories.length > 0) && !validationConfirming);
     const reviewButtonStyle = (color: string, active: boolean, disabled = !validationId || validationConfirming): CSSProperties => ({
       border: active ? 'none' : `1px solid ${C.g200}`,
       borderRadius: 999,
