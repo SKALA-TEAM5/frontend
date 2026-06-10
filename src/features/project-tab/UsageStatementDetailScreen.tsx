@@ -178,7 +178,7 @@ const extractEvidenceDocumentNames = (value: string, fallbackKind?: FolderEviden
             .replace(/^(?:누락|필수|필요|증빙)\s*/u, '')
             .replace(/\s*(?:업로드|제출|필요|누락|미흡|확인|보완|있음)$/u, '')
             .trim())
-        .filter((name) => name && /[가-힣]/.test(name) && name.length <= 24 && !/문제|사유|항목|세부|사용내역|보완 사항/.test(name));
+        .filter((name) => name && /[가-힣]/.test(name) && name.length <= 24 && !/문제|사유|항목|세부|사용내역|보완 사항|증빙\s*누락|매칭\s*검토|위치\s*확인/.test(name));
     const fallbackName = fallbackKind && fallbackKind !== 'other_document' ? EVIDENCE_KIND_LABELS[fallbackKind] : '';
     return Array.from(new Set([...names, ...splitNames, fallbackName].filter(Boolean)));
 };
@@ -285,6 +285,12 @@ const addUsageItemInputStyle = {
     outline: 'none',
 } as const;
 const cleanEvidenceTodoText = (value: string) => value
+    .replace(/^(?:필수\s*)?증빙\s*누락\s*[:：]\s*/u, '')
+    .replace(/^증빙\s*매칭\s*검토\s*필요\s*[:：]\s*/u, '')
+    .replace(/^매칭\s*검토\s*필요\s*\d+\s*건\s*$/u, '')
+    .replace(/^필수\s*증빙\s*누락\s*항목\s*\d+\s*건\s*$/u, '')
+    .replace(/^현장사진\s*\d+\s*건\s*중\s*\d+\s*건\s*보완\s*필요\s*$/u, '')
+    .replace(/^위치\s*확인\s*필요$/u, '')
     .replace(/^.*?문제가\s*있습니다[.,]?\s*/u, '')
     .replace(/^.*?부족\s*문제가\s*있습니다[.,]?\s*/u, '')
     .replace(/^.*?부족\s*문제.*?[.,]?\s*/u, '')
