@@ -54,6 +54,9 @@ export interface OcrWorkflowResponse {
 export interface OrchestratorTodo {
   agentTypeCode: string;
   usageStatementItemId: number | null;
+  categoryCode?: string | null;
+  categoryName?: string | null;
+  usageStatementItemName?: string | null;
   fileId: number | null;
   reason: string;
   statusCode: string;
@@ -100,6 +103,14 @@ export interface OrchestratorDashboardResponse {
 interface AgentTodoItemResponse {
   usageStatementItemId?: number | null;
   usage_statement_item_id?: number | null;
+  fileId?: number | null;
+  file_id?: number | null;
+  categoryCode?: string | null;
+  category_code?: string | null;
+  categoryName?: string | null;
+  category_name?: string | null;
+  usageStatementItemName?: string | null;
+  usage_statement_item_name?: string | null;
   reason?: string | null;
 }
 
@@ -292,6 +303,9 @@ const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefine
       return [{
         agentTypeCode,
         usageStatementItemId: null,
+        categoryCode: null,
+        categoryName: null,
+        usageStatementItemName: null,
         fileId: null,
         reason: entryReason || '보완 사항 확인 필요',
         statusCode: 'open',
@@ -300,10 +314,14 @@ const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefine
     return items.map((item) => {
       const itemRecord = item as Record<string, unknown>;
       const usageStatementItemId = readField(itemRecord, 'usageStatementItemId', 'usage_statement_item_id');
+      const fileId = readField(itemRecord, 'fileId', 'file_id');
       return {
         agentTypeCode,
         usageStatementItemId: usageStatementItemId == null ? null : Number(usageStatementItemId),
-        fileId: null,
+        categoryCode: readField(itemRecord, 'categoryCode', 'category_code') as string | null,
+        categoryName: readField(itemRecord, 'categoryName', 'category_name') as string | null,
+        usageStatementItemName: readField(itemRecord, 'usageStatementItemName', 'usage_statement_item_name') as string | null,
+        fileId: fileId == null ? null : Number(fileId),
         reason: item.reason || entryReason || '보완 사항 확인 필요',
         statusCode: 'open',
       };

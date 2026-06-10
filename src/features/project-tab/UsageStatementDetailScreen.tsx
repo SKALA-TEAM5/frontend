@@ -43,6 +43,24 @@ type UsageDetailTodoItem = {
     usageItemId?: string;
     detail?: string;
 };
+const GENERIC_USAGE_ITEM_CONTEXT = '사용내역서 세부 항목';
+
+const getCategoryFromBackendTodo = (todo: OrchestratorTodo) => {
+    const codeMatch = String(todo.categoryCode || '').match(/^CAT_(\d+)$/i);
+    if (codeMatch) {
+        const categoryId = Number(codeMatch[1]);
+        const category = CATS.find((cat) => cat.id === categoryId);
+        if (category)
+            return category;
+    }
+    const normalizedCategoryName = normalizeTodoLookupText(todo.categoryName || '');
+    if (!normalizedCategoryName)
+        return undefined;
+    return CATS.find((cat) => [cat.label, cat.short]
+        .map(normalizeTodoLookupText)
+        .filter(Boolean)
+        .some((label) => label === normalizedCategoryName || normalizedCategoryName.includes(label)));
+};
 
 const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
     receipt: '영수증',
@@ -173,9 +191,14 @@ const getTodoDocumentTitle = (reason: string, kind: FolderEvidenceCategory) => {
 };
 
 const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]): UsageDetailTodoItem[] => {
-    const usageItem = todo.usageStatementItemId == null
+    const usageItemById = todo.usageStatementItemId == null
         ? undefined
         : usageItems.find((item) => String(item.id) === String(todo.usageStatementItemId));
+    const usageItemByName = todo.usageStatementItemName
+        ? usageItems.find((item) => normalizeTodoLookupText(item.name) === normalizeTodoLookupText(todo.usageStatementItemName || ''))
+        : undefined;
+    const usageItem = usageItemById || usageItemByName;
+    const backendCategory = getCategoryFromBackendTodo(todo);
     const reason = todo.reason || '보완 사항 확인 필요';
     const fallbackKind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason);
     const documentNames = extractEvidenceDocumentNames(reason, fallbackKind);
@@ -184,6 +207,9 @@ const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]
     const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(reason, fallbackKind)];
 
     return titles.map((title, index) => {
+        const lookupText = `${reason} ${title}`;
+        const inferredUsageItem = usageItem || findUsageItemFromTodoText(lookupText, usageItems);
+        const inferredCategory = inferredUsageItem ? undefined : (backendCategory || findCategoryFromTodoText(lookupText));
         const kind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(title || reason);
         const translatedTitle = translateEvidenceDocumentName(title) || title;
         return {
@@ -192,10 +218,10 @@ const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]
             source,
             kind,
             title: translatedTitle,
-            context: usageItem?.name || '사용내역서 세부 항목',
-            categoryId: usageItem?.categoryId,
-            usageItemId: usageItem?.id,
-            detail: '',
+            context: inferredUsageItem?.name || todo.usageStatementItemName || '',
+            categoryId: inferredUsageItem?.categoryId || backendCategory?.id || inferredCategory?.id,
+            usageItemId: inferredUsageItem?.id,
+            detail: toNounPhraseDetail(translateEvidenceText(reason)),
         };
     });
 };
@@ -280,6 +306,8 @@ const extractActionRequestEvidenceNames = (message?: string) => {
     return Array.from(new Set(cleaned.split(/\s*(?:,|\/|·| 및 |와 |과 )\s*/).map((name) => cleanEvidenceTodoText(name)).filter(Boolean)));
 };
 const normalizeTodoIdText = (value: string) => value.replace(/\s+/g, '').toLowerCase();
+const normalizeTodoLookupText = (value: string) => normalizeTodoIdText(value)
+    .replace(/[·.,:;()[\]{}'"“”‘’~\-_/]/g, '');
 const inferEvidenceKindFromText = (value: string): FolderEvidenceCategory => {
     const normalized = normalizeEvidenceNameKey(value);
     if (/영수증|결제|거래명세|카드|입금|계좌|송금/.test(value) || /(receipt|transaction_statement|bank_transfer|account_transfer|deposit_confirmation|payment)/.test(normalized))
@@ -291,6 +319,48 @@ const inferEvidenceKindFromText = (value: string): FolderEvidenceCategory => {
     return 'other_document';
 };
 const getCategoryDisplayName = (categoryId: number) => CATS.find((cat) => cat.id === categoryId)?.short || `${categoryId}번 항목`;
+
+const findUsageItemFromTodoText = (value: string, usageItems: UsageLineItem[]) => {
+    const normalized = normalizeTodoLookupText(value);
+    if (!normalized)
+        return undefined;
+    return usageItems.find((item) => {
+        const itemName = normalizeTodoLookupText(item.name);
+        return Boolean(itemName && normalized.includes(itemName));
+    });
+};
+
+const findCategoryFromTodoText = (value: string) => {
+    const normalized = normalizeTodoLookupText(value);
+    if (!normalized)
+        return undefined;
+    return CATS.find((cat) => [cat.label, cat.short]
+        .map(normalizeTodoLookupText)
+        .filter(Boolean)
+        .some((label) => normalized.includes(label)));
+};
+
+const resolveTodoUsageItem = (todo: UsageDetailTodoItem, usageItems: UsageLineItem[]) => {
+    if (todo.usageItemId) {
+        const byId = usageItems.find((item) => String(item.id) === String(todo.usageItemId));
+        if (byId)
+            return byId;
+    }
+    if (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT) {
+        const byContext = usageItems.find((item) => item.name === todo.context);
+        if (byContext)
+            return byContext;
+    }
+    return findUsageItemFromTodoText(`${todo.title} ${todo.detail || ''} ${todo.context || ''}`, usageItems);
+};
+
+const getTodoLocationLabel = (todo: UsageDetailTodoItem, usageItems: UsageLineItem[]) => {
+    const usageItem = resolveTodoUsageItem(todo, usageItems);
+    const categoryId = usageItem?.categoryId || todo.categoryId;
+    const categoryName = categoryId ? getCategoryDisplayName(categoryId) : '';
+    const context = usageItem?.name || (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT ? todo.context : '');
+    return [categoryName, context].filter(Boolean).join(' ∙ ') || '위치 확인 필요';
+};
 
 const classifyUsageLineCategory = (name: string, fallbackCategoryId: number) => {
     const text = name.replace(/\s+/g, '').toLowerCase();
@@ -468,16 +538,12 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         const todos: UsageDetailTodoItem[] = hasVisionValidatedPhotos
             ? orchestratorTodoItems.filter((todo) => todo.source !== 'vision')
             : [...orchestratorTodoItems];
-        const actionRequestText = normalizeTodoIdText(`${actionRequest?.title || ''} ${actionRequest?.message || ''}`);
-        const actionRequestUsageItem = actionRequestText
-            ? resolvedUsageItems.find((item) => {
-                const itemName = normalizeTodoIdText(item.name);
-                return Boolean(itemName && actionRequestText.includes(itemName));
-            })
-            : undefined;
+        const actionRequestRawText = `${actionRequest?.title || ''} ${actionRequest?.message || ''}`;
+        const actionRequestText = normalizeTodoIdText(actionRequestRawText);
+        const actionRequestUsageItem = actionRequestText ? findUsageItemFromTodoText(actionRequestRawText, resolvedUsageItems) : undefined;
         const actionRequestCategory = actionRequestUsageItem
             ? CATS.find((cat) => cat.id === actionRequestUsageItem.categoryId)
-            : CATS.find((cat) => [cat.label, cat.short].map(normalizeTodoIdText).filter(Boolean).some((label) => actionRequestText.includes(label)));
+            : findCategoryFromTodoText(actionRequestRawText);
         Object.entries(requiredEvidenceByLine).forEach(([usageItemId, evidenceMap]) => {
             const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
             Object.entries(evidenceMap).forEach(([rawKind, names]) => {
@@ -491,7 +557,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                         source: 'matching',
                         kind,
                         title: `${evidenceName}`,
-                        context: usageItem?.name || '사용내역서 세부 항목',
+                        context: usageItem?.name || '',
                         categoryId: usageItem?.categoryId,
                         usageItemId,
                         detail: usageItem
@@ -511,7 +577,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                     source: 'law',
                     kind,
                     title: `${name}`,
-                    context: actionRequestUsageItem?.name || actionRequest?.title || '법령 보완 요청',
+                    context: actionRequestUsageItem?.name || '',
                     categoryId: actionRequestUsageItem?.categoryId || actionRequestCategory?.id,
                     usageItemId: actionRequestUsageItem?.id,
                     detail: toNounPhraseDetail(translateEvidenceText(actionRequest?.message)),
@@ -524,7 +590,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 source: 'law',
                 kind: inferEvidenceKindFromText(actionRequest.message),
                 title: '보완 요청 내용 확인',
-                context: actionRequestUsageItem?.name || actionRequest.title || '법령 보완 요청',
+                context: actionRequestUsageItem?.name || '',
                 categoryId: actionRequestUsageItem?.categoryId || actionRequestCategory?.id,
                 usageItemId: actionRequestUsageItem?.id,
                 detail: toNounPhraseDetail(translateEvidenceText(actionRequest.message)),
@@ -635,12 +701,15 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         if (usageItemId)
             return usageDetailTodoItems.some((todo) => {
                 const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
-                return usageItem?.categoryId === catId && (todo.usageItemId === usageItemId || todo.context === usageItem.name);
+                const todoUsageItem = resolveTodoUsageItem(todo, resolvedUsageItems);
+                return usageItem?.categoryId === catId && (todoUsageItem?.id === usageItemId || todo.usageItemId === usageItemId);
             });
         return usageDetailTodoItems.some((todo) => {
-            const usageItem = resolvedUsageItems.find((item) => item.name === todo.context);
+            const usageItem = resolveTodoUsageItem(todo, resolvedUsageItems);
             if (usageItem)
                 return usageItem.categoryId === catId;
+            if (todo.categoryId)
+                return todo.categoryId === catId;
             const categoryName = CATS.find((cat) => cat.id === catId)?.short;
             return Boolean(categoryName && todo.context.includes(categoryName));
         });
@@ -1119,8 +1188,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           const textColor = done ? C.g400 : C.g800;
           const mutedTextColor = done ? C.g400 : C.g600;
           const actionText = todo.mode === 'add' ? '업로드 필요' : '삭제 필요';
-          const todoUsageItem = resolvedUsageItems.find((item) => item.name === todo.context);
-          const categoryName = CATS.find((cat) => cat.id === todoUsageItem?.categoryId)?.short || '9개 항목';
+          const locationLabel = getTodoLocationLabel(todo, resolvedUsageItems);
           const tooltipOpensUp = index >= items.length - 1;
           return (
             <button
@@ -1163,7 +1231,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 </span>
                 <span style={{ minWidth: 0 }}>
                   <span style={{ display: 'block', fontSize: 12, fontWeight: 900, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{todo.title} {actionText}</span>
-                  <span style={{ display: 'block', marginTop: 3, fontSize: 11, fontWeight: 800, color: mutedTextColor, lineHeight: 1.4, textDecoration: done ? 'line-through' : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{categoryName} ∙ {todo.context}</span>
+                  <span style={{ display: 'block', marginTop: 3, fontSize: 11, fontWeight: 800, color: mutedTextColor, lineHeight: 1.4, textDecoration: done ? 'line-through' : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{locationLabel}</span>
                 </span>
               </div>
             </button>
