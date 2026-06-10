@@ -1,3 +1,5 @@
+import { getApiErrorMessage } from './api-client';
+
 export type AgentFailureTarget =
   | 'usage-classification'
   | 'evidence-matching'
@@ -15,5 +17,5 @@ const AGENT_FAILURE_LABELS: Record<AgentFailureTarget, string> = {
   'server-request': '서버 요청',
 };
 
-export const getAgentFailureMessage = (target: AgentFailureTarget) =>
-  `${AGENT_FAILURE_LABELS[target]}에 실패했습니다. 잠시 후 다시 시도해주세요.`;
+export const getAgentFailureMessage = (target: AgentFailureTarget, error?: unknown) =>
+  getApiErrorMessage(error, `${AGENT_FAILURE_LABELS[target]}에 실패했습니다. 잠시 후 다시 시도해주세요.`);

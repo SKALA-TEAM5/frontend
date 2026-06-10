@@ -344,6 +344,7 @@ function ProjectDetailPageContent() {
     const [newMonthError, setNewMonthError] = useState('');
     const [monthDeleteTarget, setMonthDeleteTarget] = useState<MonthlyUsageStatementSummary | null>(null);
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
+    const [agentFailureMessage, setAgentFailureMessage] = useState('');
     const [usageUploadFailureMessage, setUsageUploadFailureMessage] = useState('');
     const [ocrFailureReason, setOcrFailureReason] = useState('');
     const [duplicateUsageMonthWarning, setDuplicateUsageMonthWarning] = useState('');
@@ -368,6 +369,10 @@ function ProjectDetailPageContent() {
     const [projectInfoSaveError, setProjectInfoSaveError] = useState('');
     const [projectInfoSaving, setProjectInfoSaving] = useState(false);
     const [statementOverrides, setStatementOverrides] = useState<Record<string, Partial<MonthlyUsageStatementSummary>>>({});
+    const showAgentFailure = (target: AgentFailureTarget, error?: unknown) => {
+        setAgentFailureTarget(target);
+        setAgentFailureMessage(getAgentFailureMessage(target, error));
+    };
     const actionGuideCardRef = useRef<HTMLDivElement | null>(null);
     const actionRequestBadgeRef = useRef<HTMLButtonElement | null>(null);
     const monthHistoryPushedRef = useRef(false);
@@ -810,9 +815,9 @@ function ProjectDetailPageContent() {
             setTodoClearSignal((signal) => signal + 1);
             setUploadCompleteConfirmOpen(false);
             flashUploadCompleteFeedback();
-        } catch {
+        } catch (error) {
             setUploadCompleteConfirmOpen(false);
-            setAgentFailureTarget('server-request');
+            showAgentFailure('server-request', error);
         } finally {
             setUploadCompleteSubmitting(false);
         }
@@ -1517,7 +1522,7 @@ function ProjectDetailPageContent() {
             }} onValidationApproved={async () => {
                 const usageStatementId = selectedStatementArchive?.usageStatementId;
                 if (!usageStatementId) {
-                    setAgentFailureTarget('server-request');
+                    showAgentFailure('server-request');
                     return;
                 }
                 try {
@@ -1530,13 +1535,13 @@ function ProjectDetailPageContent() {
                     setProject((current) => applyWorkflowToProject(current, USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED));
                     updateTab('report');
                     await refreshArchiveData(project.id);
-                } catch {
-                    setAgentFailureTarget('server-request');
+                } catch (error) {
+                    showAgentFailure('server-request', error);
                 }
             }} onActionRequested={async () => {
                 const usageStatementId = selectedStatementArchive?.usageStatementId;
                 if (!usageStatementId) {
-                    setAgentFailureTarget('server-request');
+                    showAgentFailure('server-request');
                     return;
                 }
                 try {
@@ -1545,8 +1550,8 @@ function ProjectDetailPageContent() {
                     }
                     setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
                     await refreshArchiveData(project.id);
-                } catch {
-                    setAgentFailureTarget('server-request');
+                } catch (error) {
+                    showAgentFailure('server-request', error);
                 }
             }}/>),
         report: (<ReportScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} validationComplete={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED || selectedValidationStatus === 'done'} reportGenerationEnabled={selectedReportGenerationEnabled} reportDisabledReason={selectedReportDisabledReason} contractName={`${project.name} · ${selectedStatement.label}`}/>),
@@ -1654,7 +1659,7 @@ function ProjectDetailPageContent() {
           ))}
         </div>
       </div>} actionLabel="확인" onAction={() => setClassificationMoveNotices([])} />
-      <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
+      <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureMessage} actionLabel="확인" onAction={() => { setAgentFailureTarget(null); setAgentFailureMessage(''); }} />
 
       {selectedMonth && <div data-ui="project-detail.28" style={{ width: detailPanelWidth, maxWidth: '100%', margin: '0 auto 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div role="tablist" aria-label="프로젝트 상세 탭" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: '1 1 360px', minWidth: 0, borderBottom: `1px solid ${C.g200}`, overflowX: 'auto' }}>

@@ -80,6 +80,7 @@ export interface ValidationLegalBasis {
   clause?: string;
   summary: string;
   agentReasoning: string;
+  originalText?: string;
 }
 
 export interface ValidationIssue {
@@ -88,6 +89,22 @@ export interface ValidationIssue {
   problemFileNames: string[];
   requiredAction: string;
   recommendedFiles: string[];
+}
+
+export interface ValidationItemResult {
+  usageStatementItemId?: number;
+  itemName: string;
+  usedOn?: string;
+  amount: number;
+  recognizedAmount: number;
+  disputedAmount: number;
+  decision: ValidationDecision;
+  reviewReason: string;
+  problemFiles: Array<{
+    fileId?: number | string;
+    originalFilename: string;
+  }>;
+  legalBasis: ValidationLegalBasis[];
 }
 
 export interface CategoryValidationResult {
@@ -106,6 +123,7 @@ export interface CategoryValidationResult {
   };
   legalBasis: ValidationLegalBasis[];
   issues: ValidationIssue[];
+  items: ValidationItemResult[];
 }
 
 export interface ValidationDashboardResult {
