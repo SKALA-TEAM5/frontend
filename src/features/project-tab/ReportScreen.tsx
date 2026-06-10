@@ -208,6 +208,12 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
   const [exportNoticeOpen, setExportNoticeOpen] = useState(false);
   const [docxExporting, setDocxExporting] = useState(false);
   const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
+  const [agentFailureMessage, setAgentFailureMessage] = useState('');
+
+  const showAgentFailure = (target: AgentFailureTarget, error?: unknown) => {
+    setAgentFailureTarget(target);
+    setAgentFailureMessage(getAgentFailureMessage(target, error));
+  };
 
   const showReportDraft = (draft: ReportDraft) => {
     setReportProgress(100);
@@ -230,10 +236,10 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
         || readReportDraftFromDetail(await getReportDetail(projectId, usageStatementId));
       if (!isReportDraft(reportDraft)) throw new Error('보고서 Agent 응답에 reportDraft가 없습니다.');
       showReportDraft(reportDraft);
-    } catch {
+    } catch (error) {
       setReportStatus('idle');
       setReportProgress(0);
-      setAgentFailureTarget('server-request');
+      showAgentFailure('server-request', error);
     }
   };
 
@@ -262,8 +268,8 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
       link.remove();
       window.URL.revokeObjectURL(url);
       setExportNoticeOpen(true);
-    } catch {
-      setAgentFailureTarget('server-request');
+    } catch (error) {
+      showAgentFailure('server-request', error);
     } finally {
       setDocxExporting(false);
     }
@@ -461,7 +467,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     {reportStatus === 'done' && renderReportEditor()}
 
     <CenterModal open={exportNoticeOpen} title="DOCX 추출" body="편집된 보고서를 DOCX 파일로 생성했습니다." actionLabel="확인" onAction={() => setExportNoticeOpen(false)} />
-    <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
+    <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureMessage} actionLabel="확인" onAction={() => { setAgentFailureTarget(null); setAgentFailureMessage(''); }} />
   </div>;
 };
 

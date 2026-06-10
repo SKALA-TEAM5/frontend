@@ -411,11 +411,16 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const [orchestratorTodoItems, setOrchestratorTodoItems] = useState<UsageDetailTodoItem[]>([]);
     const [visionValidationByFileId, setVisionValidationByFileId] = useState<Record<string, VisionValidationResult>>({});
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
+    const [agentFailureMessage, setAgentFailureMessage] = useState('');
     const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
     const [addUsageItemModalOpen, setAddUsageItemModalOpen] = useState(false);
     const [addUsageItemDraft, setAddUsageItemDraft] = useState<AddUsageItemDraft>({ name: '', date: new Date().toISOString().slice(0, 10), unit: 'EA', quantity: '1', unitPrice: '' });
     const [addUsageItemError, setAddUsageItemError] = useState('');
     const [classiAgentRunning, setClassiAgentRunning] = useState(false);
+    const showAgentFailure = (target: AgentFailureTarget, error?: unknown) => {
+        setAgentFailureTarget(target);
+        setAgentFailureMessage(getAgentFailureMessage(target, error));
+    };
     const [classificationMoveNotices, setClassificationMoveNotices] = useState<ClassificationMoveNotice[]>([]);
     const [todoSidebarOpen, setTodoSidebarOpen] = useState(false);
     const [todoSidebarPinned, setTodoSidebarPinned] = useState(false);
@@ -1111,7 +1116,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         if (photoValidationStatus === 'running')
             return;
         if (!usageStatementId) {
-            setAgentFailureTarget('photo-validation');
+            showAgentFailure('photo-validation');
             return;
         }
         setPhotoValidationNotice(null);
@@ -1125,9 +1130,9 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             applyVisionValidationResults(nextTodos, nextVisionResults);
             setPhotoValidationStatus('done');
             setPhotoValidationNotice({ type: 'ok', message: 'Vision 실행 결과가 저장되었습니다.' });
-        } catch {
+        } catch (error) {
             setPhotoValidationStatus('idle');
-            setPhotoValidationNotice({ type: 'bad', message: 'Vision 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.' });
+            setPhotoValidationNotice({ type: 'bad', message: getAgentFailureMessage('photo-validation', error) });
         }
     };
     const waitForVerificationStep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1135,7 +1140,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         if (usageDetailVerificationRunning)
             return;
         if (!usageStatementId) {
-            setAgentFailureTarget('evidence-matching');
+            showAgentFailure('evidence-matching');
             return;
         }
         setUsageDetailVerificationStep('ocr');
@@ -1336,7 +1341,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             <button type="button" onClick={() => void runUsageDetailVerification()} disabled={usageDetailVerificationRunning} style={{ height: 40, border: `1px solid ${usageDetailVerificationDone ? C.primary : C.g800}`, borderRadius: 999, background: usageDetailVerificationDone ? C.bg : C.white, color: usageDetailVerificationDone ? C.primary : C.g800, cursor: usageDetailVerificationRunning ? 'wait' : 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{usageDetailVerificationLabel}</button>
           </div>
         </div>
-        <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureTarget ? getAgentFailureMessage(agentFailureTarget) : ''} actionLabel="확인" onAction={() => setAgentFailureTarget(null)} />
+        <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureMessage} actionLabel="확인" onAction={() => { setAgentFailureTarget(null); setAgentFailureMessage(''); }} />
         {matchingError && (
           <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
