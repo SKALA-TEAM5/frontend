@@ -395,6 +395,7 @@ const toNounPhraseDetail = (value?: string) => {
         .trim();
 };
 const isApiStatus = (error: unknown, status: number) => error instanceof ApiClientError && error.status === status;
+const isClientApiError = (error: unknown) => error instanceof ApiClientError && error.status >= 400 && error.status < 500;
 export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onVerificationComplete, onBackToOverview, uploadCompleteAction }: UsageStatementDetailScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(usageDetailSeed || createDefaultArchiveData()));
@@ -1106,6 +1107,11 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                     : 'Safety Doc Agent 실행 API가 아직 구현되지 않아 표시할 필수 증빙 결과가 없습니다.');
                 return;
             }
+            if (isClientApiError(error)) {
+                setMatchingStatus('idle');
+                setMatchingError(getAgentFailureMessage('evidence-matching', error));
+                return;
+            }
             const storedRequiredEvidence = await loadStoredRequirements();
             setMatchingStatus('done');
             setMatchingNotice(Object.keys(storedRequiredEvidence).length
@@ -1151,13 +1157,12 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setMatchingNotice('');
         setPhotoValidationNotice(null);
         try {
-            const reviewTask = runEvidenceReviewAgent(projectId, usageStatementId);
+            await runEvidenceReviewAgent(projectId, usageStatementId);
             await waitForVerificationStep(1800);
             setUsageDetailVerificationStep('safety');
             await waitForVerificationStep(2100);
             setUsageDetailVerificationStep('vision');
             await waitForVerificationStep(2100);
-            await reviewTask;
             await waitForAgentButtonEnabled(projectId, usageStatementId, 'validate');
             const [nextTodos, nextVisionResults] = await Promise.all([
                 refreshOrchestratorStatusTodos(),
@@ -1169,17 +1174,11 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setMatchingNotice('증빙 유효성 검증 결과를 보완 TODO에 반영했습니다.');
             setPhotoValidationNotice({ type: 'ok', message: '현장사진 검증 결과를 확인했습니다.' });
             await onVerificationComplete?.();
-        } catch {
-            await Promise.allSettled([
-                runSafetyDocMatching(),
-                runVisionPhotoValidation(),
-            ]);
-            const [nextTodos, nextVisionResults] = await Promise.all([
-                refreshOrchestratorStatusTodos(),
-                refreshVisionValidationResults(),
-            ]);
-            applyVisionValidationResults(nextTodos, nextVisionResults);
-            await onVerificationComplete?.();
+        } catch (error) {
+            setMatchingStatus('idle');
+            setPhotoValidationStatus('idle');
+            setMatchingError(getAgentFailureMessage('evidence-matching', error));
+            setPhotoValidationNotice({ type: 'bad', message: getAgentFailureMessage('photo-validation', error) });
         } finally {
             setUsageDetailVerificationStep(null);
         }

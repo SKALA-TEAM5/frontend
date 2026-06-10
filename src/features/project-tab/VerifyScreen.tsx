@@ -6,6 +6,7 @@ import CenterModal from '../../components/ui/CenterModal';
 import InlineLoader from '../../components/ui/InlineLoader';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { getLatestValidation, getLegalDetail, getValidationStatus, runLegalAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
+import { ApiClientError } from '../../lib/api-client';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
 import { AGENT_LOG_STATUS } from '../../lib/project-data';
@@ -215,6 +216,15 @@ const unwrapValidationPayload = (source: unknown): unknown => {
 
 const extractValidationId = (source: unknown) =>
   readNestedStringField(source, ['validationId', 'validation_id', 'id', 'runId', 'run_id']);
+
+const hasLegalRunSummary = (source: unknown) => {
+  const payload = unwrapValidationPayload(source);
+  return Boolean(
+    readNestedStringField(payload, ['resultCode', 'result_code'])
+    || readNestedStringField(payload, ['statusCode', 'status_code', 'status'])
+    || readNestedStringField(payload, ['reason', 'message']),
+  );
+};
 
 const extractValidationRunState = (source: unknown): ValidationRunState => {
   const rawStatus = readNestedStringField(source, ['status', 'statusCode', 'status_code', 'state', 'resultCode', 'result_code']).toLowerCase();
@@ -474,7 +484,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
         ? await getLegalDetail(projectId, usageStatementId).catch(() => null)
         : null;
       if (legalDetail) return legalDetail;
-      if (initialStatus === 'done') return getLatestValidation(projectId).catch(() => null);
+      if (!usageStatementId && initialStatus === 'done') return getLatestValidation(projectId).catch(() => null);
       return null;
     };
     loadExistingLegalResult()
@@ -483,7 +493,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
         const latestResult = normalizeValidationResult(existingResult);
         const resultToShow = latestResult.categories.length > 0
           ? latestResult
-          : existingResult
+          : existingResult && hasLegalRunSummary(existingResult)
             ? buildLegalRunFallbackResult(existingResult, usageStatementId)
             : EMPTY_VALIDATION_RESULT;
         if (resultToShow.categories.length === 0) {
@@ -509,7 +519,10 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
   }, [initialStatus, projectId, usageStatementId]);
 
   const handleVerify = async () => {
-    if (!canStartValidation) return;
+    if (!canStartValidation) {
+      showAgentFailure('legal-validation', new ApiClientError(400, validationDisabledReason || '법령 검증 실행 조건을 먼저 충족해야 합니다.'));
+      return;
+    }
     const loadDetailedResult = async (nextValidationId?: string) => {
       if (!projectId) return EMPTY_VALIDATION_RESULT;
       if (usageStatementId) {
@@ -521,6 +534,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
         ? normalizeValidationResult(await getValidationStatus(projectId, nextValidationId).catch(() => null))
         : EMPTY_VALIDATION_RESULT;
       if (statusResult.categories.length > 0) return statusResult;
+      if (usageStatementId) return EMPTY_VALIDATION_RESULT;
       return normalizeValidationResult(await getLatestValidation(projectId).catch(() => null));
     };
     const waitForCompletedLegalResult = async (nextValidationId?: string) => {
