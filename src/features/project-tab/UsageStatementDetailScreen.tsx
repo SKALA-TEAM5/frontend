@@ -9,7 +9,7 @@ import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
 import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
-import { getOrchestratorStatus, getVisionValidationResults, listSafeLeeEvidenceRequirements, runEvidenceReviewAgent, safeLeeRequirementsToMap, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
+import { getOrchestratorStatus, getVisionValidationResults, listSafeLeeEvidenceRequirements, runEvidenceReviewAgent, safeLeeRequirementsToMap, waitForAgentButtonEnabled, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 type UsageDetailValidationStatus = 'idle' | 'running' | 'done';
@@ -1090,6 +1090,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setMatchingNotice('');
         try {
             await runEvidenceReviewAgent(projectId, usageStatementId);
+            await waitForAgentButtonEnabled(projectId, usageStatementId, 'validate');
             const agentRequiredEvidence = await loadStoredRequirements();
             setRequiredEvidenceByLine(agentRequiredEvidence);
             setMatchingStatus('done');
@@ -1123,6 +1124,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setPhotoValidationStatus('running');
         try {
             await runEvidenceReviewAgent(projectId, usageStatementId);
+            await waitForAgentButtonEnabled(projectId, usageStatementId, 'validate');
             const [nextTodos, nextVisionResults] = await Promise.all([
                 refreshOrchestratorStatusTodos(),
                 refreshVisionValidationResults(),
@@ -1156,6 +1158,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setUsageDetailVerificationStep('vision');
             await waitForVerificationStep(2100);
             await reviewTask;
+            await waitForAgentButtonEnabled(projectId, usageStatementId, 'validate');
             const [nextTodos, nextVisionResults] = await Promise.all([
                 refreshOrchestratorStatusTodos(),
                 refreshVisionValidationResults(),

@@ -15,7 +15,7 @@ import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectMa
 import { getProject, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
 import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
-import { getOrchestratorStatus, parseUsageStatementWithOcr, type OrchestratorTodo } from '../../../lib/agent-api';
+import { getAgentButtonStates, getOrchestratorStatus, isAgentStageRunning, parseUsageStatementWithOcr, waitForAgentButtonEnabled, type AgentButtonStage, type OrchestratorTodo } from '../../../lib/agent-api';
 import { can } from '../../../lib/permissions';
 import { useCurrentUser } from '../../../lib/dev-user';
 import UsageStatementDetailScreen from '../../../features/project-tab/UsageStatementDetailScreen';
@@ -783,6 +783,30 @@ function ProjectDetailPageContent() {
             };
         });
     };
+    useEffect(() => {
+        const usageStatementId = selectedStatementArchive?.usageStatementId;
+        if (!project.id || !usageStatementId)
+            return;
+        let cancelled = false;
+        const pollRunningAgent = async () => {
+            const states = await getAgentButtonStates(project.id, usageStatementId).catch(() => null);
+            if (!states || cancelled)
+                return;
+            const runningStage = (['report', 'legal', 'validate'] as AgentButtonStage[])
+                .find((stage) => isAgentStageRunning(states, stage));
+            if (!runningStage)
+                return;
+            await waitForAgentButtonEnabled(project.id, usageStatementId, runningStage).catch(() => null);
+            if (cancelled)
+                return;
+            await refreshSelectedAgentButtonState();
+            await refreshArchiveData(project.id);
+        };
+        void pollRunningAgent();
+        return () => {
+            cancelled = true;
+        };
+    }, [project.id, selectedStatement.month, selectedStatementArchive?.usageStatementId]);
     const flashUploadCompleteFeedback = () => {
         if (uploadCompleteFeedbackTimerRef.current) {
             window.clearTimeout(uploadCompleteFeedbackTimerRef.current);
