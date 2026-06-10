@@ -159,6 +159,7 @@ const reportGateCardStyle: CSSProperties = {
   gap: 8,
   margin: '14px 0 0',
   width: 'min(100%, 680px)',
+  justifySelf: 'center',
   textAlign: 'left',
 };
 
@@ -449,7 +450,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
         <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}><div style={{ height: '100%', width: `${reportProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} /></div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{REPORT_STEPS.map((step, index) => <span key={step} style={{ fontSize: 11, fontWeight: 800, color: reportProgress >= ((index + 1) * 100) / REPORT_STEPS.length ? C.primary : C.g400, background: C.g100, borderRadius: 999, padding: '5px 9px' }}>{step}</span>)}</div>
       </div>}
-      {renderReportGate()}
+      <div style={{ display: 'grid' }}>{renderReportGate()}</div>
     </Card>
 
     {validationComplete && reportStatus === 'idle' && <Card style={{ padding: '22px 24px', marginBottom: 18, background: '#F7F8FA', boxShadow: 'none', border: `1px solid ${C.g200}` }}>
