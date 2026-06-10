@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from '../../components/ui/Modal';
-import FileThumb from '../../components/ui/FileThumb';
+import FileThumb, { AuthenticatedPreviewImage } from '../../components/ui/FileThumb';
 import { calculateUsageLineAmount, fmt, isImageFile, makeThumbSvg, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import { C } from '../../lib/theme';
 import type { EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
@@ -245,7 +245,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
         <div onClick={(event) => event.stopPropagation()} style={{ width: 'min(560px, 72%)', border: `1px solid ${C.g200}`, borderRadius: 16, background: C.white, boxShadow: '0 22px 52px rgba(31,47,39,.22)', padding: 16 }}>
           <div style={{ position: 'relative', border: `1px solid ${C.g100}`, borderRadius: 12, overflow: 'hidden', background: C.g100, minHeight: 260, display: 'grid', placeItems: 'center' }}>
             {canShowImagePreview ? (
-              <img src={previewSrc} alt={previewTarget.name} style={{ width: '100%', maxHeight: 360, objectFit: 'contain', display: 'block' }} />
+              <AuthenticatedPreviewImage src={previewTarget.previewUrl} fallbackSrc={previewSrc} alt={previewTarget.name} style={{ width: '100%', maxHeight: 360, objectFit: 'contain', display: 'block' }} />
             ) : (
               <div style={{ minHeight: 260, display: 'grid', placeItems: 'center' }}>
                 <FileThumb entry={previewTarget} size={104} />
