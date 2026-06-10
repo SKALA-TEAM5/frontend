@@ -227,9 +227,14 @@ const extractValidationRunState = (source: unknown): ValidationRunState => {
 
 const normalizeDecision = (value: string): ValidationDecision => {
   const normalized = value.toLowerCase();
-  if (['inappropriate', 'invalid', 'rejected', 'fail', 'failed', 'ng', '부적정'].includes(normalized)) return 'inappropriate';
-  if (['conditional', 'partial', 'warning', 'warn', '조건부'].includes(normalized)) return 'conditional';
+  if (['inappropriate', 'invalid', 'rejected', 'fail', 'failed', 'ng', '부적정', '부적절'].includes(normalized)) return 'inappropriate';
+  if (['conditional', 'partial', 'warning', 'warn', '조건부', '검토필요', '검토 필요'].includes(normalized)) return 'conditional';
   return 'appropriate';
+};
+
+const categoryCodeToId = (value: string) => {
+  const parsed = Number(value.replace(/[^\d]/g, ''));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 };
 
 const normalizeRiskLevel = (value: string): ValidationRiskLevel => {
@@ -312,11 +317,9 @@ const normalizeValidationResult = (source: unknown): ValidationDashboardResult =
   const payload = unwrapValidationPayload(source);
   const categorySources = readArrayField(payload, ['categories', 'categoryResults', 'category_results', 'items', 'results', 'validations']);
   const categories = categorySources.map((item, index): CategoryValidationResult => {
-    const categoryId = readNumberField(item, ['categoryId', 'category_id', 'categoryTypeId', 'category_type_id']) || index + 1;
+    const categoryCode = readStringField(item, ['categoryCode', 'category_code', 'code']);
+    const categoryId = readNumberField(item, ['categoryId', 'category_id', 'categoryTypeId', 'category_type_id']) || categoryCodeToId(categoryCode) || index + 1;
     const categoryName = readStringField(item, ['categoryName', 'category_name', 'name', 'title']) || CATS.find((cat) => cat.id === categoryId)?.label || `항목 ${index + 1}`;
-    const usageAmount = readNumberField(item, ['usageAmount', 'usage_amount', 'amount', 'usedAmount', 'used_amount']);
-    const recognizedAmount = readNumberField(item, ['recognizedAmount', 'recognized_amount', 'approvedAmount', 'approved_amount', 'validAmount', 'valid_amount']);
-    const disputedAmount = readNumberField(item, ['disputedAmount', 'disputed_amount', 'issueAmount', 'issue_amount', 'invalidAmount', 'invalid_amount']);
     const decision = normalizeDecision(readStringField(item, ['decision', 'result', 'resultCode', 'result_code', 'status']));
     const legalBasis = normalizeLegalBasis(readArrayField(item, ['legalBasis', 'legal_basis', 'basis', 'laws']));
     const issues = normalizeValidationIssues(readArrayField(item, ['issues', 'validationIssues', 'validation_issues', 'problems']));
@@ -326,6 +329,12 @@ const normalizeValidationResult = (source: unknown): ValidationDashboardResult =
       categoryLegalBasis: legalBasis,
       categoryIssues: issues,
     });
+    const usageAmount = readNumberField(item, ['usageAmount', 'usage_amount', 'amount', 'usedAmount', 'used_amount'])
+      || validationItems.reduce((total, detail) => total + detail.amount, 0);
+    const recognizedAmount = readNumberField(item, ['recognizedAmount', 'recognized_amount', 'approvedAmount', 'approved_amount', 'validAmount', 'valid_amount'])
+      || validationItems.reduce((total, detail) => total + detail.recognizedAmount, 0);
+    const disputedAmount = readNumberField(item, ['disputedAmount', 'disputed_amount', 'issueAmount', 'issue_amount', 'invalidAmount', 'invalid_amount'])
+      || validationItems.reduce((total, detail) => total + detail.disputedAmount, 0);
     return {
       categoryId,
       categoryName,
