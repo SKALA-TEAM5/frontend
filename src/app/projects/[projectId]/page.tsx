@@ -478,6 +478,7 @@ function ProjectDetailPageContent() {
                 ...current,
                 hasUploads: latestData.statementSummary.evidenceCount > 0 || Boolean(latestData.statementSummary.sourceFileName && latestData.statementSummary.sourceFileName !== '-'),
                 accumulatedAmount: latestData.statementSummary.cumulativeAmount,
+                usageRate: calculateUsageRateText(latestData.statementSummary.cumulativeAmount, current.plannedAmount),
             }, latestWorkflowStatus, latestActionRequestDetails));
             return;
         }
@@ -1037,6 +1038,7 @@ function ProjectDetailPageContent() {
                 plannedAmount: savedProject.plannedAmount,
                 projectStatusCode: savedProject.projectStatusCode,
                 progressRate: projectInfoDraft.progressRate,
+                usageRate: calculateUsageRateText(current.accumulatedAmount, savedProject.plannedAmount),
                 recentActivity: savedProject.recentActivity,
             }));
             setProjectInfoModalOpen(false);
@@ -1267,6 +1269,14 @@ function ProjectDetailPageContent() {
     const parseCurrencyValue = (value: string) => {
         const numeric = Number(String(value || '').replace(/[^\d]/g, ''));
         return Number.isFinite(numeric) ? numeric : 0;
+    };
+    const calculateUsageRateText = (accumulatedAmount?: string | number | null, plannedAmount?: string | number | null) => {
+        const used = parseCurrencyValue(String(accumulatedAmount || ''));
+        const planned = parseCurrencyValue(String(plannedAmount || ''));
+        if (planned <= 0)
+            return '0%';
+        const rate = Math.min(100, Math.round((used / planned) * 1000) / 10);
+        return `${rate}%`;
     };
     const editableUsageRows = overviewUsageRows.filter(([item]) => item !== '계');
     const monthlyUsageTotal = editableUsageRows.reduce((sum, [, , current]) => sum + parseCurrencyValue(current), 0);
