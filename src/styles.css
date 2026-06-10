@@ -328,9 +328,7 @@
     min-width: 0;
     overflow-x: hidden;
     min-height: calc(100vh - 64px);
-    background:
-      radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--c-bg) 54%, transparent) 0, transparent 32%),
-      linear-gradient(135deg, color-mix(in srgb, #fff 82%, var(--c-bg)) 0%, color-mix(in srgb, var(--c-soft) 88%, var(--c-bg)) 100%);
+    background: transparent;
   }
   .app-main.dashboard-main {
     width: 100vw;
@@ -348,9 +346,7 @@
     max-width: 1360px;
     padding-left: clamp(52px, 4vw, 72px);
     padding-right: clamp(52px, 4vw, 72px);
-    background:
-      radial-gradient(circle at 10% 2%, color-mix(in srgb, var(--c-bg) 58%, transparent) 0, transparent 34%),
-      linear-gradient(135deg, color-mix(in srgb, #fff 84%, var(--c-bg)) 0%, color-mix(in srgb, var(--c-soft) 88%, var(--c-bg)) 100%);
+    background: transparent;
   }
   .interactive-card {
     transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease;
@@ -374,6 +370,7 @@
     padding: 18px 44px 28px;
     border-top: 1px solid var(--c-g100);
     color: var(--c-g400);
+    background: transparent;
     font-size: 12px;
     font-weight: 700;
     display: flex;
@@ -386,8 +383,7 @@
     max-width: none;
     padding-left: max(40px, calc((100vw - 1240px) / 2));
     padding-right: max(40px, calc((100vw - 1240px) / 2));
-    background: var(--dashboard-surface-bg);
-    background-attachment: fixed;
+    background: transparent;
   }
   .app-footer.project-detail-main-footer {
     width: min(1360px, 100vw);

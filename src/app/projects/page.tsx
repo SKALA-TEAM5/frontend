@@ -215,6 +215,18 @@ function ProjectsPageContent() {
   }, [loadProjects]);
 
   useEffect(() => {
+    const refresh = () => {
+      loadProjects();
+    };
+    window.addEventListener('focus', refresh);
+    window.addEventListener('pageshow', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('pageshow', refresh);
+    };
+  }, [loadProjects]);
+
+  useEffect(() => {
     listProjectManagerCandidates()
       .then(setManagerCandidates)
       .catch(() => setManagerCandidates([]));
