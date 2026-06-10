@@ -1,6 +1,8 @@
 import { API_BASE_URL } from './api-client';
 
-export type ChatbotEventType = 'session_id' | 'session_reset' | 'status' | 'intent' | 'token' | 'sources' | 'error';
+const CHATBOT_EVENT_TYPES = ['session_id', 'intent', 'token', 'sources', 'error'] as const;
+
+export type ChatbotEventType = (typeof CHATBOT_EVENT_TYPES)[number];
 
 export interface ChatbotStreamEvent {
   type: ChatbotEventType;
@@ -26,8 +28,8 @@ const parseSsePayload = (line: string): ChatbotStreamEvent | null => {
 
   try {
     const parsed = JSON.parse(payload) as Partial<ChatbotStreamEvent>;
-    if (!parsed.type) return null;
-    return { type: parsed.type as ChatbotEventType, value: parsed.value };
+    if (!CHATBOT_EVENT_TYPES.some((type) => type === parsed.type)) return null;
+    return { type: parsed.type, value: parsed.value };
   } catch {
     return null;
   }

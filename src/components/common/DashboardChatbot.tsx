@@ -8,6 +8,7 @@ type ChatMessage = {
   id: string;
   role: 'assistant' | 'user';
   text: string;
+  intent?: string;
   sources?: string[];
 };
 
@@ -77,7 +78,6 @@ export default function DashboardChatbot() {
   const [input, setInput] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
-  const [status, setStatus] = useState('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const assistantMessageIdRef = useRef<string | null>(null);
@@ -88,7 +88,7 @@ export default function DashboardChatbot() {
   useEffect(() => {
     if (!open) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, status, open]);
+  }, [messages, open]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -98,17 +98,20 @@ export default function DashboardChatbot() {
       return;
     }
 
-    if (event.type === 'status' && typeof event.value === 'string') {
-      setStatus(event.value);
-      return;
-    }
-
     if (event.type === 'token' && typeof event.value === 'string') {
-      setStatus('');
       const targetId = assistantMessageIdRef.current;
       if (!targetId) return;
       setMessages((current) =>
         current.map((message) => (message.id === targetId ? { ...message, text: message.text + event.value } : message)),
+      );
+      return;
+    }
+
+    if (event.type === 'intent' && typeof event.value === 'string') {
+      const targetId = assistantMessageIdRef.current;
+      if (!targetId) return;
+      setMessages((current) =>
+        current.map((message) => (message.id === targetId ? { ...message, intent: event.value as string } : message)),
       );
       return;
     }
@@ -123,15 +126,8 @@ export default function DashboardChatbot() {
       return;
     }
 
-    if (event.type === 'session_reset' && typeof event.value === 'string') {
-      const text = event.value;
-      setMessages((current) => [...current, { id: `reset-${Date.now()}`, role: 'assistant', text }]);
-      return;
-    }
-
     if (event.type === 'error' && typeof event.value === 'string') {
       const text = event.value;
-      setStatus('');
       const targetId = assistantMessageIdRef.current;
       if (!targetId) {
         setMessages((current) => [...current, { id: `error-${Date.now()}`, role: 'assistant', text }]);
@@ -161,7 +157,6 @@ export default function DashboardChatbot() {
     ]);
     setInput('');
     setStreaming(true);
-    setStatus('질문을 전달하는 중...');
 
     try {
       await streamChat({
@@ -182,7 +177,6 @@ export default function DashboardChatbot() {
       );
     } finally {
       setStreaming(false);
-      setStatus('');
       assistantMessageIdRef.current = null;
     }
   };
@@ -191,14 +185,12 @@ export default function DashboardChatbot() {
     abortRef.current?.abort();
     setOpen(false);
     setStreaming(false);
-    setStatus('');
   };
 
   const startNewChat = () => {
     abortRef.current?.abort();
     setSessionId(null);
     setStreaming(false);
-    setStatus('');
     setMessages([{ id: `greeting-${Date.now()}`, role: 'assistant', text: assistantGreeting }]);
   };
 
@@ -289,6 +281,13 @@ export default function DashboardChatbot() {
                       overflowWrap: 'anywhere',
                     }}
                   >
+                    {message.role === 'assistant' && message.intent && (
+                      <div style={{ marginBottom: 8, display: 'flex' }}>
+                        <span style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, padding: '3px 8px', fontSize: 11, fontWeight: 900, lineHeight: 1.2 }}>
+                          {message.intent}
+                        </span>
+                      </div>
+                    )}
                     {message.text || (message.role === 'assistant' && streaming ? '...' : '')}
                     {message.sources && message.sources.length > 0 && (
                       <div style={{ marginTop: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -312,11 +311,6 @@ export default function DashboardChatbot() {
                   </div>
                 </div>
               ))}
-              {status && (
-                <div style={{ marginLeft: 44, color: C.g500, fontSize: 12, fontWeight: 800 }}>
-                  {status}
-                </div>
-              )}
             </div>
           </div>
 
