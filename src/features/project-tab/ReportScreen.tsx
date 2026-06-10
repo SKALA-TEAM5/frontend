@@ -4,7 +4,7 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { getReportDetail, runReportAgent } from '../../lib/agent-api';
+import { getReportDetail, runReportAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
 import type { ReportDraft } from '../../lib/report-draft';
 import { C } from '../../lib/theme';
 
@@ -107,6 +107,7 @@ const isReportDraft = (value: unknown): value is ReportDraft => {
 const asRecord = (value: unknown) => value && typeof value === 'object' ? value as Record<string, unknown> : {};
 
 const readReportDraftFromAgentResponse = (response: Awaited<ReturnType<typeof runReportAgent>>) => {
+  if (!response) return null;
   const result = asRecord(response.result);
   const report = asRecord(result.report);
   const reportNested = asRecord(report.result);
@@ -232,6 +233,11 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
       setReportStatus('generating');
       setReportProgress(25);
       const response = await runReportAgent(projectId, usageStatementId);
+      setReportProgress(55);
+      await waitForAgentButtonEnabled(projectId, usageStatementId, 'report', {
+        onPoll: () => setReportProgress((current) => Math.min(current + 8, 88)),
+      });
+      setReportProgress(92);
       const reportDraft = readReportDraftFromAgentResponse(response)
         || readReportDraftFromDetail(await getReportDetail(projectId, usageStatementId));
       if (!isReportDraft(reportDraft)) throw new Error('보고서 Agent 응답에 reportDraft가 없습니다.');

@@ -1,4 +1,4 @@
-import { apiFetch } from './api-client';
+import { ApiClientError, apiFetch } from './api-client';
 import { backendEvidenceTypeToCategory } from './archive-api';
 import type { AgentLogStatusCode } from './project-data';
 import type { FolderEvidenceCategory } from '../types/domain';
@@ -128,16 +128,18 @@ interface AgentTodoListResponse {
   legal?: AgentTodoEntryResponse | null;
 }
 
-interface AgentButtonStateResponse {
+export interface AgentButtonStateResponse {
   enabled?: boolean;
   reason?: string | null;
 }
 
-interface AgentButtonStatesResponse {
+export interface AgentButtonStatesResponse {
   validate?: AgentButtonStateResponse;
   legal?: AgentButtonStateResponse;
   report?: AgentButtonStateResponse;
 }
+
+export type AgentButtonStage = keyof AgentButtonStatesResponse;
 
 interface AgentWarningResponse {
   agentTypeCode?: string | null;
@@ -338,7 +340,7 @@ type EvidenceRequirementRecord = {
 };
 
 export const runReportAgent = async (projectId: string, usageStatementId: number) => {
-  const response = await apiFetch<AgentRunResponse>(`/projects/${projectId}/agents/report`, {
+  const response = await apiFetch<AgentRunResponse | null>(`/projects/${projectId}/agents/report`, {
     method: 'POST',
     body: { usageStatementId },
   });
@@ -382,7 +384,7 @@ export const runValidationAgent = async (projectId: string, usageStatementId: nu
 };
 
 export const runEvidenceReviewAgent = async (projectId: string, usageStatementId: number) => {
-  const response = await apiFetch<void>(`/projects/${projectId}/agents/validate`, {
+  const response = await apiFetch<null>(`/projects/${projectId}/agents/validate`, {
     method: 'POST',
     body: { usageStatementId },
   });
@@ -390,11 +392,50 @@ export const runEvidenceReviewAgent = async (projectId: string, usageStatementId
 };
 
 export const runLegalAgent = async (projectId: string, usageStatementId: number) => {
-  const response = await apiFetch<AgentRunResponse>(`/projects/${projectId}/agents/legal`, {
+  const response = await apiFetch<AgentRunResponse | null>(`/projects/${projectId}/agents/legal`, {
     method: 'POST',
     body: { usageStatementId },
   });
   return response.data;
+};
+
+export const getAgentButtonStates = async (projectId: string, usageStatementId: number) => {
+  const response = await apiFetch<AgentButtonStatesResponse>(
+    `/projects/${projectId}/agents/button-states?usageStatementId=${usageStatementId}`,
+  );
+  return response.data || {};
+};
+
+const isRunningReason = (reason?: string | null) => String(reason || '').includes('현재 실행 중');
+
+export const isAgentStageRunning = (buttonStates: AgentButtonStatesResponse, stage: AgentButtonStage) => {
+  const state = buttonStates[stage];
+  return state?.enabled === false && isRunningReason(state.reason);
+};
+
+export const waitForAgentButtonEnabled = async (
+  projectId: string,
+  usageStatementId: number,
+  stage: AgentButtonStage,
+  options: { intervalMs?: number; maxAttempts?: number; onPoll?: (states: AgentButtonStatesResponse) => void } = {},
+) => {
+  const intervalMs = options.intervalMs ?? 3000;
+  const maxAttempts = options.maxAttempts ?? 310;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const states = await getAgentButtonStates(projectId, usageStatementId);
+    options.onPoll?.(states);
+    const state = states[stage];
+    if (state?.enabled) {
+      return states;
+    }
+    if (state?.enabled === false && state.reason && !isRunningReason(state.reason)) {
+      throw new ApiClientError(400, state.reason);
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
+  }
+
+  throw new ApiClientError(409, '현재 실행 중입니다. 잠시 후 다시 확인해 주세요.');
 };
 
 const normalizeAgentTypeCode = (value?: string | null) => String(value || '').replace(/[_\s]/g, '-').toLowerCase();

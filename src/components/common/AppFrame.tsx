@@ -8,6 +8,7 @@ import { AUTH_EXPIRED_EVENT } from '../../lib/api-client';
 import { useCurrentUser } from '../../lib/dev-user';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { APP_THEMES, C, useAppTheme, type AppThemeId } from '../../lib/theme';
+import DashboardChatbot from './DashboardChatbot';
 
 interface AppFrameProps {
   title: string;
@@ -283,6 +284,7 @@ export default function AppFrame({ description, actions, mainClassName, children
           <span>v1.0.0</span>
         </div>
       </footer>
+      <DashboardChatbot />
     </div>
   );
 }
