@@ -13,7 +13,8 @@ import { listUsageStatementArchives } from '../../lib/archive-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { getDashboardAiUsage, getDashboardSummary, type DashboardAiUsageResponse, type DashboardSummaryResponse } from '../../lib/dashboard-api';
-import { listProjects } from '../../lib/project-api';
+import { getProject, listProjects } from '../../lib/project-api';
+import { calculateProjectUsageRate } from '../../lib/project-usage-rate';
 
 const FALLBACK_ACTION_ASSIGNEE = '프로젝트 담당자';
 const ALL_REASON_PROJECTS = 'all';
@@ -116,7 +117,12 @@ const getProjectAssigneeLabel = (project: ProjectSummary) => {
 const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<ProjectSummary> => {
   const assigneeLabel = getProjectAssigneeLabel(project);
   try {
-    const archives = await listUsageStatementArchives(project.id);
+    const [archives, detail] = await Promise.all([
+      listUsageStatementArchives(project.id),
+      getProject(project.id).catch(() => null),
+    ]);
+    const projectWithDetail = detail ? { ...project, plannedAmount: detail.plannedAmount } : project;
+    const usageRate = calculateProjectUsageRate(projectWithDetail, archives);
     const hasReviewNeededArchive = archives.some((archive) => isLegalReviewWorkflow(archive.workflowStatus));
     for (const archive of archives) {
       const month = normalizeMonthKey(archive.statementSummary.month);
@@ -124,6 +130,7 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
       if (archiveWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) {
         return {
           ...project,
+          usageRate,
           hasLegalReviewNeededMonth: true,
           hasActionRequest: true,
           actionRequestDetails: {
@@ -145,6 +152,7 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
     }
     return {
       ...project,
+      usageRate,
       hasLegalReviewNeededMonth: hasReviewNeededArchive || isLegalReviewWorkflow(project.latestUsageStatementStatusCode),
       hasActionRequest: false,
       actionRequestDetails: undefined,
@@ -301,7 +309,7 @@ const dashboardContentLayerStyle: CSSProperties = {
 
 const dashboardTopInnerStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
+  gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 300px)',
   gap: 20,
   alignItems: 'stretch',
   width: '100%',
@@ -852,7 +860,7 @@ export default function DashboardPage() {
             </div>
           </Card>
 
-          <div className="dashboard-analysis-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, minWidth: 0 }}>
+          <div className="dashboard-analysis-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.45fr) minmax(260px, .72fr)', gap: 16, minWidth: 0 }}>
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 20 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
@@ -1032,9 +1040,9 @@ export default function DashboardPage() {
                           <span style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.user}</span>
                           {row.role && <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: C.g500 }}>{row.role}</span>}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>
-                          <span>{row.tokens.toLocaleString('ko-KR')} tokens</span>
-                          <span>· {row.calls}회</span>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span style={{ whiteSpace: 'nowrap' }}>{row.tokens.toLocaleString('ko-KR')} tokens</span>
+                          <span style={{ whiteSpace: 'nowrap' }}>· {row.calls}회</span>
                         </div>
                       </div>
                       <div style={{ display: 'inline-flex', alignItems: 'baseline', justifyContent: 'flex-end', gap: 2, fontSize: 14, fontWeight: 700, color: C.g800, textAlign: 'right', whiteSpace: 'nowrap' }}>
