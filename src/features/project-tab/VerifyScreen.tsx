@@ -583,18 +583,17 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
   const handleSupplementRequest = async () => {
     if (!can(user, 'requestAction')) return;
     if (!supplementEntries.length && !reviewRequiredCategories.length) return;
-    const firstIssue = supplementEntries[0];
     const firstReviewCategory = reviewRequiredCategories[0];
-    const reason = firstIssue
-      ? `${firstIssue.categoryName} 항목에서 ${firstIssue.title} 문제가 있습니다. ${firstIssue.requiredAction}`
+    const reason = supplementEntries.length > 0
+      ? supplementEntries.map((issue, index) => `${index + 1}. ${issue.categoryName} 항목의 ${issue.title}: ${issue.requiredAction}`).join('\n')
       : firstReviewCategory
-        ? `${firstReviewCategory.categoryName} 항목의 법령 검증 결과가 ${decisionMeta[firstReviewCategory.decision].label}입니다. 제출 자료를 다시 확인해 주세요.`
+        ? `1. ${firstReviewCategory.categoryName} 항목의 법령 검증 결과가 ${decisionMeta[firstReviewCategory.decision].label}입니다. 제출 자료를 다시 확인해 주세요.`
         : '제출 자료를 다시 확인해 주세요.';
     if (!validationId || validationConfirming) return;
     setValidationConfirming(true);
     try {
       onActionRequested?.({
-      title: firstIssue?.categoryName || firstReviewCategory?.categoryName || '보완 요청',
+      title: '부족한 서류 안내',
       reason,
       assignee: '프로젝트 담당자',
       dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
