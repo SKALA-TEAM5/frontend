@@ -16,6 +16,9 @@ export interface AppUser {
 
 export interface ProjectAccessTarget {
   manager: string;
+  assigneeUserIds?: number[];
+  sheManager?: string;
+  sheManagerUserIds?: number[];
 }
 
 const ROLE_LEVEL: Record<UserRole, number> = {
@@ -44,6 +47,16 @@ export const hasRoleAtLeast = (role: UserRole, minimumRole: UserRole) => ROLE_LE
 export const can = (user: AppUser, permission: Permission) => hasRoleAtLeast(user.role, PERMISSION_MIN_ROLE[permission]);
 
 export const canAccessProject = (user: AppUser, project: ProjectAccessTarget) => {
-  if (hasRoleAtLeast(user.role, 'she_manager')) return true;
-  return project.manager.split(',').map((manager) => manager.trim()).includes(user.name);
+  if (user.role === 'system_admin') return true;
+
+  const userId = Number(user.id);
+  if (user.role === 'she_manager') {
+    const sheManagerNames = (project.sheManager || '').split(',').map((manager) => manager.trim()).filter(Boolean);
+    return sheManagerNames.includes(user.name)
+      || (Number.isFinite(userId) && Boolean(project.sheManagerUserIds?.includes(userId)));
+  }
+
+  const projectManagerNames = project.manager.split(',').map((manager) => manager.trim()).filter(Boolean);
+  return projectManagerNames.includes(user.name)
+    || (Number.isFinite(userId) && Boolean(project.assigneeUserIds?.includes(userId)));
 };

@@ -15,7 +15,6 @@ const ROLE_OPTIONS: Array<{ code: BackendRoleCode; label: string }> = [
   { code: 'user', label: '프로젝트 담당자' },
   { code: 'agent', label: 'Agent' },
 ];
-const MANAGED_ROLE_CODE: BackendRoleCode = 'user';
 
 const roleLabel = (roleCode: BackendRoleCode) => ROLE_OPTIONS.find((role) => role.code === roleCode)?.label || roleCode;
 
@@ -85,12 +84,17 @@ export default function AdminUsersPage() {
   const [deleteError, setDeleteError] = useState('');
 
   const loadUsers = (params: { keyword?: string; roleFilter?: BackendRoleCode | 'all' } = {}) => {
+    if (!canManageAllUsers) {
+      setUsers([]);
+      setLoading(false);
+      return;
+    }
     const nextKeyword = params.keyword ?? keyword;
     const nextRoleFilter = params.roleFilter ?? roleFilter;
     setLoading(true);
     setLoadError('');
     listUsers({
-      roleCode: canManageAllUsers ? (nextRoleFilter === 'all' ? undefined : nextRoleFilter) : MANAGED_ROLE_CODE,
+      roleCode: nextRoleFilter === 'all' ? undefined : nextRoleFilter,
       keyword: nextKeyword.trim() || undefined,
     })
       .then(setUsers)
@@ -110,12 +114,11 @@ export default function AdminUsersPage() {
   }, [keyword, roleFilter, canManageAllUsers]);
 
   const filteredUsers = useMemo(() => {
-    const visibleUsers = canManageAllUsers ? users : users.filter((item) => item.roleCode === MANAGED_ROLE_CODE);
-    return visibleUsers.toSorted((a, b) => a.employeeNo.localeCompare(b.employeeNo));
-  }, [canManageAllUsers, users]);
+    return users.toSorted((a, b) => a.employeeNo.localeCompare(b.employeeNo));
+  }, [users]);
 
   const openCreateModal = () => {
-    setDraft(canManageAllUsers ? emptyDraft : { ...emptyDraft, roleCode: MANAGED_ROLE_CODE });
+    setDraft(emptyDraft);
     setEditingUser(null);
     setFormError('');
     setModalMode('create');
@@ -126,7 +129,7 @@ export default function AdminUsersPage() {
       employeeNo: target.employeeNo,
       realName: target.realName,
       password: '',
-      roleCode: canManageAllUsers ? target.roleCode : MANAGED_ROLE_CODE,
+      roleCode: target.roleCode,
     });
     setEditingUser(target);
     setFormError('');
@@ -161,12 +164,12 @@ export default function AdminUsersPage() {
     setFormError('');
     try {
       if (modalMode === 'create') {
-        await createUser({ employeeNo, realName, password, roleCode: canManageAllUsers ? draft.roleCode : MANAGED_ROLE_CODE });
+        await createUser({ employeeNo, realName, password, roleCode: draft.roleCode });
       } else if (editingUser) {
         await updateUser(editingUser.id, {
           realName,
           password: password || undefined,
-          roleCode: canManageAllUsers ? draft.roleCode : MANAGED_ROLE_CODE,
+          roleCode: draft.roleCode,
         });
       }
       closeModal();
@@ -193,9 +196,9 @@ export default function AdminUsersPage() {
     }
   };
 
-  if (user.role !== 'system_admin' && user.role !== 'she_manager') {
+  if (user.role !== 'system_admin') {
     return (
-      <AppFrame title="프로젝트 담당자 관리" description="프로젝트 담당자 계정 관리 화면입니다.">
+      <AppFrame title="사용자 관리" description="시스템 관리자 전용 화면입니다.">
         <Card style={{ padding: 28, color: C.danger, fontSize: 14, fontWeight: 900 }}>접근 권한이 없습니다.</Card>
       </AppFrame>
     );
@@ -205,8 +208,8 @@ export default function AdminUsersPage() {
     <Modal open={Boolean(modalMode)} onClose={closeModal} zIndex={960} maxWidth={520}>
       <form onSubmit={submitUser} style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 6, boxShadow: '0 18px 44px rgba(31,55,43,.14)', overflow: 'hidden' }}>
         <div style={{ padding: '18px 20px 14px', borderBottom: `1px solid ${C.g100}` }}>
-          <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>{modalMode === 'create' ? (canManageAllUsers ? '사용자 생성' : '프로젝트 담당자 생성') : (canManageAllUsers ? '사용자 수정' : '프로젝트 담당자 수정')}</div>
-          <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, color: C.g400 }}>{modalMode === 'create' ? (canManageAllUsers ? '새 계정의 사번, 이름, 초기 비밀번호와 역할을 입력합니다.' : '새 프로젝트 담당자의 사번, 이름, 초기 비밀번호를 입력합니다.') : `${editingUser?.employeeNo || ''} 계정 정보를 수정합니다.`}</div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>{modalMode === 'create' ? '사용자 생성' : '사용자 수정'}</div>
+          <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, color: C.g400 }}>{modalMode === 'create' ? '새 계정의 사번, 이름, 초기 비밀번호와 역할을 입력합니다.' : `${editingUser?.employeeNo || ''} 계정 정보를 수정합니다.`}</div>
         </div>
         <div style={{ padding: 20, display: 'grid', gap: 12 }}>
           <label style={{ display: 'grid', gap: 6 }}>
@@ -221,19 +224,12 @@ export default function AdminUsersPage() {
             <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>{modalMode === 'create' ? '초기 비밀번호' : '비밀번호 변경'}</span>
             <input value={draft.password} type="password" placeholder={modalMode === 'edit' ? '변경하지 않으려면 비워두세요' : ''} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} style={inputStyle} />
           </label>
-          {canManageAllUsers ? (
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>역할</span>
-              <select value={draft.roleCode} onChange={(event) => setDraft((current) => ({ ...current, roleCode: event.target.value as BackendRoleCode }))} style={{ ...inputStyle, cursor: 'pointer' }}>
-                {ROLE_OPTIONS.map((role) => <option key={role.code} value={role.code}>{role.label}</option>)}
-              </select>
-            </label>
-          ) : (
-            <div style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>역할</span>
-              <span style={roleBadgeStyle(MANAGED_ROLE_CODE)}>{roleLabel(MANAGED_ROLE_CODE)}</span>
-            </div>
-          )}
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>역할</span>
+            <select value={draft.roleCode} onChange={(event) => setDraft((current) => ({ ...current, roleCode: event.target.value as BackendRoleCode }))} style={{ ...inputStyle, cursor: 'pointer' }}>
+              {ROLE_OPTIONS.map((role) => <option key={role.code} value={role.code}>{role.label}</option>)}
+            </select>
+          </label>
           {formError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 900 }}>{formError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
             <button type="button" onClick={closeModal} disabled={saving} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '9px 14px', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: saving ? 'not-allowed' : 'pointer' }}>취소</button>
@@ -260,19 +256,17 @@ export default function AdminUsersPage() {
 
   return (
     <AppFrame
-      title={canManageAllUsers ? '사용자 관리' : '프로젝트 담당자 관리'}
-      description={canManageAllUsers ? '전체 사용자 계정과 역할을 관리합니다.' : '프로젝트 담당자 계정을 조회하고 관리합니다.'}
-      actions={<Button size="sm" onClick={openCreateModal} style={{ boxShadow: 'none' }}>{canManageAllUsers ? '사용자 생성' : '담당자 생성'}</Button>}
+      title="사용자 관리"
+      description="전체 사용자 계정과 역할을 관리합니다."
+      actions={<Button size="sm" onClick={openCreateModal} style={{ boxShadow: 'none' }}>사용자 생성</Button>}
     >
       <Card style={{ padding: 18, marginBottom: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: canManageAllUsers ? 'minmax(220px, 1fr) 180px' : 'minmax(220px, 1fr)', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 180px', gap: 10, alignItems: 'center' }}>
           <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="사번 또는 이름 검색" style={inputStyle} />
-          {canManageAllUsers && (
-            <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as BackendRoleCode | 'all')} style={{ ...inputStyle, cursor: 'pointer' }}>
-              <option value="all">전체 역할</option>
-              {ROLE_OPTIONS.map((role) => <option key={role.code} value={role.code}>{role.label}</option>)}
-            </select>
-          )}
+          <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as BackendRoleCode | 'all')} style={{ ...inputStyle, cursor: 'pointer' }}>
+            <option value="all">전체 역할</option>
+            {ROLE_OPTIONS.map((role) => <option key={role.code} value={role.code}>{role.label}</option>)}
+          </select>
         </div>
       </Card>
 

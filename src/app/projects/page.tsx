@@ -9,7 +9,7 @@ import ProjectInfoEditorModal from '../../components/project/ProjectInfoEditorMo
 import { AppFrame, DateRangePicker } from '../../components/common';
 import { type BackendUserProfile } from '../../lib/auth-api';
 import { C } from '../../lib/theme';
-import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, USAGE_WORKFLOW_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
+import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, USAGE_WORKFLOW_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getProjectSheManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
 import { createProject, deleteProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees, updateProject } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
@@ -342,6 +342,13 @@ function ProjectsPageContent() {
     const safetyBudgetUsage = Number.parseFloat(String(project.usageRate).replace(/[^\d.]/g, '')) || 0.1;
     const hasSupplement = hasSupplementRequiredMonth(project);
     const projectClosed = project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED;
+    const currentUserId = Number(user.id);
+    const isAssignedSheManager = user.role === 'she_manager'
+      && (
+        (Number.isFinite(currentUserId) && Boolean(project.sheManagerUserIds?.includes(currentUserId)))
+        || getProjectSheManagers(project).includes(user.name)
+      );
+    const canManageProjectRecord = user.role === 'system_admin' || isAssignedSheManager;
     return (
       <div
         key={project.id}
@@ -393,7 +400,7 @@ function ProjectsPageContent() {
             </div>
           </div>
         </div>
-        {user.role !== 'project_manager' && (
+        {canManageProjectRecord && (
           <div style={{ alignSelf: 'flex-end', marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span
               role="button"

@@ -140,6 +140,8 @@ const emptyProjectBase = (id: number, name: string, status: ProjectStatusCode, h
   reportReady: status === PROJECT_STATUS_CODE.COMPLETED || hasActionRequest,
   recentActivity: '',
   participants: [],
+  sheManager: '',
+  sheManagers: [],
 });
 
 export const projectCardToSummary = (project: ProjectCardResponse): ProjectSummary => ({
@@ -161,7 +163,10 @@ export const projectCardToSummary = (project: ProjectCardResponse): ProjectSumma
 
 export const projectDetailToSummary = (project: ProjectDetailResponse): ProjectSummary => {
   const assignees = project.assignees || [];
-  const assigneeNames = assignees.map((assignee) => assignee.realName).filter(Boolean);
+  const projectManagerAssignees = assignees.filter((assignee) => assignee.roleCode === 'user');
+  const sheManagerAssignees = assignees.filter((assignee) => assignee.roleCode === 'admin');
+  const assigneeNames = projectManagerAssignees.map((assignee) => assignee.realName).filter(Boolean);
+  const sheManagerNames = sheManagerAssignees.map((assignee) => assignee.realName).filter(Boolean);
   return {
     ...emptyProjectBase(project.id, project.projectName, project.status, false),
     contractNumber: project.contractNo || '',
@@ -175,7 +180,10 @@ export const projectDetailToSummary = (project: ProjectDetailResponse): ProjectS
     plannedAmount: formatMoney(project.appropriatedAmount),
     recentActivity: project.updatedAt ? `프로젝트 정보가 ${project.updatedAt.slice(0, 10)}에 갱신되었습니다.` : '',
     participants: assigneeNames,
-    assigneeUserIds: assignees.map((assignee) => assignee.userId),
+    assigneeUserIds: projectManagerAssignees.map((assignee) => assignee.userId),
+    sheManager: managerText(sheManagerNames),
+    sheManagers: sheManagerNames,
+    sheManagerUserIds: sheManagerAssignees.map((assignee) => assignee.userId),
   };
 };
 
@@ -255,5 +263,10 @@ export const replaceProjectAssignees = async (projectId: string, assigneeUserIds
 
 export const listProjectManagerCandidates = async () => {
   const response = await apiFetch<UserListResponse>('/users?roleCode=user');
+  return response.data.items;
+};
+
+export const listSheManagerCandidates = async () => {
+  const response = await apiFetch<UserListResponse>('/users?roleCode=admin');
   return response.data.items;
 };

@@ -11,8 +11,9 @@ import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { ApiClientError } from '../../../lib/api-client';
 import { C } from '../../../lib/theme';
-import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
-import { getProject, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
+import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getProjectSheManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
+import { getProject, listProjectManagerCandidates, listSheManagerCandidates, replaceProjectAssignees, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
+import type { BackendUserProfile } from '../../../lib/auth-api';
 import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
 import { getAgentButtonStates, getOrchestratorStatus, isAgentStageRunning, parseUsageStatementWithOcr, waitForAgentButtonEnabled, type AgentButtonStage, type OrchestratorTodo } from '../../../lib/agent-api';
@@ -35,6 +36,11 @@ const getProjectAssigneeLabel = (project: ProjectSummary) => {
     const names = getProjectAssigneeNames(project);
     return names.length > 0 ? names.join(', ') : FALLBACK_ACTION_ASSIGNEE;
 };
+const getProjectSheManagerNames = (project: ProjectSummary) => getProjectSheManagers(project).filter(Boolean);
+const getProjectSheManagerLabel = (project: ProjectSummary) => {
+    const names = getProjectSheManagerNames(project);
+    return names.length > 0 ? names.join(', ') : '-';
+};
 type UsageStatementInfoDraft = UpdateProjectInput & {
     contractNumber: string;
     constructionName: string;
@@ -50,6 +56,8 @@ type UsageStatementInfoDraft = UpdateProjectInput & {
     usageRate: string;
     uploadedAt: string;
     documentWrittenDate: string;
+    assigneeUserIds: number[];
+    sheAssigneeUserIds: number[];
 };
 type UsageUploadStage = 'idle' | 'ocr' | 'classifying';
 type ClassificationMoveNotice = {
@@ -362,9 +370,13 @@ function ProjectDetailPageContent() {
         usageRate: '',
         uploadedAt: '',
         documentWrittenDate: '',
+        assigneeUserIds: [],
+        sheAssigneeUserIds: [],
     });
     const [projectInfoSaveError, setProjectInfoSaveError] = useState('');
     const [projectInfoSaving, setProjectInfoSaving] = useState(false);
+    const [managerCandidates, setManagerCandidates] = useState<BackendUserProfile[]>([]);
+    const [sheManagerCandidates, setSheManagerCandidates] = useState<BackendUserProfile[]>([]);
     const [statementOverrides, setStatementOverrides] = useState<Record<string, Partial<MonthlyUsageStatementSummary>>>({});
     const showAgentFailure = (target: AgentFailureTarget, error?: unknown) => {
         setAgentFailureTarget(target);
@@ -628,7 +640,13 @@ function ProjectDetailPageContent() {
         setMonthDeleteTarget(null);
     };
     const canViewActionGuide = user.role === 'project_manager' && selectedMonthHasActionRequest && !actionCompletionSent && Boolean(selectedMonthActionRequestDetails);
-    const canEditManagers = user.role === 'she_manager';
+    const currentUserId = Number(user.id);
+    const isAssignedSheManager = user.role === 'she_manager'
+        && (
+            (Number.isFinite(currentUserId) && Boolean(project.sheManagerUserIds?.includes(currentUserId)))
+            || getProjectSheManagerNames(project).includes(user.name)
+        );
+    const canEditManagers = user.role === 'system_admin' || isAssignedSheManager;
     const shouldPulseActionBadge = canViewActionGuide;
     useEffect(() => {
         if (!projectId)
@@ -828,7 +846,22 @@ function ProjectDetailPageContent() {
             setUploadCompleteSubmitting(false);
         }
     };
+    const loadManagerCandidates = async () => {
+        if (managerCandidates.length > 0)
+            return;
+        const candidates = await listProjectManagerCandidates();
+        setManagerCandidates(candidates);
+    };
+    const loadSheManagerCandidates = async () => {
+        if (sheManagerCandidates.length > 0)
+            return;
+        const candidates = await listSheManagerCandidates();
+        setSheManagerCandidates(candidates);
+    };
     const openProjectInfoModal = () => {
+        void Promise.all([loadManagerCandidates(), loadSheManagerCandidates()]).catch((error) => {
+            setProjectInfoSaveError(error instanceof Error ? error.message : '담당자 목록을 불러오지 못했습니다.');
+        });
         const { startDate, endDate } = parseProjectPeriod(project.period);
         setProjectInfoDraft({
             contractNumber: project.contractNumber,
@@ -846,6 +879,8 @@ function ProjectDetailPageContent() {
             usageRate: `${safetyUsagePercent}%`,
             uploadedAt: selectedStatement.uploadedAt,
             documentWrittenDate: selectedStatement.documentWrittenDate,
+            assigneeUserIds: project.assigneeUserIds || [],
+            sheAssigneeUserIds: project.sheManagerUserIds || [],
         });
         setProjectInfoSaveError('');
         setProjectInfoModalOpen(true);
@@ -978,6 +1013,14 @@ function ProjectDetailPageContent() {
             setProjectInfoSaveError('필수 정보를 모두 입력해 주세요.');
             return;
         }
+        if (!(projectInfoDraft.assigneeUserIds || []).length) {
+            setProjectInfoSaveError('프로젝트 담당자를 1명 이상 선택해 주세요.');
+            return;
+        }
+        if (!(projectInfoDraft.sheAssigneeUserIds || []).length) {
+            setProjectInfoSaveError('SHE 담당자를 1명 이상 선택해 주세요.');
+            return;
+        }
         if (new Date(projectInfoDraft.startDate || '').getTime() > new Date(projectInfoDraft.endDate || '').getTime()) {
             setProjectInfoSaveError('공사 시작일은 마감일보다 늦을 수 없습니다.');
             return;
@@ -998,6 +1041,16 @@ function ProjectDetailPageContent() {
                 location: projectInfoDraft.location,
                 projectStatusCode: projectInfoDraft.projectStatusCode,
             });
+            const savedAssignees = await replaceProjectAssignees(project.id, [
+                ...(projectInfoDraft.assigneeUserIds || []),
+                ...(projectInfoDraft.sheAssigneeUserIds || []),
+            ]);
+            const projectManagerAssignees = savedAssignees.filter((assignee) => assignee.roleCode === 'user');
+            const sheManagerAssignees = savedAssignees.filter((assignee) => assignee.roleCode === 'admin');
+            const assigneeNames = projectManagerAssignees.map((assignee) => assignee.realName).filter(Boolean);
+            const assigneeUserIds = projectManagerAssignees.map((assignee) => assignee.userId);
+            const sheManagerNames = sheManagerAssignees.map((assignee) => assignee.realName).filter(Boolean);
+            const sheManagerUserIds = sheManagerAssignees.map((assignee) => assignee.userId);
             setProject((current) => ({
                 ...current,
                 contractNumber: savedProject.contractNumber,
@@ -1014,6 +1067,12 @@ function ProjectDetailPageContent() {
                 progressRate: projectInfoDraft.progressRate,
                 usageRate: calculateUsageRateText(current.accumulatedAmount, savedProject.plannedAmount),
                 recentActivity: savedProject.recentActivity,
+                manager: assigneeNames.join(', '),
+                participants: assigneeNames,
+                assigneeUserIds,
+                sheManager: sheManagerNames.join(', '),
+                sheManagers: sheManagerNames,
+                sheManagerUserIds,
             }));
             setProjectInfoModalOpen(false);
         } catch (error) {
@@ -1022,7 +1081,7 @@ function ProjectDetailPageContent() {
             setProjectInfoSaving(false);
         }
     };
-    const projectInfoModal = (<ProjectInfoEditorModal open={projectInfoModalOpen} mode="usage" title="사용내역서 기본 정보 수정" subtitle={project.constructionName} draft={projectInfoDraft} error={projectInfoSaveError} saving={projectInfoSaving} showStatementDates={Boolean(selectedMonth)} onClose={() => setProjectInfoModalOpen(false)} onSave={saveProjectInfo} onChange={(patch) => {
+    const projectInfoModal = (<ProjectInfoEditorModal open={projectInfoModalOpen} mode="usage" title="사용내역서 기본 정보 수정" subtitle={project.constructionName} draft={projectInfoDraft} error={projectInfoSaveError} saving={projectInfoSaving} assigneeOptions={managerCandidates.map((candidate) => ({ userId: candidate.id, realName: candidate.realName, employeeNo: candidate.employeeNo }))} sheAssigneeOptions={sheManagerCandidates.map((candidate) => ({ userId: candidate.id, realName: candidate.realName, employeeNo: candidate.employeeNo }))} showStatementDates={Boolean(selectedMonth)} onClose={() => setProjectInfoModalOpen(false)} onSave={saveProjectInfo} onChange={(patch) => {
             setProjectInfoDraft((current) => ({ ...current, ...patch }));
             setProjectInfoSaveError('');
         }}/>);
@@ -1213,6 +1272,7 @@ function ProjectDetailPageContent() {
         ['소재지', project.location, '대표자', project.representative],
         ['공사금액', `${project.constructionAmount}원`, '공사기간', project.period],
         ['발주자', project.client, '공정률', project.progressRate],
+        ['프로젝트 담당자', getProjectAssigneeLabel(project), 'SHE 담당자', getProjectSheManagerLabel(project)],
         ['계상된 안전관리비', `${project.plannedAmount}원`, '사용률', `${safetyUsagePercent}%`],
         ...(selectedMonth
             ? [

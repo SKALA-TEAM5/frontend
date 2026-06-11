@@ -16,10 +16,18 @@ export interface ProjectInfoEditorDraft {
   endDate: string;
   location: string;
   manager?: string;
+  assigneeUserIds?: number[];
+  sheAssigneeUserIds?: number[];
   progressRate?: string;
   usageRate?: string;
   uploadedAt?: string;
   documentWrittenDate?: string;
+}
+
+export interface ProjectAssigneeOption {
+  userId: number;
+  realName: string;
+  employeeNo?: string;
 }
 
 interface ProjectInfoEditorModalProps {
@@ -31,6 +39,8 @@ interface ProjectInfoEditorModalProps {
   error?: string;
   saving?: boolean;
   managerOptions?: string[];
+  assigneeOptions?: ProjectAssigneeOption[];
+  sheAssigneeOptions?: ProjectAssigneeOption[];
   saveLabel?: string;
   showStatementDates?: boolean;
   onClose: () => void;
@@ -83,6 +93,8 @@ export default function ProjectInfoEditorModal({
   error,
   saving,
   managerOptions = [],
+  assigneeOptions = [],
+  sheAssigneeOptions = [],
   saveLabel,
   showStatementDates = false,
   onClose,
@@ -90,6 +102,16 @@ export default function ProjectInfoEditorModal({
   onChange,
 }: ProjectInfoEditorModalProps) {
   const isCreate = mode === 'create';
+  const selectedAssigneeUserIds = new Set(draft.assigneeUserIds || []);
+  const selectedSheAssigneeUserIds = new Set(draft.sheAssigneeUserIds || []);
+  const toggleAssignee = (key: 'assigneeUserIds' | 'sheAssigneeUserIds', userId: number) => {
+    const selectedIds = key === 'assigneeUserIds' ? selectedAssigneeUserIds : selectedSheAssigneeUserIds;
+    const currentIds = draft[key] || [];
+    const next = selectedIds.has(userId)
+      ? currentIds.filter((id) => id !== userId)
+      : [...currentIds, userId];
+    onChange({ [key]: next });
+  };
   const amountInput = (key: 'constructionAmount' | 'appropriatedAmount') => (
     <input
       inputMode="numeric"
@@ -110,6 +132,30 @@ export default function ProjectInfoEditorModal({
       />
     </div>
   );
+  const assigneeField = (
+    label: string,
+    options: ProjectAssigneeOption[],
+    selectedIds: Set<number>,
+    key: 'assigneeUserIds' | 'sheAssigneeUserIds',
+  ) => options.length > 0 ? (
+    <div style={{ gridColumn: '1 / -1' }}>
+      <div style={labelStyle}>{label}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FBFDFC', padding: 10, maxHeight: 146, overflowY: 'auto' }}>
+        {options.map((option) => {
+          const checked = selectedIds.has(option.userId);
+          return (
+            <label key={option.userId} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, border: `1px solid ${checked ? C.light : C.g100}`, borderRadius: 6, background: checked ? C.bg : C.white, padding: '8px 9px', cursor: saving ? 'not-allowed' : 'pointer' }}>
+              <input type="checkbox" checked={checked} disabled={saving} onChange={() => toggleAssignee(key, option.userId)} style={{ accentColor: C.primary }} />
+              <span style={{ minWidth: 0, display: 'grid', gap: 2 }}>
+                <span style={{ fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{option.realName}</span>
+                {option.employeeNo && <span style={{ fontSize: 11, fontWeight: 800, color: C.g400 }}>{option.employeeNo}</span>}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
 
   return (
     <Modal open={open} onClose={saving ? undefined : onClose} zIndex={965} maxWidth={820}>
@@ -198,6 +244,8 @@ export default function ProjectInfoEditorModal({
             )}
             {!isCreate && (
               <>
+                {assigneeField('프로젝트 담당자', assigneeOptions, selectedAssigneeUserIds, 'assigneeUserIds')}
+                {assigneeField('SHE 담당자', sheAssigneeOptions, selectedSheAssigneeUserIds, 'sheAssigneeUserIds')}
                 <div>
                   <div style={labelStyle}>사용률</div>
                   <input value={draft.usageRate || '-'} readOnly style={readOnlyStyle} />

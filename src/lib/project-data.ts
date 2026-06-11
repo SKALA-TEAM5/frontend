@@ -85,6 +85,9 @@ export interface ProjectSummary {
   recentActivity: string;
   participants: string[];
   assigneeUserIds?: number[];
+  sheManager: string;
+  sheManagers: string[];
+  sheManagerUserIds?: number[];
 }
 
 export interface MonthlyUsageStatementSummary {
@@ -144,6 +147,8 @@ export const EMPTY_PROJECT: ProjectSummary = {
   reportReady: false,
   recentActivity: '',
   participants: [],
+  sheManager: '',
+  sheManagers: [],
 };
 
 export const STATUS_META: Record<UsageWorkflowStatus, { label: string; color: string; bg: string }> = {
@@ -196,6 +201,8 @@ const splitManagerNames = (value: string) =>
   value.split(',').map((manager) => manager.trim()).filter(Boolean);
 
 export const getProjectManagers = (project: ProjectSummary) => splitManagerNames(project.manager);
+export const getProjectSheManagers = (project: ProjectSummary) =>
+  project.sheManagers?.length ? project.sheManagers.filter(Boolean) : splitManagerNames(project.sheManager);
 
 export const LEGAL_REVIEW_STATUS_FILTER = {
   ALL: '전체',
