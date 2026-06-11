@@ -1,6 +1,6 @@
 import { API_BASE_URL } from './api-client';
 
-const CHATBOT_EVENT_TYPES = ['session_id', 'intent', 'token', 'sources', 'error'] as const;
+const CHATBOT_EVENT_TYPES = ['session_id', 'status', 'intent', 'token', 'sources', 'error'] as const;
 
 export type ChatbotEventType = (typeof CHATBOT_EVENT_TYPES)[number];
 

@@ -78,7 +78,9 @@ export default function DashboardChatbot() {
   const [input, setInput] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [status, setStatus] = useState('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const assistantMessageIdRef = useRef<string | null>(null);
 
@@ -88,9 +90,17 @@ export default function DashboardChatbot() {
   useEffect(() => {
     if (!open) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, open]);
+  }, [messages, status, open]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 120 ? 'auto' : 'hidden';
+  }, [input]);
 
   const handleEvent = (event: ChatbotStreamEvent) => {
     if (event.type === 'session_id' && typeof event.value === 'string') {
@@ -98,7 +108,13 @@ export default function DashboardChatbot() {
       return;
     }
 
+    if (event.type === 'status' && typeof event.value === 'string') {
+      setStatus(event.value);
+      return;
+    }
+
     if (event.type === 'token' && typeof event.value === 'string') {
+      setStatus('');
       const targetId = assistantMessageIdRef.current;
       if (!targetId) return;
       setMessages((current) =>
@@ -128,6 +144,7 @@ export default function DashboardChatbot() {
 
     if (event.type === 'error' && typeof event.value === 'string') {
       const text = event.value;
+      setStatus('');
       const targetId = assistantMessageIdRef.current;
       if (!targetId) {
         setMessages((current) => [...current, { id: `error-${Date.now()}`, role: 'assistant', text }]);
@@ -157,6 +174,7 @@ export default function DashboardChatbot() {
     ]);
     setInput('');
     setStreaming(true);
+    setStatus('질문을 전달하는 중...');
 
     try {
       await streamChat({
@@ -177,6 +195,7 @@ export default function DashboardChatbot() {
       );
     } finally {
       setStreaming(false);
+      setStatus('');
       assistantMessageIdRef.current = null;
     }
   };
@@ -185,12 +204,14 @@ export default function DashboardChatbot() {
     abortRef.current?.abort();
     setOpen(false);
     setStreaming(false);
+    setStatus('');
   };
 
   const startNewChat = () => {
     abortRef.current?.abort();
     setSessionId(null);
     setStreaming(false);
+    setStatus('');
     setMessages([{ id: `greeting-${Date.now()}`, role: 'assistant', text: assistantGreeting }]);
   };
 
@@ -311,18 +332,45 @@ export default function DashboardChatbot() {
                   </div>
                 </div>
               ))}
+              {status && (
+                <div style={{ marginLeft: 44, color: C.g500, fontSize: 12, fontWeight: 800 }}>
+                  {status}
+                </div>
+              )}
             </div>
           </div>
 
           <footer style={{ flexShrink: 0, padding: '14px 16px 16px', background: C.white, borderTop: `1px solid ${C.g200}` }}>
-            <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 46px', gap: 8, border: `1px solid ${C.g200}`, borderRadius: 10, padding: 6, background: C.white }}>
-              <input
+            <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 46px', alignItems: 'end', gap: 8, border: `1px solid ${C.g200}`, borderRadius: 10, padding: 6, background: C.white }}>
+              <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }}
                 placeholder="안전관리비 기준, 증빙, 보완 사유를 질문하세요"
                 aria-label="챗봇 메시지 입력"
                 disabled={streaming}
-                style={{ minWidth: 0, border: 'none', outline: 'none', color: C.g800, fontSize: 13, fontWeight: 800, padding: '0 8px', fontFamily: 'inherit' }}
+                rows={1}
+                style={{
+                  minWidth: 0,
+                  minHeight: 44,
+                  maxHeight: 120,
+                  border: 'none',
+                  outline: 'none',
+                  resize: 'none',
+                  overflowY: 'hidden',
+                  color: C.g800,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  lineHeight: 1.45,
+                  padding: '12px 8px',
+                  fontFamily: 'inherit',
+                  background: 'transparent',
+                }}
               />
               <button
                 type="submit"
