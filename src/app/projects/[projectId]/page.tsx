@@ -170,6 +170,17 @@ const normalizeMonthKey = (month?: string | null) => {
     const match = month.match(/^(\d{4})-(\d{2})/);
     return match ? `${match[1]}-${match[2]}` : month;
 };
+const toMonthKeyFromDate = (value?: string | null) => {
+    const match = value?.trim().replace(/\//g, '-').match(/^(\d{4})-(\d{2})/);
+    return match ? `${match[1]}-${match[2]}` : '';
+};
+const parseProjectPeriodMonthRange = (period: string) => {
+    const [startDate = '', endDate = ''] = period.split('~').map((value) => value.trim());
+    return {
+        startMonth: toMonthKeyFromDate(startDate),
+        endMonth: toMonthKeyFromDate(endDate),
+    };
+};
 const asRecord = (value: unknown): Record<string, unknown> | null =>
     value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const asArray = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
@@ -634,6 +645,11 @@ function ProjectDetailPageContent() {
         const month = `${year}-${String(monthNo).padStart(2, '0')}`;
         if (dbUsageStatementsByMonth[month]) {
             setNewMonthError('이미 추가된 월입니다.');
+            return;
+        }
+        const { startMonth, endMonth } = parseProjectPeriodMonthRange(project.period);
+        if (startMonth && endMonth && (month < startMonth || month > endMonth)) {
+            setNewMonthError(`프로젝트 기간(${startMonth} ~ ${endMonth})에 맞지 않는 월입니다.`);
             return;
         }
         const statementSummary: MonthlyUsageStatementSummary = {
