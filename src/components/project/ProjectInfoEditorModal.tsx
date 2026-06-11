@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Modal from '../ui/Modal';
 import DateRangePicker from '../common/DateRangePicker';
 import { C } from '../../lib/theme';
@@ -84,6 +85,8 @@ const formatAmountInput = (value?: string) => {
   return digits ? Number(digits).toLocaleString('ko-KR') : '';
 };
 
+type AssigneePopupKey = 'assigneeUserIds' | 'sheAssigneeUserIds';
+
 export default function ProjectInfoEditorModal({
   open,
   mode,
@@ -102,8 +105,13 @@ export default function ProjectInfoEditorModal({
   onChange,
 }: ProjectInfoEditorModalProps) {
   const isCreate = mode === 'create';
+  const [openAssigneePopup, setOpenAssigneePopup] = useState<AssigneePopupKey | null>(null);
   const selectedAssigneeUserIds = new Set(draft.assigneeUserIds || []);
   const selectedSheAssigneeUserIds = new Set(draft.sheAssigneeUserIds || []);
+  useEffect(() => {
+    if (!open)
+      setOpenAssigneePopup(null);
+  }, [open]);
   const toggleAssignee = (key: 'assigneeUserIds' | 'sheAssigneeUserIds', userId: number) => {
     const selectedIds = key === 'assigneeUserIds' ? selectedAssigneeUserIds : selectedSheAssigneeUserIds;
     const currentIds = draft[key] || [];
@@ -138,28 +146,49 @@ export default function ProjectInfoEditorModal({
     selectedIds: Set<number>,
     key: 'assigneeUserIds' | 'sheAssigneeUserIds',
   ) => options.length > 0 ? (
-    <div style={{ gridColumn: '1 / -1' }}>
+    <div style={{ gridColumn: '1 / -1', position: 'relative' }}>
       <div style={labelStyle}>{label}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FBFDFC', padding: 10, maxHeight: 146, overflowY: 'auto' }}>
-        {options.map((option) => {
-          const checked = selectedIds.has(option.userId);
-          return (
-            <label key={option.userId} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, border: `1px solid ${checked ? C.light : C.g100}`, borderRadius: 6, background: checked ? C.bg : C.white, padding: '8px 9px', cursor: saving ? 'not-allowed' : 'pointer' }}>
-              <input type="checkbox" checked={checked} disabled={saving} onChange={() => toggleAssignee(key, option.userId)} style={{ accentColor: C.primary }} />
-              <span style={{ minWidth: 0, display: 'grid', gap: 2 }}>
-                <span style={{ fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{option.realName}</span>
-                {option.employeeNo && <span style={{ fontSize: 11, fontWeight: 800, color: C.g400 }}>{option.employeeNo}</span>}
-              </span>
-            </label>
-          );
-        })}
-      </div>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => setOpenAssigneePopup((current) => current === key ? null : key)}
+        style={{ ...fieldStyle, height: 'auto', minHeight: 38, padding: '8px 11px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 8, textAlign: 'left', cursor: saving ? 'not-allowed' : 'pointer' }}
+      >
+        <span style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {options.filter((option) => selectedIds.has(option.userId)).length > 0 ? options.filter((option) => selectedIds.has(option.userId)).map((option) => (
+            <span key={option.userId} style={{ maxWidth: '100%', border: `1px solid ${C.light}`, borderRadius: 999, background: C.bg, color: C.primary, padding: '3px 8px', fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {option.realName}
+            </span>
+          )) : (
+            <span style={{ color: C.g400, fontSize: 13, fontWeight: 800 }}>{label}를 선택해 주세요</span>
+          )}
+        </span>
+        <span aria-hidden="true" style={{ color: C.g500, fontSize: 14, fontWeight: 900 }}>{openAssigneePopup === key ? '⌃' : '⌄'}</span>
+      </button>
+      {openAssigneePopup === key && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 20, border: `1px solid ${C.g200}`, borderRadius: 8, background: C.white, boxShadow: '0 16px 36px rgba(31,47,39,.16)', padding: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, maxHeight: 178, overflowY: 'auto', paddingRight: 2 }}>
+            {options.map((option) => {
+              const checked = selectedIds.has(option.userId);
+              return (
+                <label key={option.userId} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, border: `1px solid ${checked ? C.light : C.g100}`, borderRadius: 6, background: checked ? C.bg : C.white, padding: '8px 9px', cursor: saving ? 'not-allowed' : 'pointer' }}>
+                  <input type="checkbox" checked={checked} disabled={saving} onChange={() => toggleAssignee(key, option.userId)} style={{ accentColor: C.primary }} />
+                  <span style={{ minWidth: 0, display: 'grid', gap: 2 }}>
+                    <span style={{ fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{option.realName}</span>
+                    {option.employeeNo && <span style={{ fontSize: 11, fontWeight: 800, color: C.g400 }}>{option.employeeNo}</span>}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   ) : null;
 
   return (
     <Modal open={open} onClose={saving ? undefined : onClose} zIndex={965} maxWidth={820}>
-      <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
+      <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'visible' }}>
         <div style={{ padding: '18px 20px 15px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>{title}</div>
