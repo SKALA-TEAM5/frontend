@@ -4,7 +4,7 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { getReportDetail, runReportAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
+import { getReportDetail, isAgentRunningError, runReportAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
 import type { ReportDraft } from '../../lib/report-draft';
 import { C } from '../../lib/theme';
 
@@ -224,6 +224,21 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     setSavedAt('');
   };
 
+  const waitForReportDraft = async (initialResponse: Awaited<ReturnType<typeof runReportAgent>>) => {
+    const initialDraft = readReportDraftFromAgentResponse(initialResponse);
+    if (isReportDraft(initialDraft)) return initialDraft;
+    if (!projectId || !usageStatementId) return null;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const detail = await getReportDetail(projectId, usageStatementId).catch(() => null);
+      if (detail) {
+        const draft = readReportDraftFromDetail(detail);
+        if (isReportDraft(draft)) return draft;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 2500));
+    }
+    return null;
+  };
+
   const handleReportGenerate = async () => {
     if (reportStatus === 'generating') return;
     try {
@@ -232,14 +247,19 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
       }
       setReportStatus('generating');
       setReportProgress(25);
-      const response = await runReportAgent(projectId, usageStatementId);
+      let response: Awaited<ReturnType<typeof runReportAgent>> = null;
+      try {
+        response = await runReportAgent(projectId, usageStatementId);
+      } catch (error) {
+        if (!isAgentRunningError(error)) throw error;
+      }
       setReportProgress(55);
       await waitForAgentButtonEnabled(projectId, usageStatementId, 'report', {
+        tolerateDisabledReason: true,
         onPoll: () => setReportProgress((current) => Math.min(current + 8, 88)),
       });
       setReportProgress(92);
-      const reportDraft = readReportDraftFromAgentResponse(response)
-        || readReportDraftFromDetail(await getReportDetail(projectId, usageStatementId));
+      const reportDraft = await waitForReportDraft(response);
       if (!isReportDraft(reportDraft)) throw new Error('보고서 Agent 응답에 reportDraft가 없습니다.');
       showReportDraft(reportDraft);
     } catch (error) {
