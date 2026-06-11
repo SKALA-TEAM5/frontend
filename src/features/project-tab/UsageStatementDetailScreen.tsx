@@ -28,7 +28,6 @@ interface UsageStatementDetailScreenProps {
     clearTodoSignal?: number;
     onTodoCountChange?: (count: number) => void;
     onVerificationComplete?: () => void | Promise<void>;
-    onBackToOverview?: () => void;
     uploadCompleteAction?: ReactNode;
 }
 type UsageDetailTodoSource = 'matching' | 'vision' | 'law';
@@ -200,14 +199,21 @@ const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]
     const usageItem = usageItemById || usageItemByName;
     const backendCategory = getCategoryFromBackendTodo(todo);
     const reason = todo.reason || '보완 사항 확인 필요';
+    const titleText = todo.title || '';
     const fallbackKind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason);
-    const documentNames = extractEvidenceDocumentNames(reason, fallbackKind);
+    const evidenceCodeNames = (todo.evidenceTypeCodes || [])
+        .map((code) => translateEvidenceDocumentName(code))
+        .filter(Boolean);
+    const documentNames = evidenceCodeNames.length > 0
+        ? evidenceCodeNames
+        : extractEvidenceDocumentNames(`${titleText} ${reason}`, fallbackKind);
     const source = todo.agentTypeCode === 'legal' ? 'law' : todo.agentTypeCode === 'vision' ? 'vision' : 'matching';
-    const baseId = `orchestrator:${todo.agentTypeCode}:${todo.usageStatementItemId || 'all'}:${todo.fileId || 'none'}`;
-    const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(reason, fallbackKind)];
+    const linkedFileKey = todo.fileId || (todo.fileIds && todo.fileIds.length ? todo.fileIds.join('-') : 'none');
+    const baseId = `orchestrator:${todo.agentTypeCode}:${todo.usageStatementItemId || 'all'}:${linkedFileKey}`;
+    const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(`${titleText} ${reason}`, fallbackKind)];
 
     return titles.map((title, index) => {
-        const lookupText = `${reason} ${title}`;
+        const lookupText = `${titleText} ${reason} ${title}`;
         const inferredUsageItem = usageItem || findUsageItemFromTodoText(lookupText, usageItems);
         const inferredCategory = inferredUsageItem ? undefined : (backendCategory || findCategoryFromTodoText(lookupText));
         const kind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(title || reason);
@@ -233,13 +239,18 @@ const buildVisionValidation = (file: EvidenceFile, usageItem: UsageLineItem | un
         };
     }
     const normalizedReason = toNounPhraseDetail(reason || '');
+    if (file.visionValidation && !normalizedReason)
+        return {
+            ...file.visionValidation,
+            itemName: usageItem?.name || file.visionValidation.itemName,
+        };
     const hasProblem = Boolean(normalizedReason) || /미착용|부적합|불명확|부족|fail|위험|미확인/i.test(`${file.name} ${usageItem?.name || ''}`);
     return {
-        status: hasProblem ? 'unsuitable' : 'suitable',
-        checkedAt: new Date().toISOString(),
+        status: hasProblem ? 'unsuitable' : file.visionValidation?.status || 'suitable',
+        checkedAt: file.visionValidation?.checkedAt || new Date().toISOString(),
         itemName: usageItem?.name || '현장사진',
-        summary: hasProblem ? (normalizedReason || '현장사진 검증 결과 보완 필요') : '현장사진 검증 결과 적합',
-        detections: [],
+        summary: hasProblem ? (normalizedReason || '현장사진 검증 결과 보완 필요') : file.visionValidation?.summary || '현장사진 검증 결과 적합',
+        detections: file.visionValidation?.detections || [],
     };
 };
 type AddUsageItemDraft = {
@@ -402,7 +413,7 @@ const toNounPhraseDetail = (value?: string) => {
 };
 const isApiStatus = (error: unknown, status: number) => error instanceof ApiClientError && error.status === status;
 const isClientApiError = (error: unknown) => error instanceof ApiClientError && error.status >= 400 && error.status < 500;
-export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onVerificationComplete, onBackToOverview, uploadCompleteAction }: UsageStatementDetailScreenProps) {
+export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onVerificationComplete, uploadCompleteAction }: UsageStatementDetailScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(usageDetailSeed || createDefaultArchiveData()));
     const [matchingStatus, setMatchingStatus] = useState<'idle' | 'running' | 'done'>('idle');
@@ -439,6 +450,14 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const usageDetailSeedSnapshotRef = useRef('');
     const clearTodoSignalRef = useRef(clearTodoSignal);
     const todoPanelRef = useRef<HTMLElement | null>(null);
+    const skipTodoPersistenceRef = useRef(false);
+    const todoPersistenceKey = useMemo(() => {
+        if (usageStatementId)
+            return `i-veri:usage-detail-todos:${projectId}:${usageStatementId}`;
+        if (todoStorageKey)
+            return `i-veri:usage-detail-todos:${projectId}:${todoStorageKey}`;
+        return '';
+    }, [projectId, todoStorageKey, usageStatementId]);
     useEffect(() => {
         if (!todoSidebarOpen)
             return;
@@ -465,9 +484,36 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     }, [usageDetailSeed]);
     useEffect(() => {
         setRequiredEvidenceByLine({});
-        setCompletedTodoIds({});
-        setDismissedTodoIds({});
-    }, [projectId, todoStorageKey]);
+        if (!todoPersistenceKey || typeof window === 'undefined') {
+            setCompletedTodoIds({});
+            setDismissedTodoIds({});
+            return;
+        }
+        skipTodoPersistenceRef.current = true;
+        try {
+            const stored = JSON.parse(window.localStorage.getItem(todoPersistenceKey) || '{}') as {
+                completedTodoIds?: Record<string, boolean>;
+                dismissedTodoIds?: Record<string, boolean>;
+            };
+            setCompletedTodoIds(stored.completedTodoIds || {});
+            setDismissedTodoIds(stored.dismissedTodoIds || {});
+        } catch {
+            setCompletedTodoIds({});
+            setDismissedTodoIds({});
+        }
+    }, [todoPersistenceKey]);
+    useEffect(() => {
+        if (!todoPersistenceKey || typeof window === 'undefined')
+            return;
+        if (skipTodoPersistenceRef.current) {
+            skipTodoPersistenceRef.current = false;
+            return;
+        }
+        window.localStorage.setItem(todoPersistenceKey, JSON.stringify({
+            completedTodoIds,
+            dismissedTodoIds,
+        }));
+    }, [completedTodoIds, dismissedTodoIds, todoPersistenceKey]);
     useEffect(() => {
         if (!resolvedUsageItems.length)
             return;
@@ -1345,8 +1391,8 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           </div>
           <div />
           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-            {onBackToOverview && <button type="button" onClick={onBackToOverview} style={{ height: 40, border: 'none', borderRadius: 999, background: C.primary, color: C.white, cursor: 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>사용내역서 보기</button>}
             <button type="button" onClick={() => void runUsageDetailVerification()} disabled={usageDetailVerificationRunning} style={{ height: 40, border: `1px solid ${usageDetailVerificationDone ? C.primary : C.g800}`, borderRadius: 999, background: usageDetailVerificationDone ? C.bg : C.white, color: usageDetailVerificationDone ? C.primary : C.g800, cursor: usageDetailVerificationRunning ? 'wait' : 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{usageDetailVerificationLabel}</button>
+            {uploadCompleteAction}
           </div>
         </div>
         <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureMessage} actionLabel="확인" onAction={() => { setAgentFailureTarget(null); setAgentFailureMessage(''); }} />
@@ -1387,7 +1433,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             }} onSelectUsageItem={(item) => {
                 setSelectedUsageItemId(item.id);
                 setSelectedHierarchyCatId(item.categoryId);
-            }} onRemove={removeHierarchyFile} onRename={renameHierarchyFile} onMove={moveHierarchyFile} onEditUsageItem={editUsageItem} onAddUsageItem={openAddUsageItemModal} onDeleteUsageItem={deleteUsageItem} onUpload={uploadFilesToSection} onDownloadFile={openFileDownload} fileHeaderAction={uploadCompleteAction}/>
+            }} onRemove={removeHierarchyFile} onRename={renameHierarchyFile} onMove={moveHierarchyFile} onEditUsageItem={editUsageItem} onAddUsageItem={openAddUsageItemModal} onDeleteUsageItem={deleteUsageItem} onUpload={uploadFilesToSection} onDownloadFile={openFileDownload}/>
           {usageDetailVerificationStep && usageDetailLoadingMessage && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 20, display: 'grid', placeItems: 'center', padding: 24, background: 'rgba(247, 252, 248, .62)', backdropFilter: 'blur(1px)' }}>
               <div style={{ width: 'min(100%, 680px)', background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 22 }}>

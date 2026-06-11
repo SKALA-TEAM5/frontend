@@ -12,7 +12,7 @@ import { AppFrame } from '../../../components/common';
 import { ApiClientError } from '../../../lib/api-client';
 import { C } from '../../../lib/theme';
 import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getProjectSheManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
-import { getProject, listProjectManagerCandidates, listSheManagerCandidates, replaceProjectAssignees, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
+import { getProject, isProjectManagerRole, isSheManagerRole, listProjectManagerCandidates, listSheManagerCandidates, replaceProjectAssignees, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
 import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
@@ -1116,8 +1116,8 @@ function ProjectDetailPageContent() {
                 ...(projectInfoDraft.assigneeUserIds || []),
                 ...(projectInfoDraft.sheAssigneeUserIds || []),
             ]);
-            const projectManagerAssignees = savedAssignees.filter((assignee) => assignee.roleCode === 'user');
-            const sheManagerAssignees = savedAssignees.filter((assignee) => assignee.roleCode === 'admin');
+            const projectManagerAssignees = savedAssignees.filter((assignee) => isProjectManagerRole(assignee.roleCode));
+            const sheManagerAssignees = savedAssignees.filter((assignee) => isSheManagerRole(assignee.roleCode));
             const assigneeNames = projectManagerAssignees.map((assignee) => assignee.realName).filter(Boolean);
             const assigneeUserIds = projectManagerAssignees.map((assignee) => assignee.userId);
             const sheManagerNames = sheManagerAssignees.map((assignee) => assignee.realName).filter(Boolean);
@@ -1395,7 +1395,7 @@ function ProjectDetailPageContent() {
           boxShadow: 'none',
         }}
       >
-        {uploadCompleteSubmitting ? '처리 중...' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED ? '처리됨' : '업로드 완료'}
+        {uploadCompleteSubmitting ? '처리 중...' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED ? '업로드 완료됨' : '업로드 완료'}
       </button>
     ) : null;
     const monthGridContent = (
@@ -1569,16 +1569,6 @@ function ProjectDetailPageContent() {
             </div>
           </div>
         ) : <>
-        {!selectedMonthHasUploadedStatement && <div data-ui="project-detail.details-header" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', alignItems: 'center', gap: 10, marginBottom: 16, minWidth: 0 }}>
-          <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap' }}>세부 내역</div>
-            <div style={{ fontSize: 12, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>사용내역서 세부 내역 및 증빙 파일 보기</div>
-          </div>
-          <div />
-          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={() => updateTab('overview')} style={{ height: 40, border: 'none', borderRadius: 999, background: C.primary, color: C.white, cursor: 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>사용내역서 보기</button>
-          </div>
-        </div>}
         {!selectedMonthHasUploadedStatement ? <>
         <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
