@@ -1056,7 +1056,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                     itemName: nextItem.name,
                     fromCategoryName: getCategoryDisplayName(selectedHierarchyCatId),
                     toCategoryName: getCategoryDisplayName(nextItem.categoryId || categoryId),
-                    reason: '입력한 항목명을 기준으로 classi 에이전트가 더 적합한 9개 항목 위치를 선택했습니다.',
+                    reason: '입력한 항목명을 기준으로 classi 에이전트가 더 적합한 카테고리를 선택했습니다.',
                 }]);
             }
             onUsageDetailContentMutated?.('add-item');
@@ -1319,13 +1319,13 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         return (
           <>
             {todoSidebarOpen && (
-              <aside ref={todoPanelRef} data-ui="usage-detail-screen.todo-panel" onClick={() => setTodoSidebarPinned(true)} onMouseLeave={() => { if (!todoSidebarPinned) setTodoSidebarOpen(false); }} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 320, maxWidth: 'calc(100vw - 24px)', height: 'calc(100vh - var(--app-header-height))', zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '10px 0 0 10px', background: C.white, boxShadow: '-18px 0 42px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)', overscrollBehavior: 'contain', opacity: todoSidebarPinned ? 1 : 0.95, transition: 'opacity .16s ease' }}>
+              <aside ref={todoPanelRef} data-ui="usage-detail-screen.todo-panel" onClick={() => setTodoSidebarPinned(true)} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 320, maxWidth: 'calc(100vw - 24px)', height: 'calc(100vh - var(--app-header-height))', zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '10px 0 0 10px', background: C.white, boxShadow: '-18px 0 42px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)', overscrollBehavior: 'contain', opacity: todoSidebarPinned ? 1 : 0.95, transition: 'opacity .16s ease' }}>
                 <div style={{ position: 'sticky', top: 0, zIndex: 2, background: C.white, borderBottom: `1px solid ${C.g200}`, padding: '16px 16px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                     <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>보완 TODO</div>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ fontSize: 12, fontWeight: 900, color: C.primary }}>{activeTodoCount}건</div>
-                      <button type="button" aria-label={todoSidebarPinned ? '보완 TODO 접기' : '보완 TODO 고정'} onClick={(event) => { event.stopPropagation(); if (!todoSidebarPinned) { setTodoSidebarPinned(true); setTodoSidebarOpen(true); return; } setTodoSidebarPinned(false); setTodoSidebarOpen(false); setTodoHoverBlocked(true); }} style={{ width: 28, height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 18, fontWeight: 900, lineHeight: 1 }}>
+                      <button type="button" aria-label="보완 TODO 접기" onClick={(event) => { event.stopPropagation(); setTodoSidebarPinned(false); setTodoSidebarOpen(false); setTodoHoverBlocked(true); }} style={{ width: 28, height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 18, fontWeight: 900, lineHeight: 1 }}>
                         »
                       </button>
                     </div>
@@ -1495,9 +1495,9 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
               <div title={notice.itemName} style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-                <span title={notice.fromCategoryName} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.fromCategoryName}</span>
+                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
                 <span style={{ color: C.primary, fontWeight: 900 }}>→</span>
-                <span title={notice.toCategoryName} style={{ border: `1px solid ${C.light}`, borderRadius: 999, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.toCategoryName}</span>
+                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 999, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
               </div>
               {notice.reason && <div style={{ marginTop: 7, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{notice.reason}</div>}
             </div>

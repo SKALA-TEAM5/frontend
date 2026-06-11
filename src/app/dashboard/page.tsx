@@ -48,6 +48,15 @@ const supplementRequestBadgeStyle: CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
+const supplementRequestDotStyle: CSSProperties = {
+  width: 8,
+  height: 8,
+  borderRadius: 999,
+  background: C.danger,
+  boxShadow: '0 0 0 3px rgba(201, 84, 94, .14)',
+  flexShrink: 0,
+};
+
 const SUPPLEMENT_REASON_TYPES = [
   {
     id: 'purpose',
@@ -761,7 +770,7 @@ export default function DashboardPage() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(136px, 1fr))', gap: 8, marginBottom: 12, minWidth: 0 }}>
               <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
-              <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={compactFieldStyle} />
+              <input aria-label="프로젝트 번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="프로젝트 번호" style={compactFieldStyle} />
               <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={compactFieldStyle}>
                 {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '담당자' : item}</option>)}
               </select>
@@ -827,7 +836,7 @@ export default function DashboardPage() {
                       <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g800, fontSize: 13, fontWeight: 700 }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                           <span style={{ whiteSpace: 'nowrap' }}>{project.constructionName}</span>
-                          {hasSupplementRequest && <span style={supplementRequestBadgeStyle}>보완 요청</span>}
+                          {hasSupplementRequest && <span aria-label="보완 요청" title="보완 요청" style={supplementRequestDotStyle} />}
                         </span>
                       </td>
                       <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g600, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{project.contractNumber}</td>
@@ -860,7 +869,7 @@ export default function DashboardPage() {
             </div>
           </Card>
 
-          <div className="dashboard-analysis-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.45fr) minmax(260px, .72fr)', gap: 16, minWidth: 0 }}>
+          <div className="dashboard-analysis-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.2fr) minmax(260px, .8fr)', gap: 16, minWidth: 0 }}>
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 20 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
@@ -975,7 +984,7 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))', gap: 12, flex: '1 1 auto', minHeight: 0, minWidth: 0 }}>
-                <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, padding: '12px 14px', background: 'color-mix(in srgb, var(--c-bg) 34%, #fff)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 0 }}>
+                <div style={{ width: 'min(100%, 190px)', aspectRatio: '1 / 1', justifySelf: 'center', alignSelf: 'center', boxSizing: 'border-box', border: `1px solid ${C.g100}`, borderRadius: 10, padding: '12px 14px', background: 'color-mix(in srgb, var(--c-bg) 34%, #fff)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 0 }}>
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.g600 }}>전체 사용 금액</div>
                     <div style={{ display: 'grid', placeItems: 'center', marginTop: 6 }}>

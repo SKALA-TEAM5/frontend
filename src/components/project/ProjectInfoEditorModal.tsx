@@ -70,13 +70,6 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 7,
 };
 
-const readOnlyStyle: React.CSSProperties = {
-  ...fieldStyle,
-  background: C.g100,
-  color: C.g400,
-  cursor: 'default',
-};
-
 const onlyDigits = (value: string) => value.replace(/[^\d]/g, '');
 
 const formatAmountInput = (value?: string) => {
@@ -144,7 +137,7 @@ export default function ProjectInfoEditorModal({
     selectedIds: Set<number>,
     key: 'assigneeUserIds' | 'sheAssigneeUserIds',
   ) => options.length > 0 ? (
-    <div style={{ gridColumn: '1 / -1', position: 'relative' }}>
+    <div style={{ minWidth: 0, position: 'relative' }}>
       <div style={labelStyle}>{label}</div>
       <button
         type="button"
@@ -273,10 +266,6 @@ export default function ProjectInfoEditorModal({
               <>
                 {assigneeField('프로젝트 담당자', assigneeOptions, selectedAssigneeUserIds, 'assigneeUserIds')}
                 {assigneeField('SHE 담당자', sheAssigneeOptions, selectedSheAssigneeUserIds, 'sheAssigneeUserIds')}
-                <div>
-                  <div style={labelStyle}>사용률</div>
-                  <input value={draft.usageRate || '-'} readOnly style={readOnlyStyle} />
-                </div>
               </>
             )}
           </div>

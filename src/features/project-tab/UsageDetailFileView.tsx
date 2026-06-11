@@ -194,24 +194,21 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     };
   }, [openFileMenu]);
 
-  const renderFileRow = (kind: FolderEvidenceCategory, file: EvidenceFile) => {
-    const problem = Boolean(isProblemFile?.(file));
-    return (
-      <div key={file.id} draggable onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ position: 'relative', border: `1px solid ${problem ? '#FFCDD2' : C.g100}`, background: problem ? C.dangerBg : C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: 6 }}>
-          <div style={{ minWidth: 0 }}>
-            <div title={file.name} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 10, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
-            </div>
+  const renderFileRow = (kind: FolderEvidenceCategory, file: EvidenceFile) => (
+    <div key={file.id} draggable onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ position: 'relative', border: `1px solid ${C.g100}`, background: C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: 6 }}>
+        <div style={{ minWidth: 0 }}>
+          <div title={file.name} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
           </div>
-          <button type="button" aria-label={`${file.name} 더보기`} onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); const isOpen = openFileMenu?.file.id === file.id && openFileMenu.kind === kind; fileMenuAnchorRef.current = isOpen ? null : event.currentTarget; setOpenFileMenu(isOpen ? null : { kind, file, top: rect.top, left: rect.right + 4 }); }} style={{ width: 26, height: 26, border: 'none', borderRadius: 999, background: 'transparent', color: openFileMenu?.file.id === file.id && openFileMenu.kind === kind ? C.g800 : C.g400, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-            <MoreIcon color={openFileMenu?.file.id === file.id && openFileMenu.kind === kind ? C.g800 : C.g400} />
-          </button>
         </div>
+        <button type="button" aria-label={`${file.name} 더보기`} onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); const isOpen = openFileMenu?.file.id === file.id && openFileMenu.kind === kind; fileMenuAnchorRef.current = isOpen ? null : event.currentTarget; setOpenFileMenu(isOpen ? null : { kind, file, top: rect.top, left: rect.right + 4 }); }} style={{ width: 26, height: 26, border: 'none', borderRadius: 999, background: 'transparent', color: openFileMenu?.file.id === file.id && openFileMenu.kind === kind ? C.g800 : C.g400, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+          <MoreIcon color={openFileMenu?.file.id === file.id && openFileMenu.kind === kind ? C.g800 : C.g400} />
+        </button>
       </div>
-    );
-  };
+    </div>
+  );
 
   const renderFileMenu = () => {
     if (!openFileMenu || typeof document === 'undefined') return null;
@@ -352,7 +349,9 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                   {filteredItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 6, padding: 14, fontSize: 12, color: C.g400, textAlign: 'center', background: '#FCFEFD' }}>OCR 항목이 없습니다</div>}
                   {filteredItems.map((item) => {
                     const active = item.id === activeItem.id;
+                    const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, item.categoryId, item.id).some((file) => isProblemFile?.(file)));
                     const hasActionRequest = isActionRequestedUsageItem(item) || Boolean(isSupplementTarget?.(item.categoryId, item.id));
+                    const hasProblemOrActionRequest = hasProblem || hasActionRequest;
                     return (
                       <div
                         key={item.id}
@@ -365,18 +364,18 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                             onSelectUsageItem(item);
                           }
                         }}
-                        style={{ width: '100%', border: `1px solid ${hasActionRequest ? (active ? C.danger : '#FFCDD2') : active ? C.primary : C.g100}`, background: hasActionRequest ? C.dangerBg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', boxShadow: active ? `0 0 0 1px ${hasActionRequest ? 'rgba(229,57,53,.18)' : 'rgba(27,94,59,.18)'}` : 'none' }}
+                        style={{ width: '100%', border: `1px solid ${hasProblemOrActionRequest ? (active ? C.danger : '#FFCDD2') : active ? C.primary : C.g100}`, background: hasProblemOrActionRequest ? C.dangerBg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', boxShadow: active ? `0 0 0 1px ${hasProblemOrActionRequest ? 'rgba(229,57,53,.18)' : 'rgba(27,94,59,.18)'}` : 'none' }}
                       >
                         <div
                           title={[item.date, item.name, item.unit, item.quantity, item.unitPrice ? fmt(item.unitPrice) : '', fmt(item.amount)].filter(Boolean).join(' ')}
                           style={{ display: 'grid', gridTemplateColumns: usageItemRowColumns, gap: 8, alignItems: 'center', minWidth: 0 }}
                         >
-                          <span style={{ fontSize: 11, color: hasActionRequest ? C.danger : C.g600, fontWeight: 900, whiteSpace: 'nowrap' }}>{item.date || '-'}</span>
-                          <span style={{ minWidth: 0, fontSize: 12, fontWeight: 900, color: hasActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'normal', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{item.name}</span>
+                          <span style={{ fontSize: 11, color: hasProblemOrActionRequest ? C.danger : C.g600, fontWeight: 900, whiteSpace: 'nowrap' }}>{item.date || '-'}</span>
+                          <span style={{ minWidth: 0, fontSize: 12, fontWeight: 900, color: hasProblemOrActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'normal', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{item.name}</span>
                           <span style={{ fontSize: 11, color: C.g600, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'center' }}>{item.unit || '-'}</span>
                           <span style={{ fontSize: 11, color: C.g600, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>{item.quantity ?? '-'}</span>
                           <span style={{ fontSize: 11, color: C.g600, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>{item.unitPrice ? fmt(item.unitPrice) : '-'}</span>
-                          <span style={{ fontSize: 12, color: hasActionRequest ? C.danger : active ? C.primary : C.g800, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>{fmt(item.amount)}</span>
+                          <span style={{ fontSize: 12, color: hasProblemOrActionRequest ? C.danger : active ? C.primary : C.g800, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>{fmt(item.amount)}</span>
                           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, alignSelf: 'center' }}>
                             <button
                               type="button"

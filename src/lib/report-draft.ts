@@ -108,7 +108,7 @@ export const buildReportDraftJson = (project: ProjectSummary | null, result: Val
     '보고서 번호': reportNo,
     '검토 일자': writtenDate,
     현장명: siteName,
-    계약번호: project?.contractNumber || '-',
+    프로젝트번호: project?.contractNumber || '-',
     발주처: project?.client || '-',
     시공사: project?.constructionCompany || '-',
     계약금액: project ? `${project.constructionAmount}원` : '-',
