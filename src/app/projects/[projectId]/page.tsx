@@ -333,10 +333,7 @@ function ProjectDetailPageContent() {
     const [actionGuideClosingMotion, setActionGuideClosingMotion] = useState<{ x: number; y: number; scale: number } | null>(null);
     const [actionCompletionSent, setActionCompletionSent] = useState(false);
     const [todoClearSignal, setTodoClearSignal] = useState(0);
-    const [activeArchiveTodoCount, setActiveArchiveTodoCount] = useState(0);
-    const [uploadCompleteConfirmOpen, setUploadCompleteConfirmOpen] = useState(false);
     const [uploadCompleteSubmitting, setUploadCompleteSubmitting] = useState(false);
-    const [uploadCompleteFeedback, setUploadCompleteFeedback] = useState(false);
     const [projectInfoModalOpen, setProjectInfoModalOpen] = useState(false);
     const [monthCreateModalOpen, setMonthCreateModalOpen] = useState(false);
     const [newMonthYear, setNewMonthYear] = useState(String(new Date().getFullYear()));
@@ -377,7 +374,6 @@ function ProjectDetailPageContent() {
     const actionRequestBadgeRef = useRef<HTMLButtonElement | null>(null);
     const monthHistoryPushedRef = useRef(false);
     const usageUploadTimersRef = useRef<number[]>([]);
-    const uploadCompleteFeedbackTimerRef = useRef<number | null>(null);
     const monthlyStatements = useMemo(() => {
         const byMonth = new Map<string, MonthlyUsageStatementSummary>();
         Object.values(dbUsageStatementsByMonth).forEach((entry) => {
@@ -601,6 +597,8 @@ function ProjectDetailPageContent() {
         setArchiveUsageItems([]);
         pushMonthHistory();
         setSelectedMonth(month);
+        setActiveTab('details');
+        router.replace(`/projects/${project.id}?tab=details`, { scroll: false });
         setMonthCreateModalOpen(false);
     };
     const deleteUsageMonth = () => {
@@ -689,10 +687,6 @@ function ProjectDetailPageContent() {
     useEffect(() => () => {
         usageUploadTimersRef.current.forEach((timer) => window.clearTimeout(timer));
         usageUploadTimersRef.current = [];
-        if (uploadCompleteFeedbackTimerRef.current) {
-            window.clearTimeout(uploadCompleteFeedbackTimerRef.current);
-            uploadCompleteFeedbackTimerRef.current = null;
-        }
     }, []);
     useEffect(() => {
         setProjectHeaderOpen(Boolean(selectedMonth));
@@ -808,16 +802,6 @@ function ProjectDetailPageContent() {
             cancelled = true;
         };
     }, [project.id, selectedStatement.month, selectedStatementArchive?.usageStatementId]);
-    const flashUploadCompleteFeedback = () => {
-        if (uploadCompleteFeedbackTimerRef.current) {
-            window.clearTimeout(uploadCompleteFeedbackTimerRef.current);
-        }
-        setUploadCompleteFeedback(true);
-        uploadCompleteFeedbackTimerRef.current = window.setTimeout(() => {
-            setUploadCompleteFeedback(false);
-            uploadCompleteFeedbackTimerRef.current = null;
-        }, 1100);
-    };
     const completeReviewRequest = async () => {
         if (!canUploadEvidence || !hasUsageStatement || uploadCompleteSubmitting)
             return;
@@ -838,21 +822,11 @@ function ProjectDetailPageContent() {
             setActionGuideOpen(false);
             setActionGuideClosingMotion(null);
             setTodoClearSignal((signal) => signal + 1);
-            setUploadCompleteConfirmOpen(false);
-            flashUploadCompleteFeedback();
         } catch (error) {
-            setUploadCompleteConfirmOpen(false);
             showAgentFailure('server-request', error);
         } finally {
             setUploadCompleteSubmitting(false);
         }
-    };
-    const sendReviewRequest = () => {
-        if (activeArchiveTodoCount > 0) {
-            setUploadCompleteConfirmOpen(true);
-            return;
-        }
-        completeReviewRequest();
     };
     const openProjectInfoModal = () => {
         const { startDate, endDate } = parseProjectPeriod(project.period);
@@ -1052,16 +1026,6 @@ function ProjectDetailPageContent() {
             setProjectInfoDraft((current) => ({ ...current, ...patch }));
             setProjectInfoSaveError('');
         }}/>);
-    const uploadCompleteFeedbackActive = uploadCompleteFeedback && selectedMonthHasUploadedStatement;
-    const uploadCompleteFeedbackStyle: CSSProperties = uploadCompleteFeedbackActive
-        ? {
-            background: C.primary,
-            color: C.white,
-            transform: 'scale(.96)',
-            boxShadow: `0 0 0 5px ${C.primaryShadow}`,
-        }
-        : {};
-    const uploadCompleteFeedbackLabel = uploadCompleteFeedbackActive ? '처리됨' : '업로드 완료';
     const monthCreateInputStyle: CSSProperties = {
       width: '100%',
       boxSizing: 'border-box',
@@ -1138,46 +1102,6 @@ function ProjectDetailPageContent() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
             <button type="button" onClick={() => setMonthDeleteTarget(null)} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>취소</button>
             <button type="button" onClick={deleteUsageMonth} style={{ height: 38, border: 'none', borderRadius: 999, background: C.danger, color: C.white, padding: '0 16px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>삭제</button>
-          </div>
-        </div>
-      </Modal>
-    );
-    const uploadCompleteConfirmModal = (
-      <Modal open={uploadCompleteConfirmOpen} onClose={() => {
-        if (!uploadCompleteSubmitting)
-          setUploadCompleteConfirmOpen(false);
-      }} zIndex={990} maxWidth={460}>
-        <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>업로드 완료 확인</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
-            아직 완료되지 않은 보완 TODO가 {activeArchiveTodoCount}건 있습니다. <br />모든 보완을 완료했는지 확인해 주세요.
-            <br /><br />
-            <span style={{ color: C.danger, fontWeight: 900 }}>업로드 완료를 진행하면 완료된 TODO는 목록에서 삭제됩니다.</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-            <button type="button" disabled={uploadCompleteSubmitting} onClick={() => setUploadCompleteConfirmOpen(false)} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: uploadCompleteSubmitting ? 'not-allowed' : 'pointer', opacity: uploadCompleteSubmitting ? 0.45 : 1 }}>취소</button>
-            <button
-              type="button"
-              disabled={uploadCompleteSubmitting}
-              onClick={completeReviewRequest}
-              style={{
-                height: 38,
-                border: `1px solid ${C.primary}`,
-                borderRadius: 999,
-                background: C.primary,
-                color: C.white,
-                padding: '0 16px',
-                fontFamily: 'inherit',
-                fontSize: 13,
-                fontWeight: 900,
-                cursor: uploadCompleteSubmitting ? 'not-allowed' : 'pointer',
-                opacity: uploadCompleteSubmitting ? 0.65 : 1,
-                transition: 'transform .16s ease, background .18s ease, color .18s ease, box-shadow .18s ease, border-color .18s ease',
-                ...uploadCompleteFeedbackStyle,
-              }}
-            >
-              {uploadCompleteSubmitting ? '처리 중...' : uploadCompleteFeedbackLabel}
-            </button>
           </div>
         </div>
       </Modal>
@@ -1313,30 +1237,27 @@ function ProjectDetailPageContent() {
         {usageUploadStage === 'ocr' ? 'OCR/분류 처리 중' : usageUploadStage === 'classifying' ? '목록 갱신 중' : '사용내역서 업로드'}
       </button>
     ) : null;
-    const reviewRequestHeaderButton = canUploadEvidence ? (
+    const uploadCompleteAction = canUploadEvidence ? (
       <button
         type="button"
-        onClick={sendReviewRequest}
-        disabled={!selectedMonthHasUploadedStatement}
+        onClick={() => void completeReviewRequest()}
+        disabled={!selectedMonthHasUploadedStatement || uploadCompleteSubmitting}
         style={{
-          height: 32,
+          height: 40,
           border: `1px solid ${!selectedMonthHasUploadedStatement ? C.g200 : C.primary}`,
           borderRadius: 999,
-          padding: '0 12px',
+          padding: '0 16px',
           background: !selectedMonthHasUploadedStatement ? C.g100 : C.bg,
           color: !selectedMonthHasUploadedStatement ? C.g400 : C.primary,
-          cursor: !selectedMonthHasUploadedStatement ? 'not-allowed' : 'pointer',
-          fontSize: 12,
+          cursor: !selectedMonthHasUploadedStatement || uploadCompleteSubmitting ? 'not-allowed' : 'pointer',
+          fontSize: 13,
           fontWeight: 900,
           fontFamily: 'inherit',
           whiteSpace: 'nowrap',
           boxShadow: 'none',
-          transform: 'scale(1)',
-          transition: 'transform .16s ease, background .18s ease, color .18s ease, box-shadow .18s ease, border-color .18s ease',
-          ...uploadCompleteFeedbackStyle,
         }}
       >
-        {uploadCompleteFeedbackLabel}
+        {uploadCompleteSubmitting ? '처리 중...' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED ? '처리됨' : '업로드 완료'}
       </button>
     ) : null;
     const monthGridContent = (
@@ -1547,7 +1468,7 @@ function ProjectDetailPageContent() {
                         },
                     };
                 });
-            }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveArchiveTodoCount} onVerificationComplete={refreshSelectedAgentButtonState} onBackToOverview={() => updateTab('overview')} uploadCompleteAction={reviewRequestHeaderButton}/>}
+            }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onVerificationComplete={refreshSelectedAgentButtonState} uploadCompleteAction={uploadCompleteAction}/>}
         </>}
       </div>),
         validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} onValidationComplete={() => {
@@ -1656,7 +1577,6 @@ function ProjectDetailPageContent() {
       {projectInfoModal}
       {monthCreateModal}
       {monthDeleteModal}
-      {uploadCompleteConfirmModal}
       <CenterModal open={Boolean(ocrFailureReason)} title="사용내역서 OCR 실패" body={<div>
         <div style={{ marginBottom: 8 }}>사용내역서를 다시 업로드해주세요.</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800 }}>{ocrFailureReason}</div>
