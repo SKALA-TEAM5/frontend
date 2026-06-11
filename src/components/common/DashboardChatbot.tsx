@@ -24,7 +24,7 @@ const iconStyle = {
   alignItems: 'center',
   justifyContent: 'center',
   flexShrink: 0,
-  overflow: 'hidden',
+  overflow: 'visible',
 } as const;
 
 const ChatLogo = ({ size = 24 }: { size?: number }) => (
@@ -33,10 +33,10 @@ const ChatLogo = ({ size = 24 }: { size?: number }) => (
       src={mascotSrc}
       alt=""
       style={{
-        width: size * 1.08,
-        height: size * 1.08,
+        width: size,
+        height: size,
         objectFit: 'contain',
-        transform: 'translateY(1px)',
+        display: 'block',
       }}
     />
   </span>
@@ -414,10 +414,10 @@ export default function DashboardChatbot() {
           width: 60,
           height: 60,
           borderRadius: 999,
-          border: `2px solid ${C.light}`,
-          background: 'transparent',
+          border: 'none',
+          background: `radial-gradient(circle at center, color-mix(in srgb, ${C.light} 35%, white 65%) 0%, ${C.bg} 56%, transparent 100%)`,
           color: open ? C.g800 : C.white,
-          boxShadow: 'none',
+          boxShadow: '0 10px 24px rgba(31, 55, 43, .16)',
           display: 'grid',
           placeItems: 'center',
           cursor: 'pointer',
