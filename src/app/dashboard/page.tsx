@@ -267,8 +267,9 @@ const dashboardPhotoBackdropStyle: CSSProperties = {
   top: 0,
   left: 0,
   right: 0,
-  height: '100%',
+  height: 170,
   minHeight: 170,
+  maxHeight: 170,
   pointerEvents: 'auto',
   background: 'linear-gradient(180deg, rgba(255,255,255,.02) 0%, color-mix(in srgb, var(--c-soft) 38%, transparent) 46%, color-mix(in srgb, var(--c-soft) 84%, transparent) 82%, var(--c-soft) 100%), linear-gradient(135deg, color-mix(in srgb, var(--c-primary) 46%, transparent) 0%, color-mix(in srgb, var(--c-primary) 22%, transparent) 54%, rgba(255,255,255,.72) 100%), url("https://images.pexels.com/photos/32858871/pexels-photo-32858871.jpeg?auto=compress&cs=tinysrgb&w=1800") center 52% / cover no-repeat',
   zIndex: 1,
@@ -277,6 +278,7 @@ const dashboardPhotoBackdropStyle: CSSProperties = {
   border: '1px solid color-mix(in srgb, var(--c-primary) 22%, #fff)',
   backgroundClip: 'padding-box',
   boxShadow: 'var(--ui-shadow-panel)',
+  alignSelf: 'start',
 };
 
 const dashboardTopStyle: CSSProperties = {
@@ -299,7 +301,7 @@ const dashboardContentLayerStyle: CSSProperties = {
 
 const dashboardTopInnerStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'minmax(0, 1fr) 300px',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
   gap: 20,
   alignItems: 'stretch',
   width: '100%',
@@ -318,7 +320,6 @@ const dashboardPanelStyle: CSSProperties = {
 const dashboardAnalysisCardHeight = 258;
 
 const dashboardPanelHeaderStyle: CSSProperties = {
-  height: 28,
   minHeight: 28,
   flexShrink: 0,
   margin: '0 0 14px',
@@ -327,6 +328,8 @@ const dashboardPanelHeaderStyle: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: 12,
+  flexWrap: 'wrap',
+  minWidth: 0,
   borderBottom: 'none',
   borderTopLeftRadius: 12,
   borderTopRightRadius: 12,
@@ -635,14 +638,14 @@ export default function DashboardPage() {
           <div style={{ display: 'grid', minWidth: 0 }}>
             <section style={dashboardPhotoBackdropStyle}>
               <div style={{ position: 'absolute', inset: -1, borderRadius: 'inherit', background: 'linear-gradient(90deg, rgba(10,28,22,.48) 0%, rgba(10,28,22,.28) 48%, rgba(10,28,22,.08) 100%)' }} />
-              <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'stretch', gap: 24, padding: '24px 28px' }}>
+              <div style={{ position: 'relative', zIndex: 1, height: '100%', minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'stretch', gap: 24, padding: '24px 28px', overflow: 'hidden' }}>
                 <div style={{ minWidth: 0, alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 18 }}>
                   <img src="/uploads/character.png" alt="" aria-hidden="true" style={{ width: 108, height: 108, objectFit: 'contain', flex: '0 0 auto', filter: 'drop-shadow(0 10px 22px rgba(0,0,0,.30))' }} />
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 24, lineHeight: 1.35, fontWeight: 700, color: C.white, letterSpacing: 0 }}>
+                    <div style={{ fontSize: 24, lineHeight: 1.35, fontWeight: 700, color: C.white, letterSpacing: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       i-veri가 안전한 현장 운영을 지원합니다.
                     </div>
-                    <div style={{ marginTop: 12, color: 'rgba(255,255,255,.86)', fontSize: 13, fontWeight: 700 }}>
+                    <div style={{ marginTop: 12, color: 'rgba(255,255,255,.86)', fontSize: 13, fontWeight: 700, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       프로젝트 검증 현황과 보완 요청을 한 화면에서 확인하고 관리하세요.
                     </div>
                   </div>
@@ -748,7 +751,7 @@ export default function DashboardPage() {
               <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>진행 중인 프로젝트 현황</div>
               <Link href="/projects" style={{ fontSize: 12, fontWeight: 700, color: C.primary, textDecoration: 'none' }}>전체 프로젝트 보기 〉</Link>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(138px, 1.1fr) minmax(100px, .8fr) minmax(92px, .66fr) minmax(118px, .72fr) max-content', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(136px, 1fr))', gap: 8, marginBottom: 12, minWidth: 0 }}>
               <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
               <input aria-label="계약번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="계약번호" style={compactFieldStyle} />
               <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={compactFieldStyle}>
@@ -849,7 +852,7 @@ export default function DashboardPage() {
             </div>
           </Card>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.0fr) minmax(0, 1.2fr) minmax(0, .70fr)', gap: 16 }}>
+          <div className="dashboard-analysis-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, minWidth: 0 }}>
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 20 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
@@ -859,7 +862,7 @@ export default function DashboardPage() {
                   aria-label="프로젝트"
                   value={selectedReasonProjectId || reasonProjectId}
                   onChange={(event) => setSelectedReasonProjectId(event.target.value)}
-                  style={{ width: 190, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 12, fontWeight: 700, padding: '0 10px' }}
+                  style={{ width: 190, maxWidth: '100%', minWidth: 0, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 12, fontWeight: 700, padding: '0 10px' }}
                 >
                   {projects.length === 0 && <option value="">프로젝트 없음</option>}
                   {projects.length > 0 && <option value={ALL_REASON_PROJECTS}>전체</option>}
@@ -935,14 +938,14 @@ export default function DashboardPage() {
 
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 10 }}>
-                <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap' }}>AI 사용 금액</div>
-                  <div style={{ color: C.g500, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                  <div style={{ color: C.g500, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap', minWidth: 0 }}>
                     {`${dashboardMonthPeriod.year}년 ${Number(dashboardMonthPeriod.month)}월 기준`}
                   </div>
                 </div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                  <div role="group" aria-label="AI 사용 금액 기준" style={{ display: 'inline-flex', alignItems: 'center', height: 30, padding: 2, border: `1px solid ${C.g200}`, borderRadius: 999, background: '#F7F8F7', flexShrink: 0 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <div role="group" aria-label="AI 사용 금액 기준" style={{ display: 'inline-flex', alignItems: 'center', height: 30, padding: 2, border: `1px solid ${C.g200}`, borderRadius: 999, background: '#F7F8F7', flexShrink: 0, maxWidth: '100%' }}>
                     {[
                       { key: 'user' as const, label: '사용자별' },
                       { key: 'project' as const, label: '프로젝트별' },
@@ -963,7 +966,7 @@ export default function DashboardPage() {
                   <Link href={`/usage-records?year=${aiUsageYear}&month=${aiUsageMonth}`} style={{ color: C.primary, fontSize: 11, fontWeight: 800, textDecoration: 'none', whiteSpace: 'nowrap' }}>전체 보기 〉</Link>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, .9fr) minmax(0, 1.1fr)', gap: 12, flex: '1 1 auto', minHeight: 0 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))', gap: 12, flex: '1 1 auto', minHeight: 0, minWidth: 0 }}>
                 <div style={{ border: `1px solid ${C.g100}`, borderRadius: 10, padding: '12px 14px', background: 'color-mix(in srgb, var(--c-bg) 34%, #fff)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 0 }}>
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.g600 }}>전체 사용 금액</div>
@@ -1099,6 +1102,11 @@ export default function DashboardPage() {
       <style jsx>{`
         .review-needed-info-wrap:hover .review-needed-tooltip {
           display: block !important;
+        }
+        @media (max-width: 980px) {
+          .dashboard-analysis-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
         }
       `}</style>
     </AppFrame>

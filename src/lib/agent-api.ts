@@ -58,6 +58,9 @@ export interface OrchestratorTodo {
   categoryName?: string | null;
   usageStatementItemName?: string | null;
   fileId: number | null;
+  fileIds?: number[];
+  title?: string | null;
+  evidenceTypeCodes?: string[];
   reason: string;
   statusCode: string;
 }
@@ -105,6 +108,11 @@ interface AgentTodoItemResponse {
   usage_statement_item_id?: number | null;
   fileId?: number | null;
   file_id?: number | null;
+  fileIds?: number[] | null;
+  file_ids?: number[] | null;
+  title?: string | null;
+  evidenceTypeCodes?: string[] | null;
+  evidence_type_codes?: string[] | null;
   categoryCode?: string | null;
   category_code?: string | null;
   categoryName?: string | null;
@@ -313,6 +321,9 @@ const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefine
         categoryName: null,
         usageStatementItemName: null,
         fileId: null,
+        fileIds: [],
+        title: null,
+        evidenceTypeCodes: [],
         reason: entryReason || '보완 사항 확인 필요',
         statusCode: 'open',
       }];
@@ -321,6 +332,14 @@ const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefine
       const itemRecord = item as Record<string, unknown>;
       const usageStatementItemId = readField(itemRecord, 'usageStatementItemId', 'usage_statement_item_id');
       const fileId = readField(itemRecord, 'fileId', 'file_id');
+      const rawFileIds = readField(itemRecord, 'fileIds', 'file_ids');
+      const fileIds = Array.isArray(rawFileIds)
+        ? rawFileIds.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+        : [];
+      const rawEvidenceTypeCodes = readField(itemRecord, 'evidenceTypeCodes', 'evidence_type_codes');
+      const evidenceTypeCodes = Array.isArray(rawEvidenceTypeCodes)
+        ? rawEvidenceTypeCodes.map((value) => String(value)).filter(Boolean)
+        : [];
       return {
         agentTypeCode,
         usageStatementItemId: usageStatementItemId == null ? null : Number(usageStatementItemId),
@@ -328,6 +347,9 @@ const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefine
         categoryName: readField(itemRecord, 'categoryName', 'category_name') as string | null,
         usageStatementItemName: readField(itemRecord, 'usageStatementItemName', 'usage_statement_item_name') as string | null,
         fileId: fileId == null ? null : Number(fileId),
+        fileIds,
+        title: readField(itemRecord, 'title', 'title') as string | null,
+        evidenceTypeCodes,
         reason: item.reason || entryReason || '보완 사항 확인 필요',
         statusCode: 'open',
       };

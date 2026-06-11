@@ -6,7 +6,7 @@ export interface ProjectAssignee {
   userId: number;
   employeeNo: string;
   realName: string;
-  roleCode: BackendRoleCode;
+  roleCode: BackendRoleCode | string;
   assignedAt: string;
   assignedByUserId: number | null;
 }
@@ -115,6 +115,16 @@ const progressText = (value?: number | string | null) => {
 
 const managerText = (names: string[]) => names.filter(Boolean).join(', ');
 
+const normalizeRoleCodeText = (roleCode?: string | null) => String(roleCode || '').trim().toLowerCase();
+export const isProjectManagerRole = (roleCode?: string | null) => {
+  const normalized = normalizeRoleCodeText(roleCode);
+  return normalized === 'user' || normalized === 'project_manager' || normalized === 'project manager';
+};
+export const isSheManagerRole = (roleCode?: string | null) => {
+  const normalized = normalizeRoleCodeText(roleCode);
+  return normalized === 'admin' || normalized === 'she_manager' || normalized === 'she manager';
+};
+
 const emptyProjectBase = (id: number, name: string, status: ProjectStatusCode, hasActionRequest = false, latestUsageStatementStatusCode?: string | null): ProjectSummary => ({
   id: String(id),
   contractNumber: '',
@@ -163,8 +173,8 @@ export const projectCardToSummary = (project: ProjectCardResponse): ProjectSumma
 
 export const projectDetailToSummary = (project: ProjectDetailResponse): ProjectSummary => {
   const assignees = project.assignees || [];
-  const projectManagerAssignees = assignees.filter((assignee) => assignee.roleCode === 'user');
-  const sheManagerAssignees = assignees.filter((assignee) => assignee.roleCode === 'admin');
+  const projectManagerAssignees = assignees.filter((assignee) => isProjectManagerRole(assignee.roleCode));
+  const sheManagerAssignees = assignees.filter((assignee) => isSheManagerRole(assignee.roleCode));
   const assigneeNames = projectManagerAssignees.map((assignee) => assignee.realName).filter(Boolean);
   const sheManagerNames = sheManagerAssignees.map((assignee) => assignee.realName).filter(Boolean);
   return {

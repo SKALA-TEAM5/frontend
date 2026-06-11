@@ -42,6 +42,7 @@ interface ProjectFileResponse {
   uploadedAt: string | null;
   statusCode: FileStatusCode | string;
   linkedItemCount: number;
+  visionDetections?: VisionDetectionsResponse | null;
 }
 
 interface ProjectFileUploadResponse {
@@ -55,6 +56,7 @@ interface ProjectFileUploadResponse {
   uploadedAt: string | null;
   statusCode?: FileStatusCode | string;
   detail?: string | null;
+  visionDetections?: VisionDetectionsResponse | null;
 }
 
 interface ArchiveCategoryListResponse {
@@ -144,6 +146,22 @@ interface EvidenceFileResponse {
   sizeBytes: number | null;
   capturedAt: string | null;
   uploadedAt: string | null;
+  visionDetections?: VisionDetectionsResponse | null;
+}
+
+interface VisionDetectionResponse {
+  label?: string | null;
+  boxColor?: string | null;
+  confidence?: number | string | null;
+  isWearing?: boolean | null;
+  bboxXyxy?: number[] | null;
+  bbox_xyxy?: number[] | null;
+}
+
+interface VisionDetectionsResponse {
+  imageWidth?: number | string | null;
+  imageHeight?: number | string | null;
+  detections?: VisionDetectionResponse[] | null;
 }
 
 interface RequirementResponse {
@@ -300,6 +318,62 @@ const projectFileCodeToKind = (code?: string | null): EvidenceCategory => {
   return backendEvidenceTypeToCategory(code);
 };
 
+const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
+
+const normalizeVisionBox = (bbox: unknown, imageWidth?: number, imageHeight?: number): [number, number, number, number] | null => {
+  if (!Array.isArray(bbox))
+    return null;
+  const values = bbox.map((value) => Number(value));
+  if (values.length < 4 || values.some((value) => !Number.isFinite(value)))
+    return null;
+  const [x1, y1, x2, y2] = values;
+  if (imageWidth && imageHeight) {
+    return [
+      clampPercent((x1 / imageWidth) * 100),
+      clampPercent((y1 / imageHeight) * 100),
+      clampPercent(((x2 - x1) / imageWidth) * 100),
+      clampPercent(((y2 - y1) / imageHeight) * 100),
+    ];
+  }
+  return [clampPercent(x1), clampPercent(y1), clampPercent(x2 - x1), clampPercent(y2 - y1)];
+};
+
+const visionDetectionsToValidation = (
+  file: { visionDetections?: VisionDetectionsResponse | null },
+  kind: EvidenceCategory,
+): EvidenceFile['visionValidation'] | undefined => {
+  if (kind !== 'site_photo' || !file.visionDetections)
+    return undefined;
+  const imageWidth = Number(file.visionDetections.imageWidth);
+  const imageHeight = Number(file.visionDetections.imageHeight);
+  const detections = (file.visionDetections.detections || [])
+    .map((detection) => {
+      const box = normalizeVisionBox(detection.bboxXyxy || detection.bbox_xyxy, imageWidth, imageHeight);
+      if (!box)
+        return null;
+      const colorText = String(detection.boxColor || '');
+      const status: 'ok' | 'bad' = detection.isWearing === false || /red|danger|fail|bad|부적|미착용/i.test(colorText) ? 'bad' : 'ok';
+      const confidence = Number(detection.confidence);
+      return {
+        label: detection.label || '비전 검출',
+        confidence: Number.isFinite(confidence) ? confidence : 0,
+        box,
+        status,
+      };
+    })
+    .filter((detection): detection is NonNullable<typeof detection> => Boolean(detection));
+  if (detections.length === 0)
+    return undefined;
+  const hasProblem = detections.some((detection) => detection.status === 'bad');
+  return {
+    status: hasProblem ? 'unsuitable' : 'suitable',
+    checkedAt: new Date().toISOString(),
+    itemName: '현장사진',
+    summary: hasProblem ? '비전 검증 결과 보완이 필요한 항목이 있습니다.' : '비전 검증 결과 착용 상태가 확인되었습니다.',
+    detections,
+  };
+};
+
 const filePath = (projectId: string, fileId: number | string, action: 'preview' | 'download') => `/projects/${projectId}/files/${fileId}/${action}`;
 
 export const getProjectFilePreviewUrl = (projectId: string, fileId: number | string) => apiUrl(filePath(projectId, fileId, 'preview'));
@@ -345,6 +419,7 @@ const evidenceFileToEntry = (projectId: string, file: EvidenceFileResponse, kind
     previewUrl: file.mimeType?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, file.fileId) : '',
     categoryIds: [catId],
     usageItemIds: [usageItemId],
+    visionValidation: visionDetectionsToValidation(file, kind),
   });
 
 const projectFileToEntry = (projectId: string, file: ProjectFileResponse | ProjectFileUploadResponse): EvidenceFile => {
@@ -364,6 +439,7 @@ const projectFileToEntry = (projectId: string, file: ProjectFileResponse | Proje
     previewUrl: file.mimeType?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, fileId) : '',
     categoryIds: [],
     usageItemIds: [],
+    visionValidation: visionDetectionsToValidation(file, kind),
   });
 };
 
