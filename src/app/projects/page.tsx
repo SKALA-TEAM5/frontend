@@ -10,11 +10,12 @@ import { AppFrame, DateRangePicker } from '../../components/common';
 import { type BackendUserProfile } from '../../lib/auth-api';
 import { C } from '../../lib/theme';
 import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, USAGE_WORKFLOW_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getProjectSheManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
-import { createProject, deleteProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees, updateProject } from '../../lib/project-api';
+import { createProject, deleteProject, getProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees, updateProject } from '../../lib/project-api';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getVisibleProjects, type PeriodMode } from '../../lib/project-list';
 import { listUsageStatementArchives } from '../../lib/archive-api';
+import { calculateProjectUsageRate } from '../../lib/project-usage-rate';
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -129,18 +130,25 @@ const isLegalReviewWorkflow = (status?: string | null) => {
 };
 
 const hydrateProjectLegalReviewFilter = async (project: ProjectSummary): Promise<ProjectSummary> => {
-  if (project.hasActionRequest || isLegalReviewWorkflow(project.latestUsageStatementStatusCode)) {
-    return { ...project, hasLegalReviewNeededMonth: true };
-  }
   try {
-    const archives = await listUsageStatementArchives(project.id);
+    const [archives, detail] = await Promise.all([
+      listUsageStatementArchives(project.id),
+      getProject(project.id).catch(() => null),
+    ]);
+    const projectWithDetail = detail ? { ...project, plannedAmount: detail.plannedAmount } : project;
+    const usageRate = calculateProjectUsageRate(projectWithDetail, archives);
     const reviewNeededArchive = archives.find((archive) => isLegalReviewWorkflow(archive.workflowStatus));
     if (!reviewNeededArchive) {
-      return { ...project, hasLegalReviewNeededMonth: false };
+      return {
+        ...project,
+        usageRate,
+        hasLegalReviewNeededMonth: project.hasActionRequest || isLegalReviewWorkflow(project.latestUsageStatementStatusCode),
+      };
     }
     const workflowStatus = normalizeUsageWorkflowStatus(reviewNeededArchive.workflowStatus);
     return {
       ...project,
+      usageRate,
       hasLegalReviewNeededMonth: true,
       hasActionRequest: project.hasActionRequest || workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
       latestUsageStatementStatusCode: project.latestUsageStatementStatusCode || workflowStatus || null,
@@ -372,12 +380,12 @@ function ProjectsPageContent() {
           </div>
           <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, color: C.g600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.contractNumber}</div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '9px 10px', background: 'transparent' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, minWidth: 0 }}>
+          <div style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '9px 10px', background: 'transparent' }}>
             <div style={{ fontSize: 11, fontWeight: 750, color: C.g600 }}>담당자</div>
             <div title={project.manager} style={{ marginTop: 4, fontSize: 13, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</div>
           </div>
-          <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '9px 10px', background: 'transparent' }}>
+          <div style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '9px 10px', background: 'transparent' }}>
             <div style={{ fontSize: 11, fontWeight: 750, color: C.g600 }}>공사 기간</div>
             <div title={project.period || '-'} style={{ marginTop: 4, fontSize: 13, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</div>
           </div>

@@ -1152,7 +1152,7 @@ function ProjectDetailPageContent() {
             setProjectInfoSaving(false);
         }
     };
-    const projectInfoModal = (<ProjectInfoEditorModal open={projectInfoModalOpen} mode="usage" title="사용내역서 기본 정보 수정" subtitle={project.constructionName} draft={projectInfoDraft} error={projectInfoSaveError} saving={projectInfoSaving} assigneeOptions={managerCandidates.map((candidate) => ({ userId: candidate.id, realName: candidate.realName, employeeNo: candidate.employeeNo }))} sheAssigneeOptions={sheManagerCandidates.map((candidate) => ({ userId: candidate.id, realName: candidate.realName, employeeNo: candidate.employeeNo }))} showStatementDates={Boolean(selectedMonth)} onClose={() => setProjectInfoModalOpen(false)} onSave={saveProjectInfo} onChange={(patch) => {
+    const projectInfoModal = (<ProjectInfoEditorModal open={projectInfoModalOpen} mode="usage" title="사용내역서 기본 정보 수정" subtitle={project.constructionName} draft={projectInfoDraft} error={projectInfoSaveError} saving={projectInfoSaving} assigneeOptions={managerCandidates.map((candidate) => ({ userId: candidate.id, realName: candidate.realName, employeeNo: candidate.employeeNo }))} sheAssigneeOptions={sheManagerCandidates.map((candidate) => ({ userId: candidate.id, realName: candidate.realName, employeeNo: candidate.employeeNo }))} onClose={() => setProjectInfoModalOpen(false)} onSave={saveProjectInfo} onChange={(patch) => {
             setProjectInfoDraft((current) => ({ ...current, ...patch }));
             setProjectInfoSaveError('');
         }}/>);

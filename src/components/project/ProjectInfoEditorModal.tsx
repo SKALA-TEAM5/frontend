@@ -43,7 +43,6 @@ interface ProjectInfoEditorModalProps {
   assigneeOptions?: ProjectAssigneeOption[];
   sheAssigneeOptions?: ProjectAssigneeOption[];
   saveLabel?: string;
-  showStatementDates?: boolean;
   onClose: () => void;
   onSave: () => void;
   onChange: (patch: Partial<ProjectInfoEditorDraft>) => void;
@@ -99,7 +98,6 @@ export default function ProjectInfoEditorModal({
   assigneeOptions = [],
   sheAssigneeOptions = [],
   saveLabel,
-  showStatementDates = false,
   onClose,
   onSave,
   onChange,
@@ -279,18 +277,6 @@ export default function ProjectInfoEditorModal({
                   <div style={labelStyle}>사용률</div>
                   <input value={draft.usageRate || '-'} readOnly style={readOnlyStyle} />
                 </div>
-                {showStatementDates && (
-                  <>
-                    <div>
-                      <div style={labelStyle}>업로드일</div>
-                      <input value={draft.uploadedAt || ''} readOnly style={readOnlyStyle} />
-                    </div>
-                    <div>
-                      <div style={labelStyle}>최종수정일</div>
-                      <input value={draft.documentWrittenDate || ''} readOnly style={readOnlyStyle} />
-                    </div>
-                  </>
-                )}
               </>
             )}
           </div>
