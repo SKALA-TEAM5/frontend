@@ -339,7 +339,9 @@ function ProjectsPageContent() {
 
   const renderProjectCard = (project: ProjectSummary) => {
     const progress = Math.min(100, Math.max(0, Number.parseInt(project.progressRate, 10) || 0));
-    const safetyBudgetUsage = Number.parseFloat(String(project.usageRate).replace(/[^\d.]/g, '')) || 0.1;
+    const parsedSafetyBudgetUsage = Number.parseFloat(String(project.usageRate).replace(/[^\d.]/g, ''));
+    const safetyBudgetUsage = Number.isFinite(parsedSafetyBudgetUsage) ? parsedSafetyBudgetUsage : 0;
+    const safetyBudgetUsageBarWidth = safetyBudgetUsage > 0 ? Math.max(2, Math.min(100, safetyBudgetUsage)) : 0;
     const hasSupplement = hasSupplementRequiredMonth(project);
     const projectClosed = project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED;
     const currentUserId = Number(user.id);
@@ -396,7 +398,7 @@ function ProjectsPageContent() {
               <span style={{ color: C.g800 }}>{safetyBudgetUsage}%</span>
             </div>
             <div style={{ height: 8, borderRadius: 999, background: '#E8EEEB', overflow: 'hidden' }}>
-              <div style={{ width: `${Math.max(2, Math.min(100, safetyBudgetUsage))}%`, height: '100%', background: safetyBudgetUsage >= 80 ? '#C9545E' : safetyBudgetUsage >= 50 ? '#F0A22E' : C.primary }} />
+              <div style={{ width: `${safetyBudgetUsageBarWidth}%`, height: '100%', background: safetyBudgetUsage >= 80 ? '#C9545E' : safetyBudgetUsage >= 50 ? '#F0A22E' : C.primary }} />
             </div>
           </div>
         </div>

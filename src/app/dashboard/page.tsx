@@ -806,7 +806,9 @@ export default function DashboardPage() {
               <tbody>
                 {visibleProjects.map((project) => {
                   const progress = Math.min(100, Math.max(0, Number.parseInt(project.progressRate, 10) || 0));
-                  const safetyBudgetUsage = 0.1;
+                  const parsedSafetyBudgetUsage = Number.parseFloat(String(project.usageRate).replace(/[^\d.]/g, ''));
+                  const safetyBudgetUsage = Number.isFinite(parsedSafetyBudgetUsage) ? parsedSafetyBudgetUsage : 0;
+                  const safetyBudgetUsageBarWidth = safetyBudgetUsage > 0 ? Math.max(2, Math.min(100, safetyBudgetUsage)) : 0;
                   const workflow = getProjectMonthWorkflowStatus(project);
                   const hasSupplementRequest = workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
                   return (
@@ -829,7 +831,7 @@ export default function DashboardPage() {
                       <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, minWidth: 150 }}>
                         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 42px', gap: 8, alignItems: 'center' }}>
                           <div style={{ height: 8, background: C.g100, borderRadius: 999, overflow: 'hidden' }}>
-                            <div style={{ width: `${Math.max(2, Math.min(100, safetyBudgetUsage))}%`, height: '100%', background: safetyBudgetUsage >= 80 ? '#C9545E' : safetyBudgetUsage >= 50 ? '#F0A22E' : C.primary }} />
+                            <div style={{ width: `${safetyBudgetUsageBarWidth}%`, height: '100%', background: safetyBudgetUsage >= 80 ? '#C9545E' : safetyBudgetUsage >= 50 ? '#F0A22E' : C.primary }} />
                           </div>
                           <span style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.g800 }}>{safetyBudgetUsage}%</span>
                         </div>
