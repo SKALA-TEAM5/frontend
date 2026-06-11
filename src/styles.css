@@ -165,6 +165,76 @@
     display: inline-block;
     animation: dashboardRefreshSpin .85s linear infinite;
   }
+  .login-page {
+    position: relative;
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    overflow: hidden;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--c-bg) 34%, #fff) 0%, rgba(255,255,255,.62) 46%, color-mix(in srgb, var(--c-bg) 24%, #fff) 100%),
+      var(--dashboard-surface-bg);
+  }
+  .login-page::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    pointer-events: none;
+    background: color-mix(in srgb, var(--c-g200) 42%, transparent);
+  }
+  .login-page::after {
+    content: '';
+    position: absolute;
+    width: min(560px, 84vw);
+    height: 420px;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    border-radius: 28px;
+    border: 1px solid color-mix(in srgb, var(--c-g200) 62%, #fff);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.56), color-mix(in srgb, var(--c-bg) 32%, rgba(255,255,255,.72)));
+    box-shadow: 0 28px 80px rgba(31,47,39,.08);
+  }
+  .login-shell {
+    position: relative;
+    z-index: 1;
+    width: min(420px, 100%);
+    border: 1px solid color-mix(in srgb, var(--c-g200) 82%, #fff);
+    border-radius: 18px;
+    background: var(--c-white);
+    box-shadow: 0 18px 46px rgba(31,47,39,.09);
+  }
+  .login-card {
+    min-width: 0;
+    padding: 40px 32px 38px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,1));
+    border-radius: inherit;
+  }
+  @media (max-width: 920px) {
+    .login-page {
+      padding: 18px;
+    }
+    .login-card {
+      padding: 34px 28px;
+    }
+  }
+  @media (max-width: 560px) {
+    .login-page {
+      padding: 0;
+    }
+    .login-shell {
+      border-radius: 0;
+      min-height: 100dvh;
+      border: none;
+    }
+  }
   @keyframes dashboardRefreshSpin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }

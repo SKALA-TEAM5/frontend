@@ -14,7 +14,7 @@ import { C } from '../../../lib/theme';
 import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getProjectSheManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
 import { getProject, isProjectManagerRole, isSheManagerRole, listProjectManagerCandidates, listSheManagerCandidates, replaceProjectAssignees, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
 import type { BackendUserProfile } from '../../../lib/auth-api';
-import { completeUsageStatementReview, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
+import { completeUsageStatementReview, deleteProjectFile, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
 import { getAgentButtonStates, getOrchestratorStatus, isAgentStageRunning, parseUsageStatementWithOcr, waitForAgentButtonEnabled, type AgentButtonStage, type OrchestratorTodo } from '../../../lib/agent-api';
 import { can } from '../../../lib/permissions';
@@ -357,10 +357,10 @@ const buildValidationGateItems = (input: { usageStatementUploaded: boolean; uplo
 };
 const getUsageStatementOcrFailureReason = (file: File) => {
     const fileName = file.name.toLowerCase();
-    const supportedExtension = /\.(pdf|png|jpe?g|webp|xlsx)$/i.test(file.name);
-    const supportedMime = !file.type || file.type.startsWith('image/') || file.type === 'application/pdf' || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const supportedExtension = /\.pdf$/i.test(file.name);
+    const supportedMime = !file.type || file.type === 'application/pdf';
     if (!supportedExtension || !supportedMime)
-        return '지원하지 않는 파일 형식입니다. PDF, 이미지, XLSX 파일로 다시 업로드해주세요.';
+        return '사용내역서는 PDF 파일만 지원합니다.';
     if (file.size <= 0 || /empty|blank|null|빈|공백|추출실패/.test(fileName))
         return '사용내역서에서 필요한 값을 추출하지 못했습니다.';
     if (/date|날짜|기간오류|일자오류|날짜오류|이상/.test(fileName))
@@ -596,6 +596,11 @@ function ProjectDetailPageContent() {
                 : selectedMonthHasUploadedStatement
                     ? USAGE_WORKFLOW_STATUS.DRAFT
                     : USAGE_WORKFLOW_STATUS.DRAFT);
+    const canSubmitUploadComplete = selectedMonthHasUploadedStatement
+        && (selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT
+            || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED);
+    const uploadCompleteAlreadySubmitted = selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED
+        || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED;
     const selectedMonthShouldDisplayWorkflowStatus = selectedMonthHasUploadedStatement || Boolean(selectedStatementArchive?.workflowStatus || selectedOpenOrchestratorTodos.length);
     const selectedMonthActionRequestDetails = selectedStatementArchive?.actionRequestDetails
         || orchestratorTodosToDetails(selectedOpenOrchestratorTodos, selectedStatement.month, getProjectAssigneeLabel(project))
@@ -892,12 +897,12 @@ function ProjectDetailPageContent() {
         };
     }, [project.id, selectedStatement.month, selectedStatementArchive?.usageStatementId]);
     const completeReviewRequest = async () => {
-        if (!canUploadEvidence || !hasUsageStatement || uploadCompleteSubmitting)
+        if (!canUploadEvidence || !hasUsageStatement || uploadCompleteSubmitting || !canSubmitUploadComplete)
             return;
         setUploadCompleteSubmitting(true);
         const usageStatementId = selectedStatementArchive?.usageStatementId;
         try {
-            if (usageStatementId && selectedMonthWorkflowStatus !== USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED) {
+            if (usageStatementId) {
                 await submitUsageStatement(project.id, usageStatementId);
             }
             const nextWorkflowStatus: SharedWorkflowStatus = USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED;
@@ -962,7 +967,7 @@ function ProjectDetailPageContent() {
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = false;
-        input.accept = 'image/*,.pdf,.xlsx';
+        input.accept = 'application/pdf,.pdf';
         input.onchange = (event) => {
             try {
                 const pickedFile = Array.from((event.target as HTMLInputElement).files || [])[0];
@@ -992,10 +997,16 @@ function ProjectDetailPageContent() {
                         if (!Number.isFinite(uploadedFileId) || uploadedFileId <= 0) {
                             throw new Error('업로드된 사용내역서 파일 ID가 없습니다.');
                         }
-                        setUsageUploadStage('classifying');
-                        const ocrWorkflow = await parseUsageStatementWithOcr(project.id, uploadedFileId);
-                        if (!ocrWorkflow.usageStatementId) {
-                            throw new Error('사용내역서 OCR 결과에 사용내역서 ID가 없습니다.');
+                        let ocrWorkflow: Awaited<ReturnType<typeof parseUsageStatementWithOcr>>;
+                        try {
+                            setUsageUploadStage('classifying');
+                            ocrWorkflow = await parseUsageStatementWithOcr(project.id, uploadedFileId);
+                            if (!ocrWorkflow.usageStatementId) {
+                                throw new Error('사용내역서 OCR 결과에 사용내역서 ID가 없습니다.');
+                            }
+                        } catch (error) {
+                            await deleteProjectFile(project.id, uploadedFileId).catch(() => null);
+                            throw error;
                         }
                         savedArchive = await getUsageStatementArchiveById(project.id, ocrWorkflow.usageStatementId).catch(() => null);
                         const moveNotices = extractClassificationMoveNotices(ocrWorkflow);
@@ -1136,7 +1147,7 @@ function ProjectDetailPageContent() {
                 plannedAmount: savedProject.plannedAmount,
                 projectStatusCode: savedProject.projectStatusCode,
                 progressRate: projectInfoDraft.progressRate,
-                usageRate: calculateUsageRateText(current.accumulatedAmount, savedProject.plannedAmount),
+                usageRate: calculateUsageRateText(latestStatement.cumulativeAmount, savedProject.plannedAmount),
                 recentActivity: savedProject.recentActivity,
                 manager: assigneeNames.join(', '),
                 participants: assigneeNames,
@@ -1336,14 +1347,15 @@ function ProjectDetailPageContent() {
         const planned = parseCurrencyValue(String(plannedAmount || ''));
         if (planned <= 0)
             return '0%';
-        const rate = Math.min(100, Math.round((used / planned) * 1000) / 10);
+        const rate = Math.round((used / planned) * 1000) / 10;
         return `${rate}%`;
     };
     const editableUsageRows = overviewUsageRows.filter(([item]) => item !== '계');
     const monthlyUsageTotal = editableUsageRows.reduce((sum, [, , current]) => sum + parseCurrencyValue(current), 0);
-    const usedSafetyCost = monthlyUsageTotal || parseCurrencyValue(selectedStatement.cumulativeAmount);
+    const usedSafetyCost = parseCurrencyValue(selectedStatement.cumulativeAmount);
     const totalSafetyCost = parseCurrencyValue(project.plannedAmount);
-    const safetyUsagePercent = totalSafetyCost > 0 ? Math.min(100, Math.round((usedSafetyCost / totalSafetyCost) * 1000) / 10) : 0;
+    const safetyUsagePercent = totalSafetyCost > 0 ? Math.round((usedSafetyCost / totalSafetyCost) * 1000) / 10 : 0;
+    const safetyUsageBarWidth = Math.min(100, Math.max(0, safetyUsagePercent));
     const remainingSafetyCost = Math.max(0, totalSafetyCost - usedSafetyCost);
     const usageStatementInfoRows = [
         ['건설업체명', project.constructionCompany, '공사명', project.constructionName],
@@ -1379,23 +1391,23 @@ function ProjectDetailPageContent() {
       <button
         type="button"
         onClick={() => void completeReviewRequest()}
-        disabled={!selectedMonthHasUploadedStatement || uploadCompleteSubmitting}
+        disabled={!canSubmitUploadComplete || uploadCompleteSubmitting}
         style={{
           height: 40,
-          border: `1px solid ${!selectedMonthHasUploadedStatement ? C.g200 : C.primary}`,
+          border: `1px solid ${uploadCompleteAlreadySubmitted ? C.primary : !canSubmitUploadComplete ? C.g200 : C.primary}`,
           borderRadius: 999,
           padding: '0 16px',
-          background: !selectedMonthHasUploadedStatement ? C.g100 : C.bg,
-          color: !selectedMonthHasUploadedStatement ? C.g400 : C.primary,
-          cursor: !selectedMonthHasUploadedStatement || uploadCompleteSubmitting ? 'not-allowed' : 'pointer',
+          background: uploadCompleteAlreadySubmitted ? C.primary : !canSubmitUploadComplete ? C.g100 : C.bg,
+          color: uploadCompleteAlreadySubmitted ? C.white : !canSubmitUploadComplete ? C.g400 : C.primary,
+          cursor: uploadCompleteAlreadySubmitted ? 'default' : !canSubmitUploadComplete || uploadCompleteSubmitting ? 'not-allowed' : 'pointer',
           fontSize: 13,
           fontWeight: 900,
           fontFamily: 'inherit',
           whiteSpace: 'nowrap',
-          boxShadow: 'none',
+          boxShadow: uploadCompleteAlreadySubmitted ? '0 8px 18px rgba(27, 94, 59, .18)' : 'none',
         }}
       >
-        {uploadCompleteSubmitting ? '처리 중...' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED ? '업로드 완료됨' : '업로드 완료'}
+        {uploadCompleteSubmitting ? '처리 중...' : uploadCompleteAlreadySubmitted ? '업로드 완료됨' : '업로드 완료'}
       </button>
     ) : null;
     const monthGridContent = (
@@ -1518,7 +1530,7 @@ function ProjectDetailPageContent() {
             </div>
           </div>
           <div style={{ height: 18, borderRadius: 999, background: C.g100, border: `1px solid ${C.g200}`, overflow: 'hidden', marginBottom: 13 }}>
-            <div style={{ width: `${safetyUsagePercent}%`, height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${C.primary}, ${C.light})` }} />
+            <div style={{ width: `${safetyUsageBarWidth}%`, height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${C.primary}, ${C.light})` }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr)', gap: 8, alignItems: 'center' }}>
             {[
@@ -1732,9 +1744,9 @@ function ProjectDetailPageContent() {
             <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
               <div title={notice.itemName} style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-                <span title={notice.fromCategoryName} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
+                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 6, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
                 <span style={{ color: C.primary, fontWeight: 900 }}>→</span>
-                <span title={notice.toCategoryName} style={{ border: `1px solid ${C.light}`, borderRadius: 6, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
+                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 6, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
               </div>
               {notice.reason && <div style={{ marginTop: 7, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{notice.reason}</div>}
             </div>
