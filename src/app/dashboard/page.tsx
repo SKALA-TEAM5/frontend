@@ -728,14 +728,7 @@ export default function DashboardPage() {
               </button>
             </div>
 		          </div>
-	          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-		            <button
-		              type="button"
-		              onClick={() => router.push('/admin/users')}
-			              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FAFBFA', color: C.g600, fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'pointer', opacity: .9 }}
-		            >
-		              담당자 관리
-		            </button>
+	          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
 		            <button
 		              type="button"
 		              onClick={() => router.push('/usage-records')}
