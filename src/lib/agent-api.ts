@@ -434,6 +434,9 @@ export const getAgentButtonStates = async (projectId: string, usageStatementId: 
 
 const isRunningReason = (reason?: string | null) => String(reason || '').includes('현재 실행 중');
 
+export const isAgentRunningError = (error: unknown) =>
+  error instanceof ApiClientError && (error.status === 409 || isRunningReason(error.message));
+
 export const isAgentStageRunning = (buttonStates: AgentButtonStatesResponse, stage: AgentButtonStage) => {
   const state = buttonStates[stage];
   return state?.enabled === false && isRunningReason(state.reason);
@@ -443,7 +446,7 @@ export const waitForAgentButtonEnabled = async (
   projectId: string,
   usageStatementId: number,
   stage: AgentButtonStage,
-  options: { intervalMs?: number; maxAttempts?: number; onPoll?: (states: AgentButtonStatesResponse) => void } = {},
+  options: { intervalMs?: number; maxAttempts?: number; onPoll?: (states: AgentButtonStatesResponse) => void; tolerateDisabledReason?: boolean } = {},
 ) => {
   const intervalMs = options.intervalMs ?? 3000;
   const maxAttempts = options.maxAttempts ?? 310;
@@ -455,7 +458,7 @@ export const waitForAgentButtonEnabled = async (
     if (state?.enabled) {
       return states;
     }
-    if (state?.enabled === false && state.reason && !isRunningReason(state.reason)) {
+    if (state?.enabled === false && state.reason && !isRunningReason(state.reason) && !options.tolerateDisabledReason) {
       throw new ApiClientError(400, state.reason);
     }
     await new Promise((resolve) => window.setTimeout(resolve, intervalMs));

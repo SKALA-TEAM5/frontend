@@ -5,7 +5,7 @@ import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import InlineLoader from '../../components/ui/InlineLoader';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { getLatestValidation, getLegalDetail, getValidationStatus, runLegalAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
+import { getLatestValidation, getLegalDetail, getValidationStatus, isAgentRunningError, runLegalAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
@@ -532,11 +532,15 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       if (!projectId || !usageStatementId) throw new Error('검증 로그 확인에 필요한 ID가 없습니다.');
       await waitForAgentButtonEnabled(projectId, usageStatementId, 'legal', {
         intervalMs: LEGAL_VALIDATION_POLL_INTERVAL_MS,
+        tolerateDisabledReason: true,
         onPoll: () => setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.'),
       });
       setValidationStatusText('법령 검증이 완료되어 결과를 불러오는 중입니다.');
-      const latestResult = await loadDetailedResult(nextValidationId);
-      if (latestResult.categories.length > 0) return latestResult;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const latestResult = await loadDetailedResult(nextValidationId);
+        if (latestResult.categories.length > 0) return latestResult;
+        await new Promise((resolve) => window.setTimeout(resolve, LEGAL_VALIDATION_POLL_INTERVAL_MS));
+      }
       throw new Error('법령 검증 결과를 확인하지 못했습니다.');
     };
     try {
@@ -545,7 +549,13 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       setSheReviewDecision('pending');
       setValidationStatusText('법령 검토를 시작했습니다.');
       if (!projectId || !usageStatementId) throw new Error('검증 API 호출에 필요한 ID가 없습니다.');
-      const validationRun = await runLegalAgent(projectId, usageStatementId);
+      let validationRun: Awaited<ReturnType<typeof runLegalAgent>> = null;
+      try {
+        validationRun = await runLegalAgent(projectId, usageStatementId);
+      } catch (error) {
+        if (!isAgentRunningError(error)) throw error;
+        setValidationStatusText('이미 실행 중인 법령 검증이 완료될 때까지 기다립니다.');
+      }
       const nextValidationId = extractValidationId(validationRun);
       const runState = extractValidationRunState(validationRun);
       setValidationId(nextValidationId || `legal-${usageStatementId}`);
