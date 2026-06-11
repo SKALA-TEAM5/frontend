@@ -51,6 +51,7 @@ interface ProjectFileUploadResponse {
   uploadedEvidenceTypeCode: BackendEvidenceTypeCode | string;
   mimeType: string | null;
   sizeBytes: number | null;
+  capturedAt?: string | null;
   uploadedAt: string | null;
   statusCode?: FileStatusCode | string;
   detail?: string | null;
@@ -111,6 +112,7 @@ interface LinkedEvidenceFileUploadResponse {
   uploadedEvidenceTypeName?: string;
   mimeType?: string | null;
   sizeBytes?: number | null;
+  capturedAt?: string | null;
   uploadedAt?: string | null;
   statusCode?: FileStatusCode | string;
 }
@@ -218,6 +220,9 @@ const normalizeMonthKey = (month?: string | null) => {
 };
 
 const formatDate = (value?: string | null) => value?.slice(0, 10) || '-';
+const formatOptionalDate = (value?: string | null) => value?.slice(0, 10) || '';
+const formatFileDate = (file: { capturedAt?: string | null; uploadedAt?: string | null }) =>
+  formatOptionalDate(file.capturedAt) || formatOptionalDate(file.uploadedAt);
 
 const formatMoney = (value?: number | string | null) => {
   if (value == null || value === '') return '-';
@@ -334,7 +339,7 @@ const evidenceFileToEntry = (projectId: string, file: EvidenceFileResponse, kind
     id: `evidence-link-${file.linkId || file.fileId}`,
     fileId: file.fileId,
     linkId: file.linkId,
-    uploadedAt: formatDate(file.uploadedAt),
+    uploadedAt: formatFileDate(file),
     uploadedBy: '',
     documentType: file.evidenceTypeName,
     previewUrl: file.mimeType?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, file.fileId) : '',
@@ -348,10 +353,11 @@ const projectFileToEntry = (projectId: string, file: ProjectFileResponse | Proje
     throw new Error('업로드 응답에 파일 ID가 없습니다.');
   }
   const kind = projectFileCodeToKind(file.uploadedEvidenceTypeCode);
+  const uploadedFromList = 'linkedItemCount' in file;
   return makeEntry(file.originalFilename || `file-${fileId}`, kind, {
     id: `project-file-${fileId}`,
     fileId,
-    uploadedAt: formatDate(file.uploadedAt),
+    uploadedAt: formatFileDate(file) || (uploadedFromList ? '' : new Date().toISOString().slice(0, 10)),
     uploadedBy: '',
     documentType: 'uploadedEvidenceTypeName' in file ? file.uploadedEvidenceTypeName : undefined,
     statusCode: file.statusCode,
@@ -589,7 +595,7 @@ export const uploadEvidenceFileToItem = async (projectId: string, itemId: string
   }
   const entry = makeEntry(response.data.originalFilename || file.name, kind, {
     fileId,
-    uploadedAt: formatDate(response.data.uploadedAt) || new Date().toISOString().slice(0, 10),
+    uploadedAt: formatFileDate(response.data) || new Date().toISOString().slice(0, 10),
     uploadedBy: '',
     documentType: response.data.uploadedEvidenceTypeName,
     statusCode: response.data.statusCode,
