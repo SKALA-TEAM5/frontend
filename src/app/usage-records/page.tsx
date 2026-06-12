@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { AppFrame } from '../../components/common';
 import Card from '../../components/ui/Card';
+import { useCurrentUser } from '../../lib/dev-user';
 import { C } from '../../lib/theme';
 import { listUsageRecords, type UsageRecordScope, type UsageRecordSummary } from '../../lib/usage-records-api';
 
@@ -26,6 +27,7 @@ const getInitialParam = (key: 'year' | 'month') => {
 
 export default function UsageRecordsPage() {
   const now = new Date();
+  const { user } = useCurrentUser();
   const [scope, setScope] = useState<UsageRecordScope>('user');
   const [year, setYear] = useState(() => getInitialParam('year') || String(new Date().getFullYear()));
   const [month, setMonth] = useState(() => {
@@ -67,6 +69,8 @@ export default function UsageRecordsPage() {
   }, [month, year]);
 
   const activeRows = rowsByScope[scope];
+  const backHref = user.role === 'system_admin' ? '/admin/users' : '/dashboard';
+  const backLabel = user.role === 'system_admin' ? '사용자 관리로 돌아가기' : '대시보드로 돌아가기';
   const totals = useMemo(() => activeRows.reduce((summary, row) => ({
     tokens: summary.tokens + row.tokens,
     calls: summary.calls + row.calls,
@@ -95,6 +99,17 @@ export default function UsageRecordsPage() {
     whiteSpace: 'nowrap',
   });
 
+  const periodSelectStyle: CSSProperties = {
+    height: 36,
+    border: `1px solid ${C.g200}`,
+    borderRadius: 10,
+    background: C.white,
+    color: C.g800,
+    fontSize: 13,
+    fontWeight: 800,
+    padding: '0 10px',
+  };
+
   return (
     <AppFrame title="AI 사용량" mainClassName="dashboard-main">
       <div style={pageStyle}>
@@ -105,34 +120,30 @@ export default function UsageRecordsPage() {
               사용자, 프로젝트, 에이전트, 월, 일 기준으로 집계된 토큰 사용량과 비용을 확인합니다.
             </p>
           </div>
-          <Link href="/dashboard" style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', fontSize: 13, fontWeight: 800 }}>
-            대시보드로 돌아가기
+          <Link href={backHref} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', fontSize: 13, fontWeight: 800 }}>
+            {backLabel}
           </Link>
         </section>
 
         <Card style={{ padding: 18, borderRadius: 14, display: 'grid', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {SCOPES.map((item) => (
-                <button key={item.key} type="button" onClick={() => setScope(item.key)} style={compactButtonStyle(scope === item.key)}>
-                  {item.label}
-                </button>
-              ))}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>조회 기간</div>
+              <div style={{ marginTop: 4, fontSize: 12, fontWeight: 700, color: C.g500 }}>선택한 기간의 전체 사용량 요약입니다.</div>
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <select aria-label="사용량 조회 연도" value={year} onChange={(event) => setYear(event.target.value)} style={{ height: 36, width: 92, border: `1px solid ${C.g200}`, borderRadius: 10, background: C.white, color: C.g800, fontSize: 13, fontWeight: 800, padding: '0 10px' }}>
+              <select aria-label="사용량 조회 연도" value={year} onChange={(event) => setYear(event.target.value)} style={{ ...periodSelectStyle, width: 92 }}>
                 {Array.from({ length: 5 }, (_, index) => String(now.getFullYear() - index)).map((option) => (
                   <option key={option} value={option}>{option}년</option>
                 ))}
               </select>
-              <select aria-label="사용량 조회 월" value={month} onChange={(event) => setMonth(event.target.value)} style={{ height: 36, width: 76, border: `1px solid ${C.g200}`, borderRadius: 10, background: C.white, color: C.g800, fontSize: 13, fontWeight: 800, padding: '0 10px' }}>
+              <select aria-label="사용량 조회 월" value={month} onChange={(event) => setMonth(event.target.value)} style={{ ...periodSelectStyle, width: 76 }}>
                 {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')).map((option) => (
                   <option key={option} value={option}>{Number(option)}월</option>
                 ))}
               </select>
             </div>
           </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
             {[
               { label: '총 사용 금액', value: currency(totals.cost), tone: C.primary },
@@ -148,12 +159,23 @@ export default function UsageRecordsPage() {
         </Card>
 
         <Card style={{ padding: 0, borderRadius: 14, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '18px 20px', borderBottom: `1px solid ${C.g100}` }}>
+          <div style={{ display: 'grid', gap: 14, padding: '18px 20px', borderBottom: `1px solid ${C.g100}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {SCOPES.map((item) => (
+                  <button key={item.key} type="button" onClick={() => setScope(item.key)} style={compactButtonStyle(scope === item.key)}>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 800, color: C.g800 }}>{activeScope.label} 사용량</div>
               <div style={{ marginTop: 5, fontSize: 12, fontWeight: 700, color: C.g500 }}>{activeScope.description}</div>
             </div>
             <div style={{ fontSize: 12, fontWeight: 800, color: C.g500 }}>{year}년 {Number(month)}월</div>
+            </div>
           </div>
 
           <div style={{ overflowX: 'auto' }}>
