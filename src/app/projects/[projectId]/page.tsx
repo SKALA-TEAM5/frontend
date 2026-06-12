@@ -419,6 +419,8 @@ function ProjectDetailPageContent() {
     const [actionGuideClosingMotion, setActionGuideClosingMotion] = useState<{ x: number; y: number; scale: number } | null>(null);
     const [actionCompletionSent, setActionCompletionSent] = useState(false);
     const [todoClearSignal, setTodoClearSignal] = useState(0);
+    const [activeSupplementTodoCount, setActiveSupplementTodoCount] = useState(0);
+    const [uploadCompleteConfirmOpen, setUploadCompleteConfirmOpen] = useState(false);
     const [uploadCompleteSubmitting, setUploadCompleteSubmitting] = useState(false);
     const [projectInfoModalOpen, setProjectInfoModalOpen] = useState(false);
     const [monthCreateModalOpen, setMonthCreateModalOpen] = useState(false);
@@ -1006,9 +1008,14 @@ function ProjectDetailPageContent() {
             cancelled = true;
         };
     }, [project.id, selectedStatement.month, selectedStatementArchive?.usageStatementId]);
-    const completeReviewRequest = async () => {
+    const completeReviewRequest = async (skipTodoWarning = false) => {
         if (!canUploadEvidence || !hasUsageStatement || uploadCompleteSubmitting || !canSubmitUploadComplete)
             return;
+        if (!skipTodoWarning && activeSupplementTodoCount > 0) {
+            setUploadCompleteConfirmOpen(true);
+            return;
+        }
+        setUploadCompleteConfirmOpen(false);
         setUploadCompleteSubmitting(true);
         const usageStatementId = selectedStatementArchive?.usageStatementId;
         try {
@@ -1740,7 +1747,7 @@ function ProjectDetailPageContent() {
                         },
                     };
                 });
-            }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onVerificationComplete={refreshSelectedAgentButtonState} uploadCompleteAction={uploadCompleteAction}/>}
+            }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveSupplementTodoCount} onVerificationComplete={refreshSelectedAgentButtonState} uploadCompleteAction={uploadCompleteAction}/>}
         </>}
       </div>),
         validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} initialSheReviewDecision={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED ? 'review_completed' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? 'supplement_requested' : 'pending'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} canApproveValidation={canApproveValidationForCurrentView} approveDisabledReason={selectedApproveDisabledReason} onValidationComplete={() => {
@@ -1897,7 +1904,6 @@ function ProjectDetailPageContent() {
         </div>
       </Modal>
       <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 변경" body={<div>
-        <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>classi 에이전트가 일부 세부항목의 9개 항목 위치를 변경했습니다.</div>
         <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto', marginLeft: -36, width: 'calc(100% + 36px)' }}>
           {classificationMoveNotices.map((notice) => (
             <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
@@ -1907,11 +1913,24 @@ function ProjectDetailPageContent() {
                 <span style={{ color: C.primary, fontWeight: 900 }}>→</span>
                 <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 6, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
               </div>
-              {notice.reason && <div style={{ marginTop: 7, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{notice.reason}</div>}
             </div>
           ))}
         </div>
       </div>} actionLabel="확인" onAction={() => setClassificationMoveNotices([])} />
+      <Modal open={uploadCompleteConfirmOpen} onClose={() => setUploadCompleteConfirmOpen(false)} zIndex={930} maxWidth={420}>
+        <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.g200}`, boxShadow: '0 22px 52px rgba(31,47,39,.18)', overflow: 'hidden' }}>
+          <div style={{ padding: '20px 22px 17px', borderBottom: `1px solid ${C.g100}` }}>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, lineHeight: 1.35, marginBottom: 8 }}>미완료 보완 TODO가 있습니다</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
+              미완료 보완 TODO {activeSupplementTodoCount}건이 남아 있습니다. 그래도 업로드 완료 처리할까요?
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px 18px', background: '#FAFBFA' }}>
+            <button type="button" onClick={() => setUploadCompleteConfirmOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+            <button type="button" onClick={() => void completeReviewRequest(true)} disabled={uploadCompleteSubmitting} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: uploadCompleteSubmitting ? 'wait' : 'pointer', opacity: uploadCompleteSubmitting ? 0.72 : 1 }}>업로드 완료</button>
+          </div>
+        </div>
+      </Modal>
       <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureMessage} actionLabel="확인" onAction={() => { setAgentFailureTarget(null); setAgentFailureMessage(''); }} />
 
       {selectedMonth && <div data-ui="project-detail.28" style={{ width: detailPanelWidth, maxWidth: '100%', margin: '0 auto 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
