@@ -88,9 +88,9 @@ export default function FileThumb({ entry, size = 56 }: FileThumbProps) {
             justifyContent: 'center',
             flexShrink: 0,
         }}>
-      {entry.previewUrl || isImageFile(entry.name) ? (<AuthenticatedPreviewImage dataUi="file-thumb.2" src={entry.previewUrl} fallbackSrc={fallbackSrc} alt={entry.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}/>) : (<span data-ui="file-thumb.3" style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>문서</span>)}
+      {entry.previewUrl || isImageFile(entry.name) ? (<AuthenticatedPreviewImage dataUi="file-thumb.2" src={entry.previewUrl} fallbackSrc={fallbackSrc} alt={entry.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}/>) : (<span data-ui="file-thumb.3" style={{ fontSize: 14, fontWeight: 700, color: C.g600 }}>문서</span>)}
       {validation && (
-        <span style={{ position: 'absolute', left: 4, bottom: 4, borderRadius: 999, padding: '2px 5px', background: validation.status === 'suitable' ? 'rgba(46,125,82,.92)' : 'rgba(211,47,47,.92)', color: C.white, fontSize: 9, fontWeight: 900, lineHeight: 1 }}>
+        <span style={{ position: 'absolute', left: 4, bottom: 4, borderRadius: 999, padding: '2px 5px', background: validation.status === 'suitable' ? 'rgba(46,125,82,.92)' : 'rgba(211,47,47,.92)', color: C.white, fontSize: 10, fontWeight: 800, lineHeight: 1 }}>
           {validation.status === 'suitable' ? '적합' : '부적합'}
         </span>
       )}

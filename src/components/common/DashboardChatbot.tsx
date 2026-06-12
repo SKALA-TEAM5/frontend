@@ -385,8 +385,8 @@ export default function DashboardChatbot() {
           <header style={{ minHeight: 76, display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', flexShrink: 0, borderBottom: `1px solid ${C.g200}`, background: C.bg }}>
             <ChatLogo size={38} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ color: C.g800, fontSize: 16, fontWeight: 900, lineHeight: 1.2 }}>안전관리비 도우미</div>
-              <div style={{ color: C.g500, fontSize: 12, fontWeight: 800, marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>정산 기준과 증빙 보완을 확인합니다</div>
+              <div style={{ color: C.g800, fontSize: 17, fontWeight: 800, lineHeight: 1.2 }}>안전관리비 도우미</div>
+              <div style={{ color: C.g500, fontSize: 13, fontWeight: 700, marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>정산 기준과 증빙 보완을 확인합니다</div>
             </div>
             <span style={{ position: 'relative', display: 'inline-flex' }} className="chatbot-tooltip-wrap">
               <button type="button" onClick={startNewChat} aria-label="새 대화 시작" title="새 대화 시작" style={headerButtonStyle}>
@@ -407,8 +407,8 @@ export default function DashboardChatbot() {
                   background: C.g800,
                   color: C.white,
                   padding: '5px 8px',
-                  fontSize: 11,
-                  fontWeight: 800,
+                  fontSize: 12,
+                  fontWeight: 700,
                   boxShadow: '0 8px 18px rgba(31, 55, 43, .18)',
                 }}
               >
@@ -423,7 +423,7 @@ export default function DashboardChatbot() {
           <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 20px', background: C.white }}>
             <div style={{ height: 10 }} />
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
-              <span style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '4px 12px', color: C.g500, fontSize: 12, fontWeight: 800, lineHeight: 1.1 }}>
+              <span style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '4px 12px', color: C.g500, fontSize: 13, fontWeight: 700, lineHeight: 1.1 }}>
                 {dateLabel}
               </span>
             </div>
@@ -440,8 +440,8 @@ export default function DashboardChatbot() {
                       border: message.role === 'user' ? 'none' : `1px solid ${C.g200}`,
                       boxShadow: 'none',
                       padding: message.role === 'user' ? '10px 13px' : '12px 14px',
-                      fontSize: 13,
-                      fontWeight: 750,
+                      fontSize: 14,
+                      fontWeight: 650,
                       lineHeight: 1.58,
                       whiteSpace: 'pre-wrap',
                       overflowWrap: 'anywhere',
@@ -449,7 +449,7 @@ export default function DashboardChatbot() {
                   >
                     {message.role === 'assistant' && message.intent && (
                       <div style={{ marginBottom: 8, display: 'flex' }}>
-                        <span style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, padding: '3px 8px', fontSize: 11, fontWeight: 900, lineHeight: 1.2 }}>
+                        <span style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, padding: '3px 8px', fontSize: 12, fontWeight: 800, lineHeight: 1.2 }}>
                           {message.intent}
                         </span>
                       </div>
@@ -458,7 +458,7 @@ export default function DashboardChatbot() {
                     {message.sources && message.sources.length > 0 && (
                       <div style={{ marginTop: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {message.sources.slice(0, 3).map((source) => (
-                          <span key={source} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '3px 8px', color: C.g500, fontSize: 11, fontWeight: 800 }}>
+                          <span key={source} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '3px 8px', color: C.g500, fontSize: 12, fontWeight: 700 }}>
                             {source}
                           </span>
                         ))}
@@ -478,7 +478,7 @@ export default function DashboardChatbot() {
                 </div>
               ))}
               {status && (
-                <div style={{ marginLeft: 44, color: C.g500, fontSize: 12, fontWeight: 800 }}>
+                <div style={{ marginLeft: 44, color: C.g500, fontSize: 13, fontWeight: 700 }}>
                   {status}
                 </div>
               )}
@@ -509,8 +509,8 @@ export default function DashboardChatbot() {
                   resize: 'none',
                   overflowY: 'hidden',
                   color: C.g800,
-                  fontSize: 13,
-                  fontWeight: 800,
+                  fontSize: 14,
+                  fontWeight: 700,
                   lineHeight: 1.45,
                   padding: '12px 8px',
                   fontFamily: 'inherit',

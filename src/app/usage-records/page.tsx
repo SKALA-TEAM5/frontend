@@ -93,8 +93,8 @@ export default function UsageRecordsPage() {
     color: active ? C.white : C.g600,
     padding: '0 14px',
     fontFamily: 'inherit',
-    fontSize: 13,
-    fontWeight: 800,
+    fontSize: 14,
+    fontWeight: 700,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
   });
@@ -105,8 +105,8 @@ export default function UsageRecordsPage() {
     borderRadius: 10,
     background: C.white,
     color: C.g800,
-    fontSize: 13,
-    fontWeight: 800,
+    fontSize: 14,
+    fontWeight: 700,
     padding: '0 10px',
   };
 
@@ -115,12 +115,12 @@ export default function UsageRecordsPage() {
       <div style={pageStyle}>
         <section style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, paddingTop: 10 }}>
           <div>
-            <h1 style={{ margin: '6px 0 0', fontSize: 28, lineHeight: 1.2, fontWeight: 800, color: C.g800 }}>AI 토큰 사용량</h1>
-            <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: 1.55, fontWeight: 700, color: C.g500 }}>
+            <h1 style={{ margin: '6px 0 0', fontSize: 29, lineHeight: 1.2, fontWeight: 700, color: C.g800 }}>AI 토큰 사용량</h1>
+            <p style={{ margin: '8px 0 0', fontSize: 15, lineHeight: 1.55, fontWeight: 600, color: C.g500 }}>
               사용자, 프로젝트, 에이전트, 월, 일 기준으로 집계된 토큰 사용량과 비용을 확인합니다.
             </p>
           </div>
-          <Link href={backHref} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', fontSize: 13, fontWeight: 800 }}>
+          <Link href={backHref} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', fontSize: 14, fontWeight: 700 }}>
             {backLabel}
           </Link>
         </section>
@@ -128,8 +128,8 @@ export default function UsageRecordsPage() {
         <Card style={{ padding: 18, borderRadius: 14, display: 'grid', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>조회 기간</div>
-              <div style={{ marginTop: 4, fontSize: 12, fontWeight: 700, color: C.g500 }}>선택한 기간의 전체 사용량 요약입니다.</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.g800 }}>조회 기간</div>
+              <div style={{ marginTop: 4, fontSize: 13, fontWeight: 600, color: C.g500 }}>선택한 기간의 전체 사용량 요약입니다.</div>
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <select aria-label="사용량 조회 연도" value={year} onChange={(event) => setYear(event.target.value)} style={{ ...periodSelectStyle, width: 92 }}>
@@ -151,8 +151,8 @@ export default function UsageRecordsPage() {
               { label: '호출 수', value: `${totals.calls.toLocaleString('ko-KR')}회`, tone: '#EFB118FF' },
             ].map((item) => (
               <div key={item.label} style={{ border: `1px solid ${C.g100}`, borderRadius: 12, background: 'color-mix(in srgb, var(--c-bg) 30%, #fff)', padding: '14px 16px' }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: C.g500 }}>{item.label}</div>
-                <div style={{ marginTop: 8, fontSize: 24, lineHeight: 1.15, fontWeight: 800, color: item.tone }}>{item.value}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.g500 }}>{item.label}</div>
+                <div style={{ marginTop: 8, fontSize: 25, lineHeight: 1.15, fontWeight: 700, color: item.tone }}>{item.value}</div>
               </div>
             ))}
           </div>
@@ -171,10 +171,10 @@ export default function UsageRecordsPage() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: C.g800 }}>{activeScope.label} 사용량</div>
-              <div style={{ marginTop: 5, fontSize: 12, fontWeight: 700, color: C.g500 }}>{activeScope.description}</div>
+              <div style={{ fontSize: 19, fontWeight: 700, color: C.g800 }}>{activeScope.label} 사용량</div>
+              <div style={{ marginTop: 5, fontSize: 13, fontWeight: 600, color: C.g500 }}>{activeScope.description}</div>
             </div>
-            <div style={{ fontSize: 12, fontWeight: 800, color: C.g500 }}>{year}년 {Number(month)}월</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.g500 }}>{year}년 {Number(month)}월</div>
             </div>
           </div>
 
@@ -183,7 +183,7 @@ export default function UsageRecordsPage() {
               <thead>
                 <tr style={{ background: 'color-mix(in srgb, var(--c-bg) 42%, #fff)' }}>
                   {['항목', '토큰', '호출 수', '사용 금액'].map((label) => (
-                    <th key={label} style={{ padding: '13px 18px', textAlign: label === '항목' ? 'left' : 'right', fontSize: 12, fontWeight: 900, color: C.g600, borderBottom: `1px solid ${C.g100}` }}>
+                    <th key={label} style={{ padding: '13px 18px', textAlign: label === '항목' ? 'left' : 'right', fontSize: 13, fontWeight: 800, color: C.g600, borderBottom: `1px solid ${C.g100}` }}>
                       {label}
                     </th>
                   ))}
@@ -192,24 +192,24 @@ export default function UsageRecordsPage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={4} style={{ padding: '56px 18px', textAlign: 'center', color: C.g400, fontSize: 13, fontWeight: 800 }}>
+                    <td colSpan={4} style={{ padding: '56px 18px', textAlign: 'center', color: C.g400, fontSize: 14, fontWeight: 700 }}>
                       사용량을 불러오는 중입니다.
                     </td>
                   </tr>
                 )}
                 {!loading && activeRows.length === 0 && (
                   <tr>
-                    <td colSpan={4} style={{ padding: '56px 18px', textAlign: 'center', color: C.g400, fontSize: 13, fontWeight: 800 }}>
+                    <td colSpan={4} style={{ padding: '56px 18px', textAlign: 'center', color: C.g400, fontSize: 14, fontWeight: 700 }}>
                       표시할 사용량 데이터가 없습니다.
                     </td>
                   </tr>
                 )}
                 {!loading && activeRows.map((row) => (
                   <tr key={row.id} style={{ borderBottom: `1px solid ${C.g100}` }}>
-                    <td style={{ padding: '15px 18px', fontSize: 14, fontWeight: 800, color: C.g800 }}>{row.label}</td>
-                    <td style={{ padding: '15px 18px', textAlign: 'right', fontSize: 13, fontWeight: 800, color: C.g600 }}>{formatTokens(row.tokens)}</td>
-                    <td style={{ padding: '15px 18px', textAlign: 'right', fontSize: 13, fontWeight: 800, color: C.g600 }}>{row.calls.toLocaleString('ko-KR')}회</td>
-                    <td style={{ padding: '15px 18px', textAlign: 'right', fontSize: 15, fontWeight: 900, color: C.primary }}>{currency(row.cost)}</td>
+                    <td style={{ padding: '15px 18px', fontSize: 15, fontWeight: 700, color: C.g800 }}>{row.label}</td>
+                    <td style={{ padding: '15px 18px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: C.g600 }}>{formatTokens(row.tokens)}</td>
+                    <td style={{ padding: '15px 18px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: C.g600 }}>{row.calls.toLocaleString('ko-KR')}회</td>
+                    <td style={{ padding: '15px 18px', textAlign: 'right', fontSize: 16, fontWeight: 800, color: C.primary }}>{currency(row.cost)}</td>
                   </tr>
                 ))}
               </tbody>
