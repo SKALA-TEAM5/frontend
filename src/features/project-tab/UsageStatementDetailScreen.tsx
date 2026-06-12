@@ -348,6 +348,12 @@ type ClassificationMoveNotice = {
     categoryChanged?: boolean;
     reason?: string;
 };
+type ClassiRejectedNotice = {
+    itemName: string;
+    fromCategoryName: string;
+    toCategoryName: string;
+    reason: string;
+};
 const EVIDENCE_KIND_LABELS: Record<FolderEvidenceCategory, string> = {
     receipt: '영수증',
     site_photo: '현장사진',
@@ -370,6 +376,8 @@ const addUsageItemInputStyle = {
     padding: '0 12px',
     outline: 'none',
 } as const;
+const isRejectedClassiStatus = (status?: string | null) =>
+    ['inappropriate', 'invalid', 'rejected', 'fail', 'failed', '부적절', '부적정'].includes(String(status || '').trim().toLowerCase());
 const cleanEvidenceTodoText = (value: string) => value
     .replace(/^(?:필수\s*)?증빙\s*누락\s*[:：]\s*/u, '')
     .replace(/^증빙\s*매칭\s*검토\s*필요\s*[:：]\s*/u, '')
@@ -411,6 +419,10 @@ const inferEvidenceKindFromText = (value: string): FolderEvidenceCategory => {
     return 'other_document';
 };
 const getCategoryDisplayName = (categoryId: number) => CATS.find((cat) => cat.id === categoryId)?.short || `${categoryId}번 항목`;
+const getCategoryCodeDisplayName = (categoryCode?: string | null, fallbackCategoryId?: number) => {
+    const categoryId = getCategoryIdFromTodoCode(categoryCode);
+    return categoryId ? getCategoryDisplayName(categoryId) : fallbackCategoryId ? getCategoryDisplayName(fallbackCategoryId) : '';
+};
 
 const findUsageItemFromTodoText = (value: string, usageItems: UsageLineItem[]) => {
     const normalized = normalizeTodoLookupText(value);
@@ -550,6 +562,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setAgentFailureMessage(getAgentFailureMessage(target, error));
     };
     const [classificationMoveNotices, setClassificationMoveNotices] = useState<ClassificationMoveNotice[]>([]);
+    const [classiRejectedNotice, setClassiRejectedNotice] = useState<ClassiRejectedNotice | null>(null);
     const [todoSidebarOpen, setTodoSidebarOpen] = useState(false);
     const [todoSidebarPinned, setTodoSidebarPinned] = useState(false);
     const [todoHoverBlocked, setTodoHoverBlocked] = useState(false);
@@ -1187,6 +1200,20 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 totalAmount: amount,
                 pageNo: 1,
             });
+            const rejectedResult = (classiResult.results || []).find((result) =>
+                result.isAppropriate === false || isRejectedClassiStatus(result.status));
+            if (rejectedResult) {
+                if (rejectedResult.itemId) {
+                    await deleteUsageStatementItem(projectId, usageStatementId, rejectedResult.itemId).catch(() => null);
+                }
+                setClassiRejectedNotice({
+                    itemName: rejectedResult.itemName || name,
+                    fromCategoryName: getCategoryCodeDisplayName(rejectedResult.originalCategoryCode, selectedHierarchyCatId) || getCategoryDisplayName(selectedHierarchyCatId),
+                    toCategoryName: getCategoryCodeDisplayName(rejectedResult.finalCategoryCode, categoryId) || getCategoryDisplayName(categoryId),
+                    reason: rejectedResult.reason || 'classi 에이전트가 입력한 세부항목을 현재 카테고리에 적재하기 부적절하다고 판단했습니다.',
+                });
+                return;
+            }
             const refreshedArchive = await getUsageStatementArchiveById(projectId, usageStatementId);
             const addedItem = refreshedArchive.usageItems
                 .filter((item) => item.name === name && item.date === addUsageItemDraft.date)
@@ -1712,6 +1739,20 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           <InlineLoader title="classi 에이전트 실행 중" body="세부 항목이 산업안전보건관리비 9개 항목 중 어디에 해당하는지 확인하고 있습니다. 완료될 때까지 다른 작업을 할 수 없습니다." />
         </div>
       </Modal>
+      <CenterModal open={Boolean(classiRejectedNotice)} title="세부항목 미반영" body={classiRejectedNotice && <div>
+        <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>
+          classi 에이전트가 입력한 세부항목을 부적절로 판단해 화면에 추가하지 않았습니다.
+        </div>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
+          <div title={classiRejectedNotice.itemName} style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{classiRejectedNotice.itemName}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
+            <span title={classiRejectedNotice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{classiRejectedNotice.fromCategoryName}</span>
+            <span style={{ color: C.danger, fontWeight: 900 }}>×</span>
+            <span title={classiRejectedNotice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: '1px solid #FFCDD2', borderRadius: 999, padding: '6px 9px', background: C.dangerBg, color: C.danger, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{classiRejectedNotice.toCategoryName}</span>
+          </div>
+          <div style={{ marginTop: 7, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{classiRejectedNotice.reason}</div>
+        </div>
+      </div>} actionLabel="확인" onAction={() => setClassiRejectedNotice(null)} />
       <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 결과" body={<div>
         <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>
           {classificationMoveNotices.some((notice) => notice.categoryChanged)
