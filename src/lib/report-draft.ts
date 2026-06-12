@@ -82,7 +82,7 @@ export const buildReportDraftJson = (project: ProjectSummary | null, result: Val
   const dynamicOtherEvidenceNames = Array.from(new Set(issues.flatMap((issue) => issue.recommendedFiles))).filter((name) => !['영수증', '거래명세서', '현장사진', '세금계산서', '제3자발급사실조회서', '사용내역서'].some((baseName) => name.includes(baseName)));
   const evidenceSummaries = [
     { evidence_type_code: 'usage_statement', evidence_type_name: '사용내역서', submitted_count: 1, passed_count: 1, error_count: 0, missing_count: 0, major_error: '-' },
-    { evidence_type_code: 'receipt', evidence_type_name: '영수증 / 거래명세서', submitted_count: 0, passed_count: 0, error_count: issues.filter((issue) => issue.problemFileNames.length).length, missing_count: issues.filter((issue) => issue.recommendedFiles.length).length, major_error: issues[0]?.title || '-' },
+    { evidence_type_code: 'receipt', evidence_type_name: '영수증 / 거래명세서', submitted_count: 0, passed_count: 0, error_count: 0, missing_count: issues.filter((issue) => issue.recommendedFiles.length).length, major_error: '-' },
     { evidence_type_code: 'site_photo', evidence_type_name: '현장사진', submitted_count: 0, passed_count: 0, error_count: 0, missing_count: 0, major_error: '-' },
     { evidence_type_code: 'tax_invoice', evidence_type_name: '세금계산서 + 제3자발급사실조회서', submitted_count: 0, passed_count: 0, error_count: 0, missing_count: 0, major_error: '-' },
     ...(dynamicOtherEvidenceNames.length
@@ -174,7 +174,7 @@ export const buildReportDraftJson = (project: ProjectSummary | null, result: Val
         title: '3. 증빙 유효성 검증 결과',
         kind: 'table',
         paragraphs: [],
-        tables: [{ title: null, headers: ['증빙 유형', '제출', '통과', '오류', '누락', '주요 내용'], rows: [...evidenceSummaries.map((item) => [item.evidence_type_name, `${item.submitted_count}건`, `${item.passed_count}건`, `${item.error_count}건`, `${item.missing_count}건`, item.major_error]), ['합   계', `${evidenceSummaries.reduce((sum, item) => sum + item.submitted_count, 0)}건`, `${evidenceSummaries.reduce((sum, item) => sum + item.passed_count, 0)}건`, `${evidenceSummaries.reduce((sum, item) => sum + item.error_count, 0)}건`, `${evidenceSummaries.reduce((sum, item) => sum + item.missing_count, 0)}건`, conclusion]] }],
+        tables: [{ title: null, headers: ['증빙 유형', '제출', '통과', '누락'], rows: [...evidenceSummaries.map((item) => [item.evidence_type_name, `${item.submitted_count}건`, `${item.passed_count}건`, `${item.missing_count}건`]), ['합   계', `${evidenceSummaries.reduce((sum, item) => sum + item.submitted_count, 0)}건`, `${evidenceSummaries.reduce((sum, item) => sum + item.passed_count, 0)}건`, `${evidenceSummaries.reduce((sum, item) => sum + item.missing_count, 0)}건`]] }],
       },
       {
         section_id: 'item_reviews',
