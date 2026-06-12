@@ -11,7 +11,7 @@ import { type BackendUserProfile } from '../../lib/auth-api';
 import { C } from '../../lib/theme';
 import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, USAGE_WORKFLOW_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getProjectSheManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
 import { createProject, deleteProject, getProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees, updateProject } from '../../lib/project-api';
-import { ROLE_LABELS } from '../../lib/permissions';
+import { ROLE_LABELS, canAccessProject } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getVisibleProjects, type PeriodMode } from '../../lib/project-list';
 import { listUsageStatementArchives } from '../../lib/archive-api';
@@ -135,19 +135,28 @@ const hydrateProjectLegalReviewFilter = async (project: ProjectSummary): Promise
       listUsageStatementArchives(project.id),
       getProject(project.id).catch(() => null),
     ]);
-    const projectWithDetail = detail ? { ...project, plannedAmount: detail.plannedAmount } : project;
+    const projectWithDetail = detail ? {
+      ...project,
+      plannedAmount: detail.plannedAmount || project.plannedAmount,
+      manager: detail.manager,
+      participants: detail.participants,
+      assigneeUserIds: detail.assigneeUserIds,
+      sheManager: detail.sheManager,
+      sheManagers: detail.sheManagers,
+      sheManagerUserIds: detail.sheManagerUserIds,
+    } : project;
     const usageRate = calculateProjectUsageRate(projectWithDetail, archives);
     const reviewNeededArchive = archives.find((archive) => isLegalReviewWorkflow(archive.workflowStatus));
     if (!reviewNeededArchive) {
       return {
-        ...project,
+        ...projectWithDetail,
         usageRate,
         hasLegalReviewNeededMonth: project.hasActionRequest || isLegalReviewWorkflow(project.latestUsageStatementStatusCode),
       };
     }
     const workflowStatus = normalizeUsageWorkflowStatus(reviewNeededArchive.workflowStatus);
     return {
-      ...project,
+      ...projectWithDetail,
       usageRate,
       hasLegalReviewNeededMonth: true,
       hasActionRequest: project.hasActionRequest || workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
@@ -181,6 +190,9 @@ function ProjectsPageContent() {
   const [closeTarget, setCloseTarget] = useState<ProjectSummary | null>(null);
   const [closeError, setCloseError] = useState('');
   const [closingProjectId, setClosingProjectId] = useState('');
+  const [suspendTarget, setSuspendTarget] = useState<ProjectSummary | null>(null);
+  const [suspendError, setSuspendError] = useState('');
+  const [suspendingProjectId, setSuspendingProjectId] = useState('');
   const [managerCandidates, setManagerCandidates] = useState<BackendUserProfile[]>([]);
   const filterOptions = useMemo(() => getSheFilterOptionsFromProjects(projects), [projects]);
   const [projectName, setProjectName] = useState('');
@@ -196,6 +208,11 @@ function ProjectsPageContent() {
     [PROJECT_STATUS.IN_PROGRESS]: true,
     [PROJECT_STATUS.CLOSED]: false,
   });
+  const accessUser = useMemo(() => ({
+    id: user.id,
+    name: user.name,
+    role: user.role,
+  }), [user.id, user.name, user.role]);
 
   const loadProjects = useCallback(() => {
     let alive = true;
@@ -205,7 +222,7 @@ function ProjectsPageContent() {
       .then((items) => Promise.all(items.map(hydrateProjectLegalReviewFilter)))
       .then((items) => {
         if (!alive) return;
-        setProjects(items);
+        setProjects(items.filter((project) => canAccessProject(accessUser, project)));
       })
       .catch((error) => {
         if (alive) setLoadError(error instanceof Error ? error.message : '프로젝트 목록을 불러오지 못했습니다.');
@@ -216,7 +233,7 @@ function ProjectsPageContent() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [accessUser]);
 
   useEffect(() => {
     return loadProjects();
@@ -302,6 +319,32 @@ function ProjectsPageContent() {
       setClosingProjectId('');
     }
   };
+  const closeSuspendModal = () => {
+    if (suspendingProjectId) return;
+    setSuspendTarget(null);
+    setSuspendError('');
+  };
+
+  const confirmSuspendProject = async () => {
+    if (!suspendTarget || suspendingProjectId) return;
+    setSuspendingProjectId(suspendTarget.id);
+    setSuspendError('');
+    try {
+      const savedProject = await updateProject(suspendTarget.id, { projectStatusCode: PROJECT_STATUS_CODE.SUSPENDED });
+      setProjects((current) => current.map((item) => item.id === suspendTarget.id
+        ? {
+            ...item,
+            projectStatusCode: PROJECT_STATUS_CODE.SUSPENDED,
+            status: savedProject.status,
+          }
+        : item));
+      setSuspendTarget(null);
+    } catch (error) {
+      setSuspendError(error instanceof Error ? error.message : '프로젝트 중단 처리에 실패했습니다.');
+    } finally {
+      setSuspendingProjectId('');
+    }
+  };
 
   const updateCreateField = (key: keyof NewProjectInput, value: string) => {
     setCreateForm((current) => ({ ...current, [key]: value }));
@@ -351,6 +394,7 @@ function ProjectsPageContent() {
     const safetyBudgetUsage = Number.isFinite(parsedSafetyBudgetUsage) ? parsedSafetyBudgetUsage : 0;
     const safetyBudgetUsageBarWidth = safetyBudgetUsage > 0 ? Math.max(2, Math.min(100, safetyBudgetUsage)) : 0;
     const hasSupplement = hasSupplementRequiredMonth(project);
+    const projectSuspended = project.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED;
     const projectClosed = project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED;
     const currentUserId = Number(user.id);
     const isAssignedSheManager = user.role === 'she_manager'
@@ -358,7 +402,7 @@ function ProjectsPageContent() {
         (Number.isFinite(currentUserId) && Boolean(project.sheManagerUserIds?.includes(currentUserId)))
         || getProjectSheManagers(project).includes(user.name)
       );
-    const canManageProjectRecord = user.role === 'system_admin' || isAssignedSheManager;
+    const canManageProjectRecord = isAssignedSheManager;
     return (
       <div
         key={project.id}
@@ -414,6 +458,28 @@ function ProjectsPageContent() {
           <div style={{ alignSelf: 'flex-end', marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span
               role="button"
+              tabIndex={projectSuspended || projectClosed ? -1 : 0}
+              aria-disabled={projectSuspended || projectClosed || suspendingProjectId === project.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (projectSuspended || projectClosed || suspendingProjectId === project.id) return;
+                setSuspendError('');
+                setSuspendTarget(project);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (projectSuspended || projectClosed || suspendingProjectId === project.id) return;
+                setSuspendError('');
+                setSuspendTarget(project);
+              }}
+              style={{ border: `1px solid ${projectSuspended || projectClosed ? C.g200 : C.g400}`, borderRadius: 999, background: projectSuspended || projectClosed ? C.g100 : C.white, color: projectSuspended || projectClosed ? C.g400 : C.g600, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: projectSuspended || projectClosed || suspendingProjectId === project.id ? 'not-allowed' : 'pointer', boxSizing: 'border-box', opacity: suspendingProjectId === project.id ? .65 : 1 }}
+            >
+              {suspendingProjectId === project.id ? '중단 처리 중' : projectSuspended ? '중단됨' : '중단'}
+            </span>
+            <span
+              role="button"
               tabIndex={projectClosed ? -1 : 0}
               aria-disabled={projectClosed || closingProjectId === project.id}
               onClick={(event) => {
@@ -432,7 +498,7 @@ function ProjectsPageContent() {
               }}
               style={{ border: `1px solid ${projectClosed ? C.g200 : C.ok}`, borderRadius: 999, background: projectClosed ? C.g100 : '#F4FBF6', color: projectClosed ? C.g400 : C.ok, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: projectClosed || closingProjectId === project.id ? 'not-allowed' : 'pointer', boxSizing: 'border-box', opacity: closingProjectId === project.id ? .65 : 1 }}
             >
-              {closingProjectId === project.id ? '완료 처리 중' : projectClosed ? '완료됨' : '프로젝트 완료'}
+              {closingProjectId === project.id ? '종료 처리 중' : projectClosed ? '종료됨' : '종료'}
             </span>
             <span
               role="button"
@@ -507,14 +573,34 @@ function ProjectsPageContent() {
         <div style={{ padding: '20px 22px 12px' }}>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 종료</div>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
-            {closeTarget?.constructionName || closeTarget?.name} 프로젝트를 완료됨 상태로 변경합니다. <br/> 완료 후에는 전체 프로젝트 목록에서 완료됨으로 표시됩니다.
+            {closeTarget?.constructionName || closeTarget?.name} 프로젝트를 종료 상태로 변경합니다. <br/> 종료 후에는 프로젝트 목록에서 완료됨으로 표시됩니다.
           </div>
         </div>
         <div style={{ padding: '16px 22px 18px' }}>
           {closeError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 900, lineHeight: 1.5, marginBottom: 14 }}>{closeError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" onClick={closeCloseModal} disabled={Boolean(closingProjectId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: closingProjectId ? 'not-allowed' : 'pointer', opacity: closingProjectId ? 0.45 : 1 }}>취소</button>
-            <button type="button" onClick={confirmCloseProject} disabled={Boolean(closingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: closingProjectId ? C.g200 : C.ok, color: closingProjectId ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: closingProjectId ? 'wait' : 'pointer' }}>{closingProjectId ? '완료 처리 중' : '완료 처리'}</button>
+            <button type="button" onClick={confirmCloseProject} disabled={Boolean(closingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: closingProjectId ? C.g200 : C.ok, color: closingProjectId ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: closingProjectId ? 'wait' : 'pointer' }}>{closingProjectId ? '종료 처리 중' : '종료 처리'}</button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+
+  const suspendProjectModal = (
+    <Modal open={Boolean(suspendTarget)} onClose={closeSuspendModal} zIndex={976} maxWidth={480}>
+      <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(31,55,43,.14)', overflow: 'hidden' }}>
+        <div style={{ padding: '20px 22px 12px' }}>
+          <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 중단</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
+            {suspendTarget?.constructionName || suspendTarget?.name} 프로젝트를 중단 상태로 변경합니다. <br/> 중단 후에는 프로젝트 목록에서 중단됨으로 표시됩니다.
+          </div>
+        </div>
+        <div style={{ padding: '16px 22px 18px' }}>
+          {suspendError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 900, lineHeight: 1.5, marginBottom: 14 }}>{suspendError}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={closeSuspendModal} disabled={Boolean(suspendingProjectId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: suspendingProjectId ? 'not-allowed' : 'pointer', opacity: suspendingProjectId ? 0.45 : 1 }}>취소</button>
+            <button type="button" onClick={confirmSuspendProject} disabled={Boolean(suspendingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: suspendingProjectId ? C.g200 : C.g600, color: suspendingProjectId ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: suspendingProjectId ? 'wait' : 'pointer' }}>{suspendingProjectId ? '중단 처리 중' : '중단 처리'}</button>
           </div>
         </div>
       </div>
@@ -559,7 +645,7 @@ function ProjectsPageContent() {
           <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={inputStyle} />
           <input aria-label="프로젝트 번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="프로젝트 번호" style={inputStyle} />
           <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={inputStyle}>
-            {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '담당자' : item}</option>)}
+            {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '프로젝트 담당자' : item}</option>)}
           </select>
           <DateRangePicker
             start={periodMode === 'custom' ? period.split('~')[0] || '' : ''}
@@ -627,6 +713,7 @@ function ProjectsPageContent() {
         </div>
       </Card>
       {createProjectModal}
+      {suspendProjectModal}
       {closeProjectModal}
       {deleteProjectModal}
     </AppFrame>

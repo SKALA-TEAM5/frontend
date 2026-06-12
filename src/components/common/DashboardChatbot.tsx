@@ -20,7 +20,8 @@ const floatingMargin = 16;
 const panelGap = 12;
 const panelMaxWidth = 400;
 const panelMaxHeight = 620;
-const panelMinHeight = 360;
+const panelMinHeight = 500;
+const defaultViewportSize = { width: 1280, height: 800 } as const;
 
 type FloatingPosition = {
   left: number;
@@ -44,7 +45,7 @@ type DragState = {
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 const getViewportSize = (): ViewportSize => {
-  if (typeof window === 'undefined') return { width: 1280, height: 800 };
+  if (typeof window === 'undefined') return defaultViewportSize;
   return { width: window.innerWidth, height: window.innerHeight };
 };
 
@@ -61,7 +62,7 @@ const getDefaultFloatingPosition = (viewport: ViewportSize): FloatingPosition =>
 const readStoredFloatingPosition = (viewport: ViewportSize): FloatingPosition => {
   if (typeof window === 'undefined') return getDefaultFloatingPosition(viewport);
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(floatingPositionStorageKey) || '') as Partial<FloatingPosition>;
+    const parsed = JSON.parse(window.sessionStorage.getItem(floatingPositionStorageKey) || '') as Partial<FloatingPosition>;
     if (typeof parsed.left === 'number' && typeof parsed.top === 'number') {
       return clampFloatingPosition({ left: parsed.left, top: parsed.top }, viewport);
     }
@@ -88,6 +89,7 @@ const ChatLogo = ({ size = 24 }: { size?: number }) => (
     <img
       src={mascotSrc}
       alt=""
+      draggable={false}
       style={{
         width: size,
         height: size,
@@ -128,8 +130,9 @@ const todayLabel = () => new Intl.DateTimeFormat('ko-KR', { year: 'numeric', mon
 
 export default function DashboardChatbot() {
   const [open, setOpen] = useState(false);
-  const [viewport, setViewport] = useState<ViewportSize>(() => getViewportSize());
-  const [buttonPosition, setButtonPosition] = useState<FloatingPosition>(() => readStoredFloatingPosition(getViewportSize()));
+  const [viewport, setViewport] = useState<ViewportSize>(defaultViewportSize);
+  const [buttonPosition, setButtonPosition] = useState<FloatingPosition>(() => getDefaultFloatingPosition(defaultViewportSize));
+  const [positionInitialized, setPositionInitialized] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     { id: 'greeting', role: 'assistant', text: assistantGreeting },
@@ -147,9 +150,8 @@ export default function DashboardChatbot() {
 
   const dateLabel = useMemo(todayLabel, []);
   const canSubmit = input.trim().length > 0 && !streaming;
-  const panelWidth = Math.min(panelMaxWidth, Math.max(280, viewport.width - floatingMargin * 2));
-  const availablePanelHeight = Math.max(260, viewport.height - floatingMargin * 2 - floatingButtonSize - panelGap);
-  const panelHeight = Math.min(panelMaxHeight, availablePanelHeight);
+  const panelWidth = Math.min(panelMaxWidth, Math.max(280, viewport.width - floatingMargin * 2 - floatingButtonSize - panelGap));
+  const panelHeight = Math.min(panelMaxHeight, Math.max(panelMinHeight, viewport.height - floatingMargin * 2 - floatingButtonSize - panelGap));
   const panelBelowIcon = buttonPosition.top + floatingButtonSize / 2 < viewport.height / 2;
   const panelTop = clamp(
     panelBelowIcon ? buttonPosition.top + floatingButtonSize + panelGap : buttonPosition.top - panelHeight - panelGap,
@@ -159,8 +161,14 @@ export default function DashboardChatbot() {
   const panelLeft = clamp(
     buttonPosition.left + floatingButtonSize - panelWidth,
     floatingMargin,
-    Math.max(floatingMargin, viewport.width - panelWidth - floatingMargin),
+    Math.max(floatingMargin, viewport.width - panelWidth - floatingButtonSize - panelGap - floatingMargin),
   );
+  const floatingControlPosition = open
+    ? {
+      left: clamp(panelLeft + panelWidth + panelGap, floatingMargin, Math.max(floatingMargin, viewport.width - floatingButtonSize - floatingMargin)),
+      top: clamp(buttonPosition.top, panelTop, Math.max(panelTop, panelTop + panelHeight - floatingButtonSize)),
+    }
+    : buttonPosition;
 
   useEffect(() => {
     if (!open) return;
@@ -178,6 +186,11 @@ export default function DashboardChatbot() {
   }, [input]);
 
   useEffect(() => {
+    const initialViewport = getViewportSize();
+    setViewport(initialViewport);
+    setButtonPosition(readStoredFloatingPosition(initialViewport));
+    setPositionInitialized(true);
+
     const handleResize = () => {
       const nextViewport = getViewportSize();
       setViewport(nextViewport);
@@ -188,8 +201,9 @@ export default function DashboardChatbot() {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(floatingPositionStorageKey, JSON.stringify(buttonPosition));
-  }, [buttonPosition]);
+    if (!positionInitialized) return;
+    window.sessionStorage.setItem(floatingPositionStorageKey, JSON.stringify(buttonPosition));
+  }, [buttonPosition, positionInitialized]);
 
   const handleEvent = (event: ChatbotStreamEvent) => {
     if (event.type === 'session_id' && typeof event.value === 'string') {
@@ -535,16 +549,17 @@ export default function DashboardChatbot() {
       <button
         type="button"
         onClick={toggleChatbot}
-        onPointerDown={handleFloatingPointerDown}
-        onPointerMove={handleFloatingPointerMove}
-        onPointerUp={finishFloatingDrag}
-        onPointerCancel={finishFloatingDrag}
+        onPointerDown={open ? undefined : handleFloatingPointerDown}
+        onPointerMove={open ? undefined : handleFloatingPointerMove}
+        onPointerUp={open ? undefined : finishFloatingDrag}
+        onPointerCancel={open ? undefined : finishFloatingDrag}
+        onDragStart={(event) => event.preventDefault()}
         aria-label={open ? '챗봇 닫기' : '챗봇 열기'}
         aria-expanded={open}
         style={{
           position: 'fixed',
-          left: buttonPosition.left,
-          top: buttonPosition.top,
+          left: floatingControlPosition.left,
+          top: floatingControlPosition.top,
           zIndex: 2300,
           width: floatingButtonSize,
           height: floatingButtonSize,
@@ -555,7 +570,7 @@ export default function DashboardChatbot() {
           boxShadow: '0 10px 24px rgba(31, 55, 43, .16)',
           display: 'grid',
           placeItems: 'center',
-          cursor: dragging ? 'grabbing' : 'grab',
+          cursor: open ? 'pointer' : dragging ? 'grabbing' : 'grab',
           overflow: 'hidden',
           touchAction: 'none',
           userSelect: 'none',

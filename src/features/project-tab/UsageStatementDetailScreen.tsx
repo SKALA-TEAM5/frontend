@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
+import ChevronIcon from '../../components/ui/ChevronIcon';
 import InlineLoader from '../../components/ui/InlineLoader';
 import Modal from '../../components/ui/Modal';
 import { C } from '../../lib/theme';
@@ -9,7 +10,7 @@ import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
 import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
-import { getOrchestratorStatus, getVisionValidationResults, listSafeLeeEvidenceRequirements, runEvidenceReviewAgent, safeLeeRequirementsToMap, waitForAgentButtonEnabled, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
+import { confirmAgentTodo, getOrchestratorStatus, getVisionValidationResults, listSafeLeeEvidenceRequirements, runEvidenceReviewAgent, safeLeeRequirementsToMap, waitForAgentButtonEnabled, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 type UsageDetailValidationStatus = 'idle' | 'running' | 'done';
@@ -33,6 +34,10 @@ interface UsageStatementDetailScreenProps {
 type UsageDetailTodoSource = 'matching' | 'vision' | 'law';
 type UsageDetailTodoItem = {
     id: string;
+    backendTodoId?: number | null;
+    backendConfirmed?: boolean;
+    backendAgentTypeCode?: string | null;
+    backendCategoryName?: string | null;
     mode: 'add' | 'remove';
     source: UsageDetailTodoSource;
     kind: FolderEvidenceCategory;
@@ -59,6 +64,13 @@ const getCategoryFromBackendTodo = (todo: OrchestratorTodo) => {
         .map(normalizeTodoLookupText)
         .filter(Boolean)
         .some((label) => label === normalizedCategoryName || normalizedCategoryName.includes(label)));
+};
+const getCategoryIdFromTodoCode = (value?: string | null) => {
+    const match = String(value || '').match(/\d+/);
+    if (!match)
+        return undefined;
+    const categoryId = Number(match[0]);
+    return Number.isFinite(categoryId) ? categoryId : undefined;
 };
 
 const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
@@ -205,6 +217,26 @@ const getTodoDocumentTitle = (reason: string, kind: FolderEvidenceCategory) => {
 };
 
 const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]): UsageDetailTodoItem[] => {
+    const reason = todo.reason || '보완 사항 확인 필요';
+    const source = todo.agentTypeCode === 'legal' ? 'law' : todo.agentTypeCode === 'vision' ? 'vision' : 'matching';
+    if (todo.todoId) {
+        const categoryId = getCategoryIdFromTodoCode(todo.categoryCode);
+        return [{
+            id: `orchestrator:${todo.todoId}`,
+            backendTodoId: todo.todoId,
+            backendConfirmed: Boolean(todo.confirmed),
+            backendAgentTypeCode: todo.agentTypeCode,
+            backendCategoryName: todo.categoryName || null,
+            mode: 'add',
+            source,
+            kind: todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason),
+            title: reason,
+            context: todo.usageStatementItemName || '',
+            categoryId,
+            usageItemId: todo.usageStatementItemId == null ? undefined : String(todo.usageStatementItemId),
+            detail: reason,
+        }];
+    }
     const usageItemById = todo.usageStatementItemId == null
         ? undefined
         : usageItems.find((item) => String(item.id) === String(todo.usageStatementItemId));
@@ -213,7 +245,6 @@ const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]
         : undefined;
     const usageItem = usageItemById || usageItemByName;
     const backendCategory = getCategoryFromBackendTodo(todo);
-    const reason = todo.reason || '보완 사항 확인 필요';
     const titleText = todo.title || '';
     const fallbackKind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason);
     const evidenceCodeNames = (todo.evidenceTypeCodes || [])
@@ -222,7 +253,6 @@ const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]
     const documentNames = evidenceCodeNames.length > 0
         ? evidenceCodeNames
         : extractEvidenceDocumentNames(`${titleText} ${reason}`, fallbackKind);
-    const source = todo.agentTypeCode === 'legal' ? 'law' : todo.agentTypeCode === 'vision' ? 'vision' : 'matching';
     const linkedFileKey = todo.fileId || (todo.fileIds && todo.fileIds.length ? todo.fileIds.join('-') : 'none');
     const baseId = `orchestrator:${todo.agentTypeCode}:${todo.usageStatementItemId || 'all'}:${linkedFileKey}`;
     const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(`${titleText} ${reason}`, fallbackKind)];
@@ -235,6 +265,10 @@ const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]
         const translatedTitle = translateEvidenceDocumentName(title) || title;
         return {
             id: `${baseId}:${normalizeTodoIdText(title)}:${index}`,
+            backendTodoId: todo.todoId ?? null,
+            backendConfirmed: Boolean(todo.confirmed),
+            backendAgentTypeCode: todo.agentTypeCode,
+            backendCategoryName: todo.categoryName || null,
             mode: 'add',
             source,
             kind,
@@ -381,6 +415,13 @@ const resolveTodoUsageItem = (todo: UsageDetailTodoItem, usageItems: UsageLineIt
 };
 
 const getTodoLocationLabel = (todo: UsageDetailTodoItem, usageItems: UsageLineItem[]) => {
+    if (todo.backendTodoId) {
+        return [
+            todo.backendCategoryName,
+            todo.context,
+            todo.backendAgentTypeCode,
+        ].filter(Boolean).join(' ∙ ');
+    }
     const usageItem = resolveTodoUsageItem(todo, usageItems);
     const categoryId = usageItem?.categoryId || todo.categoryId;
     const categoryName = categoryId ? getCategoryDisplayName(categoryId) : '';
@@ -436,6 +477,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const [completedTodoIds, setCompletedTodoIds] = useState<Record<string, boolean>>({});
     const [dismissedTodoIds, setDismissedTodoIds] = useState<Record<string, boolean>>({});
     const [orchestratorTodoItems, setOrchestratorTodoItems] = useState<UsageDetailTodoItem[]>([]);
+    const [todoConfirmingIds, setTodoConfirmingIds] = useState<Record<string, boolean>>({});
     const [visionValidationByFileId, setVisionValidationByFileId] = useState<Record<string, VisionValidationResult>>({});
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [agentFailureMessage, setAgentFailureMessage] = useState('');
@@ -459,7 +501,6 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const syncingUsageDetailSeedRef = useRef(false);
     const usageDetailSeedSnapshotRef = useRef('');
     const clearTodoSignalRef = useRef(clearTodoSignal);
-    const todoPanelRef = useRef<HTMLElement | null>(null);
     const skipTodoPersistenceRef = useRef(false);
     const todoPersistenceKey = useMemo(() => {
         if (usageStatementId)
@@ -468,19 +509,6 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             return `i-veri:usage-detail-todos:${projectId}:${todoStorageKey}`;
         return '';
     }, [projectId, todoStorageKey, usageStatementId]);
-    useEffect(() => {
-        if (!todoSidebarOpen)
-            return;
-        const closeOnOutsidePointerDown = (event: PointerEvent) => {
-            const target = event.target;
-            if (target instanceof Node && todoPanelRef.current?.contains(target))
-                return;
-            setTodoSidebarPinned(false);
-            setTodoSidebarOpen(false);
-        };
-        document.addEventListener('pointerdown', closeOnOutsidePointerDown);
-        return () => document.removeEventListener('pointerdown', closeOnOutsidePointerDown);
-    }, [todoSidebarOpen]);
     useEffect(() => {
         if (!usageDetailSeed)
             return;
@@ -689,13 +717,19 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         return todos.filter((todo) => {
             if (seen.has(todo.id))
                 return false;
-            if (dismissedTodoIds[todo.id])
+            if (!todo.backendTodoId && dismissedTodoIds[todo.id])
                 return false;
             seen.add(todo.id);
             return true;
         });
     }, [actionRequest?.message, actionRequest?.title, dismissedTodoIds, fileData.categories, orchestratorTodoItems, requiredEvidenceByLine, resolvedUsageItems]);
-    const activeTodoCount = usageDetailTodoItems.filter((todo) => !completedTodoIds[todo.id]).length;
+    const isTodoDone = (todo: UsageDetailTodoItem) => (
+        todo.backendTodoId ? Boolean(todo.backendConfirmed) : Boolean(completedTodoIds[todo.id])
+    );
+    const getTodoConfirmingKey = (todo: UsageDetailTodoItem) => (
+        todo.backendTodoId ? `backend:${todo.backendTodoId}` : todo.id
+    );
+    const activeTodoCount = usageDetailTodoItems.filter((todo) => !isTodoDone(todo)).length;
     useEffect(() => {
         if (clearTodoSignalRef.current === clearTodoSignal)
             return;
@@ -703,7 +737,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setDismissedTodoIds((current) => {
             const next = { ...current };
             usageDetailTodoItems.forEach((todo) => {
-                if (completedTodoIds[todo.id])
+                if (!todo.backendTodoId && isTodoDone(todo))
                     next[todo.id] = true;
             });
             return next;
@@ -720,6 +754,33 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setMatchingNotice('');
         setPhotoValidationNotice(null);
     }, [usageDetailTodoItems, clearTodoSignal, completedTodoIds]);
+    const handleTodoToggle = async (todo: UsageDetailTodoItem) => {
+        const nextDone = !isTodoDone(todo);
+        if (!todo.backendTodoId) {
+            setCompletedTodoIds((current) => ({ ...current, [todo.id]: nextDone }));
+            return;
+        }
+        const todoId = todo.backendTodoId;
+        const confirmingKey = getTodoConfirmingKey(todo);
+        setTodoConfirmingIds((current) => ({ ...current, [confirmingKey]: true }));
+        setOrchestratorTodoItems((current) => current.map((item) => (
+            item.backendTodoId === todoId ? { ...item, backendConfirmed: nextDone } : item
+        )));
+        try {
+            await confirmAgentTodo(projectId, todoId, nextDone);
+        } catch (error) {
+            setOrchestratorTodoItems((current) => current.map((item) => (
+                item.backendTodoId === todoId ? { ...item, backendConfirmed: !nextDone } : item
+            )));
+            setUsageDetailActionError(getAgentFailureMessage('evidence-matching', error));
+        } finally {
+            setTodoConfirmingIds((current) => {
+                const next = { ...current };
+                delete next[confirmingKey];
+                return next;
+            });
+        }
+    };
     useEffect(() => {
         onTodoCountChange?.(activeTodoCount);
     }, [activeTodoCount, onTodoCountChange]);
@@ -1247,30 +1308,29 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     };
     const renderTodoList = (items: UsageDetailTodoItem[]) => (
       <div style={{ display: 'grid', gap: 7 }}>
-        {items.map((todo, index) => {
-          const done = Boolean(completedTodoIds[todo.id]);
+        {items.map((todo) => {
+          const done = isTodoDone(todo);
+          const confirming = Boolean(todoConfirmingIds[getTodoConfirmingKey(todo)]);
           const tone = todo.mode === 'add' ? C.primary : C.danger;
           const toneSoft = todo.mode === 'add' ? C.bg : C.dangerBg;
           const toneBorder = todo.mode === 'add' ? C.light : '#FFCDD2';
           const cardBorder = done ? C.g200 : toneBorder;
           const cardBg = C.white;
           const textColor = done ? C.g400 : C.g800;
-          const mutedTextColor = done ? C.g400 : C.g600;
-          const actionText = todo.mode === 'add' ? '업로드 필요' : '삭제 필요';
-          const locationLabel = getTodoLocationLabel(todo, resolvedUsageItems);
-          const tooltipOpensUp = index >= items.length - 1;
+          const actionText = todo.backendTodoId ? '' : todo.mode === 'add' ? '업로드 필요' : '삭제 필요';
           return (
             <button
               key={todo.id}
               type="button"
-              onClick={() => setCompletedTodoIds((current) => ({ ...current, [todo.id]: !current[todo.id] }))}
+              onClick={() => void handleTodoToggle(todo)}
+              disabled={confirming}
               style={{
                 width: '100%',
                 border: `1px solid ${cardBorder}`,
                 borderRadius: 6,
                 background: cardBg,
                 color: textColor,
-                cursor: 'pointer',
+                cursor: confirming ? 'wait' : 'pointer',
                 fontFamily: 'inherit',
                 padding: '9px 8px',
                 textAlign: 'left',
@@ -1299,8 +1359,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                   {done ? '✓' : ''}
                 </span>
                 <span style={{ minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 12, fontWeight: 900, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{todo.title} {actionText}</span>
-                  <span style={{ display: 'block', marginTop: 3, fontSize: 11, fontWeight: 800, color: mutedTextColor, lineHeight: 1.4, textDecoration: done ? 'line-through' : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{locationLabel}</span>
+                  <span style={{ display: 'block', fontSize: 12, fontWeight: 900, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{[todo.title, actionText].filter(Boolean).join(' ')}</span>
                 </span>
               </div>
             </button>
@@ -1309,6 +1368,19 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
       </div>
     );
     const getTodoGroupMeta = (todo: UsageDetailTodoItem) => {
+        if (todo.backendTodoId) {
+            const label = todo.context || todo.backendCategoryName || todo.backendAgentTypeCode || 'TODO';
+            const subLabel = [
+                todo.context ? todo.backendCategoryName : '',
+                todo.backendAgentTypeCode,
+            ].filter(Boolean).join(' ∙ ');
+            return {
+                id: `backend:${todo.backendTodoId}`,
+                label,
+                subLabel,
+                order: resolvedUsageItems.length + Number(todo.backendTodoId) / 1000000,
+            };
+        }
         const usageItem = resolveTodoUsageItem(todo, resolvedUsageItems);
         if (usageItem)
             return {
@@ -1351,7 +1423,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'ko'));
     const renderTodoGroup = (group: { id: string; label: string; subLabel: string; items: UsageDetailTodoItem[] }) => {
         const items = group.items;
-        const activeCount = items.filter((todo) => !completedTodoIds[todo.id]).length;
+        const activeCount = items.filter((todo) => !isTodoDone(todo)).length;
         const collapsed = Boolean(collapsedTodoGroupIds[group.id]);
         return (
           <div key={group.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: 7, display: 'grid', gap: collapsed ? 0 : 7, marginBottom: 8, position: 'relative' }}>
@@ -1366,7 +1438,9 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 <span title={group.subLabel} style={{ display: 'block', marginTop: 2, fontSize: 10, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.subLabel}</span>
               </span>
               <span style={{ minWidth: 20, height: 18, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 10, fontWeight: 900 }}>{activeCount}</span>
-              <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: 999, border: `1px solid ${C.g200}`, color: C.g600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform .14s ease' }}>⌄</span>
+              <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: 999, border: `1px solid ${C.g200}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ChevronIcon direction={collapsed ? 'right' : 'down'} size={14} color={C.g600} />
+              </span>
             </button>
             {!collapsed && renderTodoList(items)}
           </div>
@@ -1378,7 +1452,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         return (
           <>
             {todoSidebarOpen && (
-              <aside ref={todoPanelRef} data-ui="usage-detail-screen.todo-panel" onClick={() => setTodoSidebarPinned(true)} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 320, maxWidth: 'calc(100vw - 24px)', height: 'calc(100vh - var(--app-header-height))', zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '10px 0 0 10px', background: C.white, boxShadow: '-18px 0 42px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)', overscrollBehavior: 'contain', opacity: todoSidebarPinned ? 1 : 0.95, transition: 'opacity .16s ease' }}>
+              <aside data-ui="usage-detail-screen.todo-panel" onClick={() => setTodoSidebarPinned(true)} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 320, maxWidth: 'calc(100vw - 24px)', height: 'calc(100vh - var(--app-header-height))', zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '10px 0 0 10px', background: C.white, boxShadow: '-18px 0 42px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)', overscrollBehavior: 'contain', opacity: todoSidebarPinned ? 1 : 0.95, transition: 'opacity .16s ease' }}>
                 <div style={{ position: 'sticky', top: 0, zIndex: 2, background: C.white, borderBottom: `1px solid ${C.g200}`, padding: '16px 16px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                     <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>보완 TODO</div>

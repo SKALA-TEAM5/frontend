@@ -312,7 +312,7 @@ const withActionRequestMonth = (details: ProjectSummary['actionRequestDetails'] 
     return details.month || !month ? details : { ...details, month };
 };
 const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string, assignee = FALLBACK_ACTION_ASSIGNEE): ProjectSummary['actionRequestDetails'] | undefined => {
-    const openTodos = todos.filter((todo) => todo.statusCode !== 'closed');
+    const openTodos = todos.filter((todo) => todo.statusCode !== 'closed' && !todo.confirmed);
     if (!openTodos.length)
         return undefined;
     const reason = openTodos.map((todo, index) => `${index + 1}. ${formatActionGuideReason(todo.reason)}`).join('\n');
@@ -325,6 +325,7 @@ const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string, a
         month,
     };
 };
+const getPendingOrchestratorTodos = (todos: OrchestratorTodo[] = []) => todos.filter((todo) => todo.statusCode !== 'closed' && !todo.confirmed);
 const formatLegalDisabledReason = (reason?: string | null) => {
     const text = (reason || '').trim();
     if (!text)
@@ -497,7 +498,8 @@ function ProjectDetailPageContent() {
                 && isSupplementClearedWorkflow(archiveWorkflowStatus);
             const status = await getOrchestratorStatus(project.id || projectId, item.usageStatementId);
             const todos = clearedByWorkflow ? [] : status.todos || [];
-            const actionRequestDetails = orchestratorTodosToDetails(todos, month, getProjectAssigneeLabel(project));
+            const pendingTodos = getPendingOrchestratorTodos(todos);
+            const actionRequestDetails = orchestratorTodosToDetails(pendingTodos, month, getProjectAssigneeLabel(project));
             return {
                 ...item,
                 statementSummary: { ...item.statementSummary, month, label: formatMonthLabel(month) },
@@ -570,7 +572,7 @@ function ProjectDetailPageContent() {
     const selectedMonthHasUploadedStatement = Boolean(selectedStatement.sourceFileName && selectedStatement.sourceFileName !== '-');
     const hasUsageStatement = monthlyStatements.length > 0 || Boolean(archiveSeed?.usage_statement?.length || archiveUsageItems.length);
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
-    const selectedOpenOrchestratorTodos = selectedStatementArchive?.orchestratorTodos?.filter((todo) => todo.statusCode !== 'closed') || [];
+    const selectedOpenOrchestratorTodos = getPendingOrchestratorTodos(selectedStatementArchive?.orchestratorTodos);
     const selectedLegalResultCode = String(selectedStatementArchive?.legalResultCode || '').toLowerCase();
     const selectedLegalAllowsReport = selectedLegalResultCode === 'success' || selectedLegalResultCode === 'hil' || (!selectedLegalResultCode && selectedValidationStatus === 'done');
     const selectedReportGenerationEnabled = Boolean(
@@ -857,12 +859,13 @@ function ProjectDetailPageContent() {
             const clearedByWorkflow = archiveWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
                 && isSupplementClearedWorkflow(archiveWorkflowStatus);
             const todos = clearedByWorkflow ? [] : status.todos || [];
+            const pendingTodos = getPendingOrchestratorTodos(todos);
             return {
                 ...current,
                 [selectedStatement.month]: {
                     ...entry,
                     orchestratorTodos: todos,
-                    actionRequestDetails: orchestratorTodosToDetails(todos, selectedStatement.month, getProjectAssigneeLabel(project)),
+                    actionRequestDetails: orchestratorTodosToDetails(pendingTodos, selectedStatement.month, getProjectAssigneeLabel(project)),
                     legalReady: status.legalReady,
                     legalDisabledReason: status.legalDisabledReason,
                     legalResultCode: status.legalResultCode,
