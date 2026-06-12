@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
+import ChevronIcon from '../../components/ui/ChevronIcon';
 import Modal from '../../components/ui/Modal';
 import ProjectInfoEditorModal from '../../components/project/ProjectInfoEditorModal';
 import { AppFrame, DateRangePicker } from '../../components/common';
@@ -428,6 +429,9 @@ function ProjectsPageContent() {
     const hasSupplement = hasSupplementRequiredMonth(project);
     const projectSuspended = project.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED;
     const projectClosed = project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED;
+    const periodText = project.period || '-';
+    const [periodStart, periodEnd] = periodText.split('~');
+    const sheManagerText = getProjectSheManagers(project).join(', ') || '-';
     const currentUserId = Number(user.id);
     const isAssignedSheManager = user.role === 'she_manager'
       && (
@@ -456,32 +460,38 @@ function ProjectsPageContent() {
           </div>
           <div style={{ marginTop: 5, fontSize: 13, fontWeight: 700, color: C.g600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.contractNumber}</div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, minWidth: 0 }}>
-          <div style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '9px 10px', background: 'transparent' }}>
-            <div style={{ fontSize: 12, fontWeight: 650, color: C.g600 }}>담당자</div>
-            <div title={project.manager} style={{ marginTop: 4, fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</div>
+        <div style={{ display: 'grid', gap: 7, minWidth: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '80px minmax(0, 1fr)', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: C.g500, whiteSpace: 'nowrap' }}>프로젝트 담당자</span>
+            <span title={project.manager} style={{ minWidth: 0, fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</span>
           </div>
-          <div style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '9px 10px', background: 'transparent' }}>
-            <div style={{ fontSize: 12, fontWeight: 650, color: C.g600 }}>공사 기간</div>
-            <div title={project.period || '-'} style={{ marginTop: 4, fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '80px minmax(0, 1fr)', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: C.g500, whiteSpace: 'nowrap' }}>SHE 담당자</span>
+            <span title={sheManagerText} style={{ minWidth: 0, fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sheManagerText}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '80px minmax(0, 1fr)', alignItems: 'start', gap: 8, minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: C.g500, lineHeight: 1.35, whiteSpace: 'nowrap' }}>공사기간</span>
+            <span title={periodText} style={{ minWidth: 0, fontSize: 14, fontWeight: 700, lineHeight: 1.35, color: C.g800, whiteSpace: 'normal', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'keep-all' }}>
+              {periodEnd ? <>{periodStart}~<wbr />{periodEnd}</> : periodText}
+            </span>
           </div>
         </div>
         <div style={{ display: 'grid', gap: 9 }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, fontSize: 13, fontWeight: 800, color: C.g600 }}>
+            <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, fontSize: 13, fontWeight: 800, color: C.g600 }}>
               <span>공정률</span>
               <span style={{ color: C.g800 }}>{progress}%</span>
             </div>
-            <div style={{ height: 8, borderRadius: 999, background: '#E8EEEB', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: 8, borderRadius: 999, background: '#E8EEEB', overflow: 'hidden' }}>
               <div style={{ width: `${progress}%`, height: '100%', background: progress >= 70 ? C.primary : progress >= 30 ? '#2F73B7' : '#C9545E' }} />
             </div>
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, fontSize: 13, fontWeight: 800, color: C.g600 }}>
+            <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, fontSize: 13, fontWeight: 800, color: C.g600 }}>
               <span>안전관리비 사용률</span>
               <span style={{ color: C.g800 }}>{safetyBudgetUsage}%</span>
             </div>
-            <div style={{ height: 8, borderRadius: 999, background: '#E8EEEB', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: 8, borderRadius: 999, background: '#E8EEEB', overflow: 'hidden' }}>
               <div style={{ width: `${safetyBudgetUsageBarWidth}%`, height: '100%', background: safetyBudgetUsage >= 80 ? '#C9545E' : safetyBudgetUsage >= 50 ? '#F0A22E' : C.primary }} />
             </div>
           </div>
@@ -666,8 +676,9 @@ function ProjectsPageContent() {
       title={user.role === 'project_manager' ? '담당 프로젝트 목록' : '전체 프로젝트 목록'}
       description={`${ROLE_LABELS[user.role]} 권한으로 조회 가능한 프로젝트입니다.`}
       actions={user.role !== 'project_manager' ? <Button size="sm" onClick={() => setCreateModalOpen(true)} style={{ boxShadow: 'none' }}>새 프로젝트 등록</Button> : undefined}
+      headerContentStyle={{ width: 'calc(100% - 40px)', margin: '0 auto 16px' }}
     >
-      <Card style={{ padding: '18px 20px', borderRadius: 14, overflow: 'visible' }}>
+      <Card style={{ width: 'calc(100% - 40px)', margin: '0 auto', padding: '18px 20px', borderRadius: 14, overflow: 'visible' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
           <div style={{ fontSize: 17, fontWeight: 800, color: C.g800 }}>
             {user.role === 'project_manager' ? '담당 프로젝트 현황' : '전체 프로젝트 현황'}
@@ -678,9 +689,14 @@ function ProjectsPageContent() {
         <div data-ui="projects.1" style={{ display: 'grid', gridTemplateColumns: 'minmax(145px, 1.1fr) minmax(110px, .85fr) minmax(105px, .78fr) minmax(190px, 1.25fr) max-content', gap: 8, marginBottom: 24 }}>
           <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={inputStyle} />
           <input aria-label="프로젝트 번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="프로젝트 번호" style={inputStyle} />
-          <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={inputStyle}>
-            {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '프로젝트 담당자' : item}</option>)}
-          </select>
+          <div style={{ position: 'relative', minWidth: 0 }}>
+            <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={{ ...inputStyle, appearance: 'none', WebkitAppearance: 'none', paddingRight: 32, cursor: 'pointer' }}>
+              {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '프로젝트 담당자' : item}</option>)}
+            </select>
+            <span aria-hidden="true" style={{ position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', display: 'inline-flex', pointerEvents: 'none' }}>
+              <ChevronIcon direction="down" size={16} color={C.g500} />
+            </span>
+          </div>
           <DateRangePicker
             start={periodMode === 'custom' ? period.split('~')[0] || '' : ''}
             end={periodMode === 'custom' ? period.split('~')[1] || '' : ''}

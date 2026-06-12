@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import Card from '../../components/ui/Card';
+import ChevronIcon from '../../components/ui/ChevronIcon';
 import { AppFrame, DateRangePicker } from '../../components/common';
 import { logout } from '../../lib/auth-api';
 import { useCurrentUser } from '../../lib/dev-user';
@@ -272,9 +273,8 @@ const dashboardPhotoBackdropStyle: CSSProperties = {
   top: 0,
   left: 0,
   right: 0,
-  height: 170,
+  height: '100%',
   minHeight: 170,
-  maxHeight: 170,
   pointerEvents: 'auto',
   background: 'linear-gradient(180deg, rgba(255,255,255,.02) 0%, color-mix(in srgb, var(--c-soft) 38%, transparent) 46%, color-mix(in srgb, var(--c-soft) 84%, transparent) 82%, var(--c-soft) 100%), linear-gradient(135deg, color-mix(in srgb, var(--c-primary) 46%, transparent) 0%, color-mix(in srgb, var(--c-primary) 22%, transparent) 54%, rgba(255,255,255,.72) 100%), url("https://images.pexels.com/photos/32858871/pexels-photo-32858871.jpeg?auto=compress&cs=tinysrgb&w=1800") center 52% / cover no-repeat',
   zIndex: 1,
@@ -283,7 +283,7 @@ const dashboardPhotoBackdropStyle: CSSProperties = {
   border: '1px solid color-mix(in srgb, var(--c-primary) 22%, #fff)',
   backgroundClip: 'padding-box',
   boxShadow: 'var(--ui-shadow-panel)',
-  alignSelf: 'start',
+  alignSelf: 'stretch',
 };
 
 const dashboardTopStyle: CSSProperties = {
@@ -296,7 +296,7 @@ const dashboardTopStyle: CSSProperties = {
   overflow: 'visible',
   background: 'transparent',
   boxShadow: 'none',
-  width: 'min(100%, 1240px)',
+  width: 'min(1240px, calc(100% - 56px))',
 };
 
 const dashboardContentLayerStyle: CSSProperties = {
@@ -669,7 +669,7 @@ export default function DashboardPage() {
               </div>
             </section>
           </div>
-        <aside style={{ alignSelf: 'start', position: 'relative', zIndex: 40, overflow: 'visible', border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: 14, boxShadow: 'var(--ui-shadow-card)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
+        <aside style={{ alignSelf: 'stretch', height: '100%', position: 'relative', zIndex: 40, overflow: 'visible', border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: 14, boxShadow: 'var(--ui-shadow-card)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
           <button type="button" onClick={handleDashboardLogout} disabled={logoutPending} style={{ position: 'absolute', top: 13, right: 13, height: 24, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1 }}>
             {logoutPending ? '로그아웃 중' : '로그아웃'}
           </button>
@@ -749,7 +749,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <div style={{ ...dashboardContentLayerStyle, width: 'min(100%, 1240px)', margin: '0 auto', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
+      <div style={{ ...dashboardContentLayerStyle, width: 'min(1240px, calc(100% - 56px))', margin: '0 auto', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', overflow: 'visible' }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
@@ -759,9 +759,14 @@ export default function DashboardPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(170px, 1fr) max-content', gap: 8, marginBottom: 12, minWidth: 0 }}>
               <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
               <input aria-label="프로젝트 번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="프로젝트 번호" style={compactFieldStyle} />
-              <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={compactFieldStyle}>
-                {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '프로젝트 담당자' : item}</option>)}
-              </select>
+              <div style={{ position: 'relative', minWidth: 0 }}>
+                <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={{ ...compactFieldStyle, appearance: 'none', WebkitAppearance: 'none', paddingRight: 28, cursor: 'pointer' }}>
+                  {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '프로젝트 담당자' : item}</option>)}
+                </select>
+                <span aria-hidden="true" style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', display: 'inline-flex', pointerEvents: 'none' }}>
+                  <ChevronIcon direction="down" size={14} color={C.g500} />
+                </span>
+              </div>
               <DateRangePicker
                 start={rangeStart}
                 end={rangeEnd}

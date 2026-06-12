@@ -158,7 +158,7 @@ const reportGateChipStyle = (color: string, bg: string, border: string): CSSProp
 const reportGateCardStyle: CSSProperties = {
   display: 'grid',
   gap: 8,
-  margin: '14px 0 0',
+  margin: '16px auto 0',
   width: 'min(100%, 680px)',
   justifySelf: 'center',
   textAlign: 'left',
@@ -468,6 +468,20 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     padding: '8px 13px',
     boxShadow: `0 6px 14px ${C.primaryShadow}`,
   };
+  const renderReportProgress = () => (
+    <div style={{ margin: '16px auto 0', width: 'min(100%, 680px)' }}>
+      <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}>
+        <div style={{ height: '100%', width: `${reportProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} />
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
+        {REPORT_STEPS.map((step, index) => (
+          <span key={step} style={{ fontSize: 12, fontWeight: 700, color: reportProgress >= ((index + 1) * 100) / REPORT_STEPS.length ? C.primary : C.g400, background: C.g100, borderRadius: 999, padding: '5px 9px' }}>
+            {step}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
   const renderReportGate = () => {
     if (reportStatus === 'done' && reportDraft) return null;
     if (canGenerateReport) return null;
@@ -495,37 +509,48 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
       </div>
     );
   };
+  const renderReportEmpty = () => (
+    <Card style={{ padding: 24, marginBottom: 14, boxShadow: '0 1px 2px rgba(31,47,39,.04)' }}>
+      <div style={{ padding: '48px 32px', minHeight: 360, borderRadius: 18, border: `2px dashed ${C.g200}`, textAlign: 'center', background: C.white, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: C.g800, marginBottom: 6 }}>
+          {canGenerateReport ? '보고서 생성 준비 완료' : '보고서 생성 대기'}
+        </div>
+        <div style={{ fontSize: 14, color: C.g400, marginBottom: 16 }}>
+          {canGenerateReport ? '법령 검증 결과를 기반으로 보고서 초안을 생성할 수 있습니다.' : reportGenerateDisabledReason}
+        </div>
+        <button
+          type="button"
+          onClick={handleReportGenerate}
+          disabled={reportStatus === 'generating' || !canGenerateReport}
+          style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: canGenerateReport ? C.primary : C.g200, color: canGenerateReport ? C.white : C.g400, fontFamily: 'inherit', fontSize: 14, fontWeight: 800, cursor: reportStatus === 'generating' ? 'wait' : canGenerateReport ? 'pointer' : 'not-allowed', boxShadow: canGenerateReport ? `0 10px 22px ${C.primaryShadow}` : 'none' }}
+        >
+          {reportStatus === 'generating' ? '생성 중...' : '보고서 생성'}
+        </button>
+        {reportStatus === 'generating' && renderReportProgress()}
+        {renderReportGate()}
+      </div>
+    </Card>
+  );
 
   return <div className="screen-enter" style={{ width: '100%', maxWidth: '100%', background: 'transparent', margin: '0 auto' }}>
-    <Card style={{ padding: '14px 16px', marginBottom: 14, boxShadow: '0 1px 2px rgba(31,47,39,.04)' }}>
-      <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>보고서 생성</div>
-            {reportStatus === 'done' && <span style={{ ...chipStyle(reportWorkflowMeta.color, reportWorkflowMeta.bg), minHeight: 22, fontSize: 11 }}>{reportWorkflowMeta.label}</span>}
+    {reportStatus === 'done' && reportDraft ? (
+      <Card style={{ padding: '14px 16px', marginBottom: 14, boxShadow: '0 1px 2px rgba(31,47,39,.04)' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>보고서 생성</div>
+              <span style={{ ...chipStyle(reportWorkflowMeta.color, reportWorkflowMeta.bg), minHeight: 22, fontSize: 11 }}>{reportWorkflowMeta.label}</span>
+            </div>
+            <div style={{ fontSize: 12, color: C.g400, marginTop: 4 }}>{reportWorkflowMeta.description}</div>
           </div>
-          <div style={{ fontSize: 13, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{canGenerateReport ? '법령 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '보고서 생성을 위한 조건을 먼저 완료해 주세요.'}</div>
-          {reportStatus === 'done' && <div style={{ fontSize: 12, color: C.g400, marginTop: 4 }}>{reportWorkflowMeta.description}</div>}
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
+            <Button size="sm" onClick={handleReportGenerate} disabled={!canGenerateReport} style={{ ...reportActionButtonStyle, boxShadow: canGenerateReport ? reportActionButtonStyle.boxShadow : 'none' }}>다시 생성하기</Button>
+            <Button size="sm" variant="outline" onClick={handleSaveDraft} disabled={savePending || !reportDraft} style={{ ...reportActionButtonStyle, boxShadow: 'none' }}>{savePending ? '저장 중...' : '저장'}</Button>
+            <Button size="sm" variant="outline" onClick={handleDocxExport} disabled={!reportDraft || docxExporting} style={reportActionButtonStyle}>{docxExporting ? '추출 중...' : 'DOCX 추출'}</Button>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-          <span title={!canGenerateReport ? reportGenerateDisabledReason : undefined} style={{ display: 'inline-flex' }}>
-            <Button size="sm" onClick={handleReportGenerate} disabled={reportStatus === 'generating' || !canGenerateReport} style={{ ...reportActionButtonStyle, boxShadow: canGenerateReport ? reportActionButtonStyle.boxShadow : 'none' }}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
-          </span>
-          {reportStatus === 'done' && <Button size="sm" variant="outline" onClick={handleSaveDraft} disabled={savePending || !reportDraft} style={{ ...reportActionButtonStyle, boxShadow: 'none' }}>{savePending ? '저장 중...' : '저장'}</Button>}
-          <Button size="sm" variant="outline" onClick={handleDocxExport} disabled={reportStatus !== 'done' || !reportDraft || docxExporting} style={reportActionButtonStyle}>{docxExporting ? '추출 중...' : 'DOCX 추출'}</Button>
-        </div>
-      </div>
-      {reportStatus === 'generating' && <div style={{ marginTop: 16 }}>
-        <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}><div style={{ height: '100%', width: `${reportProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} /></div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{REPORT_STEPS.map((step, index) => <span key={step} style={{ fontSize: 12, fontWeight: 700, color: reportProgress >= ((index + 1) * 100) / REPORT_STEPS.length ? C.primary : C.g400, background: C.g100, borderRadius: 999, padding: '5px 9px' }}>{step}</span>)}</div>
-      </div>}
-      <div style={{ display: 'grid' }}>{renderReportGate()}</div>
-    </Card>
-
-    {validationComplete && reportStatus === 'idle' && <Card style={{ padding: '22px 24px', marginBottom: 18, background: '#F7F8FA', boxShadow: 'none', border: `1px solid ${C.g200}` }}>
-      <div style={{ fontSize: 14, fontWeight: 800, color: C.g800 }}>보고서가 아직 생성되지 않았습니다</div>
-      <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginTop: 5 }}>보고서 생성하기를 누르면 초안과 항목별 검토 결과가 생성됩니다.</div>
-    </Card>}
+      </Card>
+    ) : renderReportEmpty()}
 
     {reportStatus === 'done' && renderReportEditor()}
 
