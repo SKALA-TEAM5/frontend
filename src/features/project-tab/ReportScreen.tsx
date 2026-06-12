@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { getReportDetail, isAgentRunningError, runReportAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
+import { getReportDetail, isAgentRunningError, runReportAgent, saveReportDraft, waitForAgentButtonEnabled } from '../../lib/agent-api';
 import type { ReportDraft } from '../../lib/report-draft';
 import { C } from '../../lib/theme';
 
@@ -206,6 +206,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
   const [reportWorkflowStatus, setReportWorkflowStatus] = useState<ReportWorkflowStatus>('editing');
   const [reportDraft, setReportDraft] = useState<ReportDraft | null>(null);
   const [savedAt, setSavedAt] = useState('');
+  const [savePending, setSavePending] = useState(false);
   const [exportNoticeOpen, setExportNoticeOpen] = useState(false);
   const [docxExporting, setDocxExporting] = useState(false);
   const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
@@ -223,6 +224,28 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     setReportWorkflowStatus('editing');
     setSavedAt('');
   };
+
+  useEffect(() => {
+    let alive = true;
+    if (!projectId || !usageStatementId || reportStatus === 'generating') return () => {
+      alive = false;
+    };
+    getReportDetail(projectId, usageStatementId)
+      .then((detail) => {
+        if (!alive) return;
+        const draft = readReportDraftFromDetail(detail);
+        if (!isReportDraft(draft)) return;
+        setReportProgress(100);
+        setReportDraft(normalizeReportDraftEvidenceLabels(draft));
+        setReportStatus('done');
+        setReportWorkflowStatus('saved');
+        setSavedAt('');
+      })
+      .catch(() => null);
+    return () => {
+      alive = false;
+    };
+  }, [projectId, reportStatus, usageStatementId]);
 
   const waitForReportDraft = async (initialResponse: Awaited<ReturnType<typeof runReportAgent>>) => {
     const initialDraft = readReportDraftFromAgentResponse(initialResponse);
@@ -269,9 +292,22 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     }
   };
 
-  const handleSaveDraft = () => {
-    setReportWorkflowStatus('saved');
-    setSavedAt(new Date().toLocaleString('ko-KR'));
+  const handleSaveDraft = async () => {
+    if (!projectId || !usageStatementId || !reportDraft || savePending) return;
+    setSavePending(true);
+    try {
+      const detail = await saveReportDraft(projectId, usageStatementId, reportDraft);
+      const savedDraft = readReportDraftFromDetail(detail);
+      if (isReportDraft(savedDraft)) {
+        setReportDraft(normalizeReportDraftEvidenceLabels(savedDraft));
+      }
+      setReportWorkflowStatus('saved');
+      setSavedAt(new Date().toLocaleString('ko-KR'));
+    } catch (error) {
+      showAgentFailure('server-request', error);
+    } finally {
+      setSavePending(false);
+    }
   };
 
   const handleDocxExport = async () => {
@@ -474,7 +510,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
           <span title={!canGenerateReport ? reportGenerateDisabledReason : undefined} style={{ display: 'inline-flex' }}>
             <Button size="sm" onClick={handleReportGenerate} disabled={reportStatus === 'generating' || !canGenerateReport} style={{ ...reportActionButtonStyle, boxShadow: canGenerateReport ? reportActionButtonStyle.boxShadow : 'none' }}>{reportStatus === 'generating' ? '생성 중...' : reportStatus === 'done' ? '다시 생성하기' : '보고서 생성하기'}</Button>
           </span>
-          {reportStatus === 'done' && <Button size="sm" variant="outline" onClick={handleSaveDraft} style={{ ...reportActionButtonStyle, boxShadow: 'none' }}>저장</Button>}
+          {reportStatus === 'done' && <Button size="sm" variant="outline" onClick={handleSaveDraft} disabled={savePending || !reportDraft} style={{ ...reportActionButtonStyle, boxShadow: 'none' }}>{savePending ? '저장 중...' : '저장'}</Button>}
           <Button size="sm" variant="outline" onClick={handleDocxExport} disabled={reportStatus !== 'done' || !reportDraft || docxExporting} style={reportActionButtonStyle}>{docxExporting ? '추출 중...' : 'DOCX 추출'}</Button>
         </div>
       </div>
