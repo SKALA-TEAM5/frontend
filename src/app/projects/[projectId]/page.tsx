@@ -12,9 +12,8 @@ import { AppFrame } from '../../../components/common';
 import { ApiClientError } from '../../../lib/api-client';
 import { C } from '../../../lib/theme';
 import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getProjectSheManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
-import { getProject, isProjectManagerRole, isSheManagerRole, listProjectManagerCandidates, listSheManagerCandidates, replaceProjectAssignees, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
-import type { BackendUserProfile } from '../../../lib/auth-api';
-import { completeUsageStatementReview, deleteProjectFile, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
+import { getProject, isProjectManagerRole, isSheManagerRole, listAssigneeCandidates, replaceProjectAssignees, updateProject, type ProjectAssigneeCandidate, type UpdateProjectInput } from '../../../lib/project-api';
+import { completeUsageStatementReview, deleteProjectFile, deleteUsageStatement, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
 import { getAgentButtonStates, getOrchestratorStatus, isAgentStageRunning, parseUsageStatementWithOcr, waitForAgentButtonEnabled, type AgentButtonStage, type OrchestratorTodo } from '../../../lib/agent-api';
 import { can } from '../../../lib/permissions';
@@ -415,6 +414,8 @@ function ProjectDetailPageContent() {
     const [newMonthNo, setNewMonthNo] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
     const [newMonthError, setNewMonthError] = useState('');
     const [monthDeleteTarget, setMonthDeleteTarget] = useState<MonthlyUsageStatementSummary | null>(null);
+    const [monthDeleting, setMonthDeleting] = useState(false);
+    const [monthDeleteError, setMonthDeleteError] = useState('');
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [agentFailureMessage, setAgentFailureMessage] = useState('');
     const [usageUploadFailureMessage, setUsageUploadFailureMessage] = useState('');
@@ -442,8 +443,8 @@ function ProjectDetailPageContent() {
     });
     const [projectInfoSaveError, setProjectInfoSaveError] = useState('');
     const [projectInfoSaving, setProjectInfoSaving] = useState(false);
-    const [managerCandidates, setManagerCandidates] = useState<BackendUserProfile[]>([]);
-    const [sheManagerCandidates, setSheManagerCandidates] = useState<BackendUserProfile[]>([]);
+    const [managerCandidates, setManagerCandidates] = useState<ProjectAssigneeCandidate[]>([]);
+    const [sheManagerCandidates, setSheManagerCandidates] = useState<ProjectAssigneeCandidate[]>([]);
     const [statementOverrides, setStatementOverrides] = useState<Record<string, Partial<MonthlyUsageStatementSummary>>>({});
     const showAgentFailure = (target: AgentFailureTarget, error?: unknown) => {
         setAgentFailureTarget(target);
@@ -691,10 +692,28 @@ function ProjectDetailPageContent() {
         router.replace(`/projects/${project.id}?tab=details`, { scroll: false });
         setMonthCreateModalOpen(false);
     };
-    const deleteUsageMonth = () => {
+    const deleteUsageMonth = async () => {
         const targetMonth = monthDeleteTarget?.month;
         if (!targetMonth)
             return;
+        const usageStatementId = dbUsageStatementsByMonth[targetMonth]?.usageStatementId;
+        if (!usageStatementId) {
+            setMonthDeleteError('삭제할 사용내역서 ID를 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.');
+            return;
+        }
+        setMonthDeleting(true);
+        setMonthDeleteError('');
+        try {
+            await deleteUsageStatement(project.id || projectId, usageStatementId);
+        } catch (error) {
+            const message = error instanceof ApiClientError && error.status === 405
+                ? '백엔드에 사용내역서 삭제 API가 아직 연결되지 않았습니다.'
+                : error instanceof Error ? error.message : '사용내역서 삭제에 실패했습니다.';
+            setMonthDeleteError(message);
+            return;
+        } finally {
+            setMonthDeleting(false);
+        }
         setDbUsageStatementsByMonth((current) => {
             const next = { ...current };
             delete next[targetMonth];
@@ -715,6 +734,7 @@ function ProjectDetailPageContent() {
             setArchiveSeed(null);
             setArchiveUsageItems([]);
         }
+        setMonthDeleteError('');
         setMonthDeleteTarget(null);
     };
     const canViewActionGuide = user.role === 'project_manager' && selectedMonthHasActionRequest && !actionCompletionSent && Boolean(selectedMonthActionRequestDetails);
@@ -925,20 +945,15 @@ function ProjectDetailPageContent() {
             setUploadCompleteSubmitting(false);
         }
     };
-    const loadManagerCandidates = async () => {
-        if (managerCandidates.length > 0)
+    const loadAssigneeCandidates = async () => {
+        if (managerCandidates.length > 0 && sheManagerCandidates.length > 0)
             return;
-        const candidates = await listProjectManagerCandidates();
-        setManagerCandidates(candidates);
-    };
-    const loadSheManagerCandidates = async () => {
-        if (sheManagerCandidates.length > 0)
-            return;
-        const candidates = await listSheManagerCandidates();
-        setSheManagerCandidates(candidates);
+        const candidates = await listAssigneeCandidates();
+        setManagerCandidates(candidates.filter((candidate) => isProjectManagerRole(candidate.roleCode)));
+        setSheManagerCandidates(candidates.filter((candidate) => isSheManagerRole(candidate.roleCode)));
     };
     const openProjectInfoModal = () => {
-        void Promise.all([loadManagerCandidates(), loadSheManagerCandidates()]).catch((error) => {
+        void loadAssigneeCandidates().catch((error) => {
             setProjectInfoSaveError(error instanceof Error ? error.message : '담당자 목록을 불러오지 못했습니다.');
         });
         const { startDate, endDate } = parseProjectPeriod(project.period);
@@ -1237,15 +1252,21 @@ function ProjectDetailPageContent() {
       </Modal>
     );
     const monthDeleteModal = (
-      <Modal open={Boolean(monthDeleteTarget)} onClose={() => setMonthDeleteTarget(null)} zIndex={980} maxWidth={440}>
+      <Modal open={Boolean(monthDeleteTarget)} onClose={() => {
+        if (monthDeleting)
+          return;
+        setMonthDeleteTarget(null);
+        setMonthDeleteError('');
+      }} zIndex={980} maxWidth={440}>
         <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
           <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>사용내역서 월 삭제</div>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.6 }}>
             {monthDeleteTarget?.label} 사용내역서를 삭제하시겠습니까? 해당 월의 사용내역서와 증빙 서류가 제거됩니다.
           </div>
+          {monthDeleteError && <div style={{ marginTop: 12, borderRadius: 10, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 12, fontWeight: 900, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{monthDeleteError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-            <button type="button" onClick={() => setMonthDeleteTarget(null)} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={deleteUsageMonth} style={{ height: 38, border: 'none', borderRadius: 999, background: C.danger, color: C.white, padding: '0 16px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>삭제</button>
+            <button type="button" onClick={() => { setMonthDeleteTarget(null); setMonthDeleteError(''); }} disabled={monthDeleting} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: monthDeleting ? C.g400 : C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: monthDeleting ? 'not-allowed' : 'pointer' }}>취소</button>
+            <button type="button" onClick={deleteUsageMonth} disabled={monthDeleting} style={{ height: 38, border: 'none', borderRadius: 999, background: monthDeleting ? C.g200 : C.danger, color: C.white, padding: '0 16px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: monthDeleting ? 'wait' : 'pointer' }}>{monthDeleting ? '삭제 중' : '삭제'}</button>
           </div>
         </div>
       </Modal>
@@ -1447,6 +1468,7 @@ function ProjectDetailPageContent() {
                   aria-label={`${statement.label} 삭제`}
                   onClick={(event) => {
                     event.stopPropagation();
+                    setMonthDeleteError('');
                     setMonthDeleteTarget(statement);
                   }}
                   onKeyDown={(event) => {
@@ -1454,6 +1476,7 @@ function ProjectDetailPageContent() {
                       return;
                     event.preventDefault();
                     event.stopPropagation();
+                    setMonthDeleteError('');
                     setMonthDeleteTarget(statement);
                   }}
                   style={{ position: 'absolute', top: 12, right: 12, width: 24, height: 24, borderRadius: 999, border: `1px solid ${hasSupplementRequest ? '#FFCDD2' : C.g200}`, background: C.white, color: hasSupplementRequest ? C.danger : C.g400, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 900, lineHeight: 1, cursor: 'pointer' }}
@@ -1594,6 +1617,20 @@ function ProjectDetailPageContent() {
         </> : null}
         {selectedMonthHasUploadedStatement && <UsageStatementDetailScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} usageDetailSeed={archiveSeed} usageItems={archiveUsageItems} onUsageItemsChange={(items) => {
                 setArchiveUsageItems(items);
+                if (selectedStatement.month) {
+                    setDbUsageStatementsByMonth((current) => {
+                        const currentArchive = current[selectedStatement.month];
+                        if (!currentArchive)
+                            return current;
+                        return {
+                            ...current,
+                            [selectedStatement.month]: {
+                                ...currentArchive,
+                                usageItems: items,
+                            },
+                        };
+                    });
+                }
                 revertReviewedProjectToDraft();
             }} onUsageDetailSeedChange={(seed) => {
                 setArchiveSeed(seed);
