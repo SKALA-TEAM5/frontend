@@ -52,6 +52,7 @@ export interface OcrWorkflowResponse {
 }
 
 export interface OrchestratorTodo {
+  todoId?: number | null;
   agentTypeCode: string;
   usageStatementItemId: number | null;
   categoryCode?: string | null;
@@ -63,6 +64,7 @@ export interface OrchestratorTodo {
   evidenceTypeCodes?: string[];
   reason: string;
   statusCode: string;
+  confirmed?: boolean;
 }
 
 export interface OrchestratorStatusResponse {
@@ -134,6 +136,19 @@ interface AgentTodoEntryResponse {
 interface AgentTodoListResponse {
   validate?: AgentTodoEntryResponse[];
   legal?: AgentTodoEntryResponse | null;
+}
+
+interface BackendTodoResponse {
+  todoId?: number | null;
+  usageStatementId?: number | null;
+  usageStatementItemId?: number | null;
+  usageStatementItemName?: string | null;
+  categoryCode?: string | null;
+  categoryName?: string | null;
+  agentTypeCode?: string | null;
+  fileId?: number | null;
+  reason?: string | null;
+  confirmed?: boolean;
 }
 
 const isAggregateTodoReason = (reason: string) =>
@@ -306,7 +321,24 @@ const extractVisionValidationResults = (warning: AgentWarningResponse): Record<s
   }));
 };
 
-const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefined): OrchestratorTodo[] => {
+const normalizeFlatBackendAgentTodos = (raw: BackendTodoResponse[] | null | undefined): OrchestratorTodo[] =>
+  (raw || []).map((todo) => ({
+    todoId: todo.todoId ?? null,
+    agentTypeCode: normalizeAgentTypeCode(todo.agentTypeCode),
+    usageStatementItemId: todo.usageStatementItemId == null ? null : Number(todo.usageStatementItemId),
+    categoryCode: todo.categoryCode ?? null,
+    categoryName: todo.categoryName ?? null,
+    usageStatementItemName: todo.usageStatementItemName ?? null,
+    fileId: todo.fileId == null ? null : Number(todo.fileId),
+    fileIds: [],
+    title: null,
+    evidenceTypeCodes: [],
+    reason: todo.reason || '보완 사항 확인 필요',
+    statusCode: 'open',
+    confirmed: Boolean(todo.confirmed),
+  }));
+
+const normalizeLegacyBackendAgentTodos = (raw: AgentTodoListResponse | null | undefined): OrchestratorTodo[] => {
   const entries = [...(raw?.validate || []), raw?.legal].filter((entry): entry is AgentTodoEntryResponse => Boolean(entry));
   return entries.flatMap((entry) => {
     const agentTypeCode = String(readField(entry as Record<string, unknown>, 'agentTypeCode', 'agent_type_code') || '');
@@ -326,6 +358,7 @@ const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefine
         evidenceTypeCodes: [],
         reason: entryReason || '보완 사항 확인 필요',
         statusCode: 'open',
+        confirmed: false,
       }];
     }
     return items.map((item) => {
@@ -352,9 +385,15 @@ const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | null | undefine
         evidenceTypeCodes,
         reason: item.reason || entryReason || '보완 사항 확인 필요',
         statusCode: 'open',
+        confirmed: false,
       };
     });
   });
+};
+
+const normalizeBackendAgentTodos = (raw: AgentTodoListResponse | BackendTodoResponse[] | null | undefined): OrchestratorTodo[] => {
+  if (Array.isArray(raw)) return normalizeFlatBackendAgentTodos(raw);
+  return normalizeLegacyBackendAgentTodos(raw);
 };
 
 export type RequiredEvidenceMap = Record<string, Partial<Record<FolderEvidenceCategory, string[]>>>;
@@ -430,6 +469,14 @@ export const getAgentButtonStates = async (projectId: string, usageStatementId: 
     `/projects/${projectId}/agents/button-states?usageStatementId=${usageStatementId}`,
   );
   return response.data || {};
+};
+
+export const confirmAgentTodo = async (projectId: string, todoId: number, confirmed: boolean) => {
+  const response = await apiFetch<null>(`/projects/${projectId}/agents/todos/${todoId}/confirm`, {
+    method: 'PATCH',
+    body: { confirmed },
+  });
+  return response.data;
 };
 
 const isRunningReason = (reason?: string | null) => String(reason || '').includes('현재 실행 중');
@@ -513,7 +560,7 @@ const hasRequiredValidateAgentReady = (agents: OrchestratorDashboardAgent[]) => 
 
 export const getOrchestratorStatus = async (projectId: string, usageStatementId: number) => {
   const [todosResponse, buttonStatesResponse, logs] = await Promise.all([
-    apiFetch<AgentTodoListResponse>(`/projects/${projectId}/agents/todos?usageStatementId=${usageStatementId}`),
+    apiFetch<AgentTodoListResponse | BackendTodoResponse[]>(`/projects/${projectId}/agents/todos?usageStatementId=${usageStatementId}`),
     apiFetch<AgentButtonStatesResponse>(`/projects/${projectId}/agents/button-states?usageStatementId=${usageStatementId}`),
     getAgentLogs(projectId, usageStatementId),
   ]);
