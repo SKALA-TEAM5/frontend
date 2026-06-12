@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, MouseEvent } from 'react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
@@ -34,10 +34,19 @@ interface VerifyScreenProps {
   canStartValidation?: boolean;
   validationGateItems?: ValidationGateItem[];
   validationDisabledReason?: string;
+  canApproveValidation?: boolean;
+  approveDisabledReason?: string;
   onValidationComplete?: () => void;
   onValidationApproved?: () => void | Promise<void>;
   onActionRequested?: (details: { title: string; reason: string; assignee: string; dueDate: string; requestedAt: string }) => void;
 }
+
+type LegalSourcePopup = {
+  key: string;
+  text: string;
+  top: number;
+  left: number;
+};
 
 type VerifyStatus = 'idle' | 'loading' | 'done';
 type SheReviewDecision = 'pending' | 'review_completed' | 'supplement_requested';
@@ -415,7 +424,7 @@ const buildLegalRunFallbackResult = (source: unknown, usageStatementId?: number)
   };
 };
 
-const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', initialSheReviewDecision = 'pending', hideValidationIntro = false, canStartValidation = true, validationGateItems = [], validationDisabledReason, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
+const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', initialSheReviewDecision = 'pending', hideValidationIntro = false, canStartValidation = true, validationGateItems = [], validationDisabledReason, canApproveValidation = true, approveDisabledReason, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
   const [selectedCategoryId, setSelectedCategoryId] = useState(4);
@@ -426,8 +435,22 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
   const [validationConfirming, setValidationConfirming] = useState(false);
   const [validationStatusText, setValidationStatusText] = useState('');
   const [result, setResult] = useState<ValidationDashboardResult>(EMPTY_VALIDATION_RESULT);
-  const [legalTooltipKey, setLegalTooltipKey] = useState('');
+  const [legalSourcePopup, setLegalSourcePopup] = useState<LegalSourcePopup | null>(null);
   const categories = result.categories ?? [];
+
+  useEffect(() => {
+    if (!legalSourcePopup) return;
+    const closePopup = () => setLegalSourcePopup(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closePopup();
+    };
+    window.addEventListener('pointerdown', closePopup);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', closePopup);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [legalSourcePopup]);
 
   useEffect(() => {
     setSheReviewDecision(initialSheReviewDecision);
@@ -583,10 +606,11 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
 
   const handleApproveValidation = async () => {
     if (!projectId || !validationId || validationConfirming) return;
+    if (!canApproveValidation) return;
     setValidationConfirming(true);
     try {
-      setSheReviewDecision('review_completed');
       await onValidationApproved?.();
+      setSheReviewDecision('review_completed');
     } catch (error) {
       showAgentFailure('legal-validation', error);
     } finally {
@@ -620,6 +644,18 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
     } finally {
       setValidationConfirming(false);
     }
+  };
+
+  const handleLegalSourceOpen = (event: MouseEvent<HTMLButtonElement>, key: string, text: string) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const popupWidth = 460;
+    const viewportPadding = 16;
+    const preferredLeft = rect.right + 10;
+    const fallbackLeft = Math.max(viewportPadding, window.innerWidth - popupWidth - viewportPadding);
+    const left = preferredLeft + popupWidth <= window.innerWidth - viewportPadding ? preferredLeft : fallbackLeft;
+    const top = Math.min(Math.max(viewportPadding, rect.top), Math.max(viewportPadding, window.innerHeight - 360 - viewportPadding));
+    setLegalSourcePopup((current) => current?.key === key ? null : { key, text, top, left });
   };
 
   const renderProgress = () => (
@@ -742,50 +778,15 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
                     </div>
                     {detail.usedOn && <div style={{ fontSize: 11, fontWeight: 800, color: C.g500 }}>{detail.usedOn}</div>}
                   </div>
-                  <span style={{ position: 'relative', display: 'inline-flex' }}>
+                  <span style={{ display: 'inline-flex' }}>
                     <button
                       type="button"
                       aria-label="법령 원문 보기"
-                      onMouseEnter={() => setLegalTooltipKey(tooltipKey)}
-                      onFocus={() => setLegalTooltipKey(tooltipKey)}
-                      onMouseLeave={() => setLegalTooltipKey('')}
-                      onBlur={() => setLegalTooltipKey('')}
-                      style={{ border: `1px solid ${C.light}`, borderRadius: 999, background: C.bg, color: C.primary, padding: '5px 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: 'help', whiteSpace: 'nowrap' }}
+                      onClick={(event) => handleLegalSourceOpen(event, tooltipKey, legalText)}
+                      style={{ border: `1px solid ${legalSourcePopup?.key === tooltipKey ? C.primary : C.light}`, borderRadius: 999, background: legalSourcePopup?.key === tooltipKey ? C.primary : C.bg, color: legalSourcePopup?.key === tooltipKey ? C.white : C.primary, padding: '5px 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap' }}
                     >
                       법령 원문
                     </button>
-                    {legalTooltipKey === tooltipKey && (
-                      <span
-                        role="tooltip"
-                        style={{
-                          position: 'absolute',
-                          top: 'calc(100% + 8px)',
-                          right: 0,
-                          zIndex: 20,
-                          width: 360,
-                          maxWidth: 'min(360px, calc(100vw - 48px))',
-                          border: `1px solid ${C.g200}`,
-                          borderRadius: 10,
-                          background: C.white,
-                          boxShadow: '0 14px 32px rgba(31,47,39,.16)',
-                          color: C.g800,
-                          padding: '10px 12px',
-                          fontSize: 12,
-                          fontWeight: 750,
-                          lineHeight: 1.55,
-                          textAlign: 'left',
-                          whiteSpace: 'normal',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          display: '-webkit-box',
-                          WebkitBoxOrient: 'vertical',
-                          WebkitLineClamp: 4,
-                          pointerEvents: 'none',
-                        }}
-                      >
-                        {legalText}
-                      </span>
-                    )}
                   </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
@@ -853,6 +854,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 보완 요청 상태를 보냈습니다. 사용내역서 또는 증빙 자료를 수정한 뒤 다시 업로드 완료를 누르면 재검토할 수 있습니다.' },
     };
     const current = decisionMetaByStatus[sheReviewDecision];
+    const canApproveReview = Boolean(validationId && !validationConfirming && canApproveValidation);
     const canRequestSupplement = Boolean(validationId && sheReviewDecision !== 'review_completed' && (supplementEntries.length > 0 || reviewRequiredCategories.length > 0) && !validationConfirming);
     const reviewButtonStyle = (color: string, active: boolean, disabled = !validationId || validationConfirming): CSSProperties => ({
       border: active ? 'none' : `1px solid ${C.g200}`,
@@ -866,7 +868,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       fontWeight: 900,
       cursor: disabled ? 'not-allowed' : 'pointer',
       textAlign: 'center',
-      opacity: disabled ? 0.5 : 1,
+      opacity: disabled && !active ? 0.5 : 1,
       boxShadow: active ? '0 10px 22px rgba(27, 94, 59, .22)' : '0 7px 16px rgba(31, 55, 43, .08)',
     });
 
@@ -878,12 +880,12 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
               <div style={{ fontSize: 15, fontWeight: 850, color: C.g800 }}>SHE 최종 판단</div>
               <span style={chipStyle(current.color, current.bg)}>{current.label}</span>
             </div>
-            <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6 }}>{!validationId ? '검증 내용을 확인한 뒤 승인 또는 보완 요청을 보낼 수 있습니다.' : current.description}</div>
+            <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6 }}>{!validationId ? '검증 내용을 확인한 뒤 승인 또는 보완 요청을 보낼 수 있습니다.' : !canApproveValidation && approveDisabledReason ? approveDisabledReason : current.description}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto', alignItems: 'center' }}>
             <span style={compactChipStyle(C.g600, C.white)}>{result.checkedAt}</span>
             <Button size="sm" onClick={handleVerify} disabled={status === 'loading'}>{status === 'loading' ? '검증 중...' : '재검증하기'}</Button>
-            <button type="button" onClick={handleApproveValidation} disabled={!validationId || validationConfirming} style={reviewButtonStyle(C.ok, sheReviewDecision === 'review_completed')}>{validationConfirming ? '처리 중' : '검토 완료'}</button>
+            <button type="button" onClick={handleApproveValidation} disabled={!canApproveReview} style={reviewButtonStyle(C.ok, sheReviewDecision === 'review_completed', !canApproveReview)}>{validationConfirming ? '처리 중' : '검토 완료'}</button>
             <button type="button" onClick={handleSupplementRequest} disabled={!canRequestSupplement} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested', !canRequestSupplement)}>보완 요청</button>
           </div>
         </div>
@@ -924,13 +926,43 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
     </div>;
   };
 
-  return <div style={{ background: 'transparent' }}>
+	  return <div style={{ background: 'transparent' }}>
     {status !== 'done' && !hideValidationIntro && renderIntro()}
-    {status === 'loading' && renderProgress()}
-    {(status === 'idle' || (status === 'done' && categories.length === 0)) && renderEmpty()}
-    {status === 'done' && categories.length > 0 && renderDashboard()}
-    <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureMessage} actionLabel="확인" onAction={() => { setAgentFailureTarget(null); setAgentFailureMessage(''); }} />
-  </div>;
+	    {status === 'loading' && renderProgress()}
+	    {(status === 'idle' || (status === 'done' && categories.length === 0)) && renderEmpty()}
+	    {status === 'done' && categories.length > 0 && renderDashboard()}
+    {legalSourcePopup && (
+      <div
+        role="dialog"
+        aria-modal="false"
+        aria-label="법령 원문"
+        onPointerDown={(event) => event.stopPropagation()}
+        style={{
+          position: 'fixed',
+          top: legalSourcePopup.top,
+          left: legalSourcePopup.left,
+          zIndex: 1200,
+          width: 460,
+          maxWidth: 'calc(100vw - 32px)',
+          maxHeight: 360,
+          border: `1px solid ${C.g200}`,
+          borderRadius: 12,
+          background: C.white,
+          boxShadow: '0 20px 44px rgba(31,47,39,.20)',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ padding: '13px 14px', borderBottom: `1px solid ${C.g100}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 900, color: C.g800 }}>법령 원문</div>
+          <button type="button" onClick={() => setLegalSourcePopup(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, width: 26, height: 26, fontFamily: 'inherit', fontSize: 15, fontWeight: 900, cursor: 'pointer', lineHeight: 1 }}>×</button>
+        </div>
+        <div className="thin-y-scroll" style={{ maxHeight: 304, overflowY: 'auto', padding: '13px 14px', fontSize: 13, fontWeight: 750, color: C.g600, lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
+          {legalSourcePopup.text}
+        </div>
+      </div>
+    )}
+	    <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureMessage} actionLabel="확인" onAction={() => { setAgentFailureTarget(null); setAgentFailureMessage(''); }} />
+	  </div>;
 };
 
 export default VerifyScreen;

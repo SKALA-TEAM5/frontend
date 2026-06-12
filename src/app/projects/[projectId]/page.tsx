@@ -606,11 +606,7 @@ function ProjectDetailPageContent() {
     const selectedMonthWorkflowStatus: SharedWorkflowStatus = selectedStatementArchive?.workflowStatus
         || (selectedMonthHasActionRequest
             ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-            : selectedValidationStatus === 'done'
-                ? USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED
-                : selectedMonthHasUploadedStatement
-                    ? USAGE_WORKFLOW_STATUS.DRAFT
-                    : USAGE_WORKFLOW_STATUS.DRAFT);
+            : USAGE_WORKFLOW_STATUS.DRAFT);
     const canSubmitUploadComplete = selectedMonthHasUploadedStatement
         && (selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT
             || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED);
@@ -629,9 +625,21 @@ function ProjectDetailPageContent() {
     const selectedValidationGateBlockedItem = selectedValidationGateItems.find((item) => item.state !== 'passed');
     const canStartValidationForCurrentView = Boolean(selectedStatementArchive?.usageStatementId)
         && selectedValidationGateItems.every((item) => item.state === 'passed');
+    const canApproveValidationForCurrentView = Boolean(
+        selectedStatementArchive?.usageStatementId
+        && selectedValidationStatus === 'done'
+        && (
+            selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED
+            || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+            || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED
+        )
+    );
     const selectedValidationDisabledReason = selectedValidationGateBlockedItem
         ? `${selectedValidationGateBlockedItem.label} 조건이 충족되어야 법령 검증을 시작할 수 있습니다.`
         : '사용내역서와 에이전트 검증 로그를 확인한 뒤 법령 검증을 시작할 수 있습니다.';
+    const selectedApproveDisabledReason = selectedValidationStatus !== 'done'
+        ? '법령 검증을 먼저 완료해야 검토 완료할 수 있습니다.'
+        : '세부항목 또는 증빙이 변경되어 다시 업로드 완료와 법령 검증을 진행해야 합니다.';
     const pushMonthHistory = () => {
         if (typeof window === 'undefined' || monthHistoryPushedRef.current)
             return;
@@ -907,6 +915,73 @@ function ProjectDetailPageContent() {
             };
         });
     };
+    const syncSelectedUsageStatementArchive = async () => {
+        const usageStatementId = selectedStatementArchive?.usageStatementId;
+        const month = selectedStatement.month;
+        if (!usageStatementId || !month)
+            return null;
+        const latestArchive = await getUsageStatementArchiveById(project.id, usageStatementId);
+        const latestWorkflowStatus = normalizeUsageWorkflowStatus(latestArchive.workflowStatus) || USAGE_WORKFLOW_STATUS.DRAFT;
+        setDbUsageStatementsByMonth((current) => {
+            const entry = current[month];
+            if (!entry)
+                return current;
+            return {
+                ...current,
+                [month]: {
+                    ...entry,
+                    ...latestArchive,
+                    statementSummary: {
+                        ...latestArchive.statementSummary,
+                        month,
+                        label: formatMonthLabel(month),
+                    },
+                    workflowStatus: latestWorkflowStatus,
+                    actionRequestDetails: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+                        ? entry.actionRequestDetails
+                        : undefined,
+                    orchestratorTodos: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+                        ? entry.orchestratorTodos
+                        : [],
+                    legalReady: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT ? false : entry.legalReady,
+                    legalResultCode: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT ? null : entry.legalResultCode,
+                    legalDisabledReason: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT ? '유효성 검증을 다시 실행해야 합니다.' : entry.legalDisabledReason,
+                    reportReady: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT ? false : entry.reportReady,
+                    reportDisabledReason: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT ? '법령 검증을 다시 완료해야 보고서를 생성할 수 있습니다.' : entry.reportDisabledReason,
+                },
+            };
+        });
+        if (latestWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT) {
+            setValidationStatusByMonth((prev) => prev[month] ? { ...prev, [month]: 'idle' } : prev);
+        }
+        setArchiveSeed(latestArchive.archiveSeed);
+        setArchiveUsageItems(latestArchive.usageItems);
+        return {
+            ...latestArchive,
+            workflowStatus: latestWorkflowStatus,
+        };
+    };
+    useEffect(() => {
+        const usageStatementId = selectedStatementArchive?.usageStatementId;
+        if (activeTab !== 'validation' || !project.id || !usageStatementId)
+            return;
+        let cancelled = false;
+        const syncForReviewGuard = async () => {
+            try {
+                await syncSelectedUsageStatementArchive();
+                if (!cancelled)
+                    await refreshSelectedAgentButtonState();
+            } catch {
+                return;
+            }
+        };
+        void syncForReviewGuard();
+        const timerId = window.setInterval(syncForReviewGuard, 5000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timerId);
+        };
+    }, [activeTab, project.id, selectedStatement.month, selectedStatementArchive?.usageStatementId]);
     useEffect(() => {
         const usageStatementId = selectedStatementArchive?.usageStatementId;
         if (!project.id || !usageStatementId)
@@ -1426,25 +1501,26 @@ function ProjectDetailPageContent() {
         {usageUploadStage === 'ocr' ? 'OCR/분류 처리 중' : usageUploadStage === 'classifying' ? '목록 갱신 중' : '사용내역서 업로드'}
       </button>
     ) : null;
+    const uploadCompleteDisabled = uploadCompleteAlreadySubmitted || !canSubmitUploadComplete || uploadCompleteSubmitting;
     const uploadCompleteAction = canUploadEvidence ? (
       <button
         type="button"
         onClick={() => void completeReviewRequest()}
-        disabled={!canSubmitUploadComplete || uploadCompleteSubmitting}
+        disabled={uploadCompleteDisabled}
         style={{
           height: 40,
-          border: `1px solid ${uploadCompleteAlreadySubmitted ? C.primary : !canSubmitUploadComplete ? C.g200 : C.primary}`,
+          border: `1px solid ${uploadCompleteDisabled ? C.g200 : C.primary}`,
           borderRadius: 999,
           padding: '0 16px',
-          background: uploadCompleteAlreadySubmitted ? '#15523A' : !canSubmitUploadComplete ? C.g100 : C.bg,
-          color: uploadCompleteAlreadySubmitted ? C.white : !canSubmitUploadComplete ? C.g400 : C.primary,
-          cursor: uploadCompleteAlreadySubmitted ? 'default' : !canSubmitUploadComplete || uploadCompleteSubmitting ? 'not-allowed' : 'pointer',
+          background: uploadCompleteDisabled ? C.g100 : C.bg,
+          color: uploadCompleteDisabled ? C.g400 : C.primary,
+          cursor: uploadCompleteDisabled ? 'not-allowed' : 'pointer',
           fontSize: 13,
           fontWeight: 900,
           fontFamily: 'inherit',
           whiteSpace: 'nowrap',
-          boxShadow: uploadCompleteAlreadySubmitted ? 'inset 0 2px 5px rgba(0,0,0,.22), inset 0 -1px 0 rgba(255,255,255,.14)' : 'none',
-          transform: uploadCompleteAlreadySubmitted ? 'translateY(1px)' : 'none',
+          boxShadow: 'none',
+          opacity: uploadCompleteDisabled ? 0.72 : 1,
         }}
       >
         {uploadCompleteSubmitting ? '처리 중...' : uploadCompleteAlreadySubmitted ? '업로드 완료됨' : '업로드 완료'}
@@ -1667,23 +1743,25 @@ function ProjectDetailPageContent() {
             }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onVerificationComplete={refreshSelectedAgentButtonState} uploadCompleteAction={uploadCompleteAction}/>}
         </>}
       </div>),
-        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} initialSheReviewDecision={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED ? 'review_completed' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? 'supplement_requested' : 'pending'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} onValidationComplete={() => {
+        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} initialSheReviewDecision={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED ? 'review_completed' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? 'supplement_requested' : 'pending'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} canApproveValidation={canApproveValidationForCurrentView} approveDisabledReason={selectedApproveDisabledReason} onValidationComplete={() => {
                 setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
                 void refreshSelectedAgentButtonState();
             }} onValidationApproved={async () => {
                 const usageStatementId = selectedStatementArchive?.usageStatementId;
                 if (!usageStatementId) {
-                    showAgentFailure('server-request');
-                    return;
+                    throw new Error('사용내역서 정보를 찾을 수 없습니다.');
                 }
                 try {
-                    const backendWorkflowStatus = selectedStatementArchive?.workflowStatus;
-                    if (backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED
-                        && backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-                        && backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED) {
-                        await submitUsageStatement(project.id, usageStatementId);
+                    const latestArchive = await syncSelectedUsageStatementArchive();
+                    const latestWorkflowStatus = latestArchive?.workflowStatus || USAGE_WORKFLOW_STATUS.DRAFT;
+                    if (selectedValidationStatus !== 'done'
+                        || (latestWorkflowStatus !== USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED
+                            && latestWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+                            && latestWorkflowStatus !== USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED)) {
+                        setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'idle' }));
+                        throw new Error('세부항목 또는 증빙이 변경되어 다시 업로드 완료와 법령 검증을 진행해야 합니다.');
                     }
-                    if (backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED) {
+                    if (latestWorkflowStatus !== USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED) {
                         await completeUsageStatementReview(project.id, usageStatementId);
                     }
                     setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
@@ -1692,7 +1770,7 @@ function ProjectDetailPageContent() {
                     updateTab('report');
                     await refreshArchiveData(project.id);
                 } catch (error) {
-                    showAgentFailure('server-request', error);
+                    throw error;
                 }
             }} onActionRequested={async (details) => {
                 const usageStatementId = selectedStatementArchive?.usageStatementId;
@@ -1810,9 +1888,9 @@ function ProjectDetailPageContent() {
         <div style={{ marginBottom: 8 }}>파일 업로드 후 OCR/classi 처리 단계에서 문제가 발생했습니다.</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800, lineHeight: 1.6 }}>{usageUploadFailureMessage}</div>
       </div>} actionLabel="확인" onAction={() => setUsageUploadFailureMessage('')} />
-      <Modal open={usageUploadStage === 'classifying'} onClose={() => {}} zIndex={1200} maxWidth={360}>
+      <Modal open={usageUploadStage === 'classifying'} onClose={() => {}} zIndex={1200} maxWidth={440}>
         <div style={{ background: C.white, borderRadius: 14, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 20 }}>
-          <style>{'.usage-upload-loader [data-ui="card.1"]{margin-top:0!important;}'}</style>
+          <style>{'.usage-upload-loader [data-ui="card.1"]{margin-top:0!important;}.usage-upload-loader [data-ui="inline-loader.4"]{white-space:nowrap;}'}</style>
           <div className="usage-upload-loader">
           <InlineLoader title="사용내역서를 분석하고 있어요" body="완료될 때까지 다른 작업을 할 수 없습니다." />
           </div>
