@@ -26,30 +26,9 @@ export class ApiClientError extends Error {
 
 export const GENERIC_API_ERROR_MESSAGE = '서버 요청에 실패했습니다. 잠시 후 다시 시도해주세요.';
 
-const HTTP_STATUS_NAMES: Record<number, string> = {
-  400: 'Bad Request',
-  401: 'Unauthorized',
-  403: 'Forbidden',
-  404: 'Not Found',
-  405: 'Method Not Allowed',
-  409: 'Conflict',
-  422: 'Unprocessable Entity',
-  429: 'Too Many Requests',
-  500: 'Internal Server Error',
-  502: 'Bad Gateway',
-  503: 'Service Unavailable',
-  504: 'Gateway Timeout',
-};
-
-const formatHttpStatus = (status: number) => {
-  const name = HTTP_STATUS_NAMES[status];
-  return name ? `${status} ${name}` : String(status);
-};
-
 export const getApiErrorMessage = (error: unknown, fallback = GENERIC_API_ERROR_MESSAGE) => {
   if (error instanceof ApiClientError) {
-    const message = error.status >= 400 && error.status < 500 ? error.message || fallback : fallback;
-    return `${formatHttpStatus(error.status)}\n${message}`;
+    return error.status >= 400 && error.status < 500 ? error.message || fallback : fallback;
   }
   return fallback;
 };
