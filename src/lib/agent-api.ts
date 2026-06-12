@@ -420,9 +420,9 @@ export const getReportDetail = async (projectId: string, usageStatementId: numbe
 };
 
 export const saveReportDraft = async (projectId: string, usageStatementId: number, reportDraft: unknown) => {
-  const response = await apiFetch<ReportDetailResponse>(`/projects/${projectId}/agents/report`, {
-    method: 'PUT',
-    body: { usageStatementId, reportDraft },
+  const response = await apiFetch<ReportDetailResponse>(`/projects/${projectId}/agents/report?usageStatementId=${usageStatementId}`, {
+    method: 'PATCH',
+    body: { details: JSON.stringify({ reportDraft }) },
   });
   return response.data;
 };
