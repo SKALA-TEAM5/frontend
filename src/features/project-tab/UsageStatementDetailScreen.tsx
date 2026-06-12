@@ -589,6 +589,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [agentFailureMessage, setAgentFailureMessage] = useState('');
     const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
+    const [deleteUsageItemTarget, setDeleteUsageItemTarget] = useState<UsageLineItem | null>(null);
     const [addUsageItemModalOpen, setAddUsageItemModalOpen] = useState(false);
     const [addUsageItemDraft, setAddUsageItemDraft] = useState<AddUsageItemDraft>({ name: '', date: new Date().toISOString().slice(0, 10), unit: 'EA', quantity: '1', unitPrice: '' });
     const [addUsageItemError, setAddUsageItemError] = useState('');
@@ -1289,9 +1290,16 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setClassiAgentRunning(false);
         }
     };
-    const deleteUsageItem = async (targetItem: UsageLineItem) => {
+    const requestDeleteUsageItem = (targetItem: UsageLineItem) => {
+        setDeleteUsageItemTarget(targetItem);
+    };
+    const confirmDeleteUsageItem = async () => {
+        const targetItem = deleteUsageItemTarget;
+        if (!targetItem)
+            return;
         if (!usageStatementId) {
             setUsageDetailActionError('사용내역서 ID가 없어 세부항목을 삭제할 수 없습니다.');
+            setDeleteUsageItemTarget(null);
             return;
         }
         setUsageDetailActionError('');
@@ -1299,9 +1307,11 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             await deleteUsageStatementItem(projectId, usageStatementId, targetItem.id);
         } catch (error) {
             setUsageDetailActionError(error instanceof Error ? error.message : '세부항목 삭제에 실패했습니다.');
+            setDeleteUsageItemTarget(null);
             return;
         }
         const nextItems = resolvedUsageItems.filter((item) => item.id !== targetItem.id);
+        setDeleteUsageItemTarget(null);
         onUsageItemsChange?.(nextItems);
         commitFileData((prev) => {
             const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
@@ -1591,7 +1601,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 <span title={group.label} style={{ display: 'block', fontSize: 12, fontWeight: 900, color: activeCount ? C.g800 : C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.label}</span>
                 <span title={group.agentType} style={{ display: 'block', marginTop: 2, fontSize: 10, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.agentType}</span>
               </span>
-              <span style={{ minWidth: 20, height: 18, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 10, fontWeight: 900 }}>{activeCount}</span>
+              <span style={{ minWidth: 20, height: 18, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 10, fontWeight: 900 }}>{activeCount}</span>
               <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: 999, border: `1px solid ${C.g200}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                 <ChevronIcon direction={collapsed ? 'right' : 'down'} size={14} color={C.g600} />
               </span>
@@ -1720,7 +1730,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             }} onSelectUsageItem={(item) => {
                 setSelectedUsageItemId(item.id);
                 setSelectedHierarchyCatId(item.categoryId);
-            }} onRemove={removeHierarchyFile} onRename={renameHierarchyFile} onMove={moveHierarchyFile} onEditUsageItem={editUsageItem} onAddUsageItem={openAddUsageItemModal} onDeleteUsageItem={deleteUsageItem} onUpload={uploadFilesToSection} onDownloadFile={openFileDownload}/>
+            }} onRemove={removeHierarchyFile} onRename={renameHierarchyFile} onMove={moveHierarchyFile} onEditUsageItem={editUsageItem} onAddUsageItem={openAddUsageItemModal} onDeleteUsageItem={requestDeleteUsageItem} onUpload={uploadFilesToSection} onDownloadFile={openFileDownload}/>
           {usageDetailVerificationStep && usageDetailLoadingMessage && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 20, display: 'grid', placeItems: 'center', padding: 24, background: 'rgba(247, 252, 248, .62)', backdropFilter: 'blur(1px)' }}>
               <div style={{ width: 'min(100%, 680px)', background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 22 }}>
@@ -1770,9 +1780,9 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         </div>
       </Modal>
 
-      <Modal open={classiAgentRunning} onClose={() => {}} zIndex={1200} maxWidth={420}>
+      <Modal open={classiAgentRunning} onClose={() => {}} zIndex={1200} maxWidth={560}>
         <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 24 }}>
-          <InlineLoader title="classi 에이전트 실행 중" body="세부 항목이 산업안전보건관리비 9개 항목 중 어디에 해당하는지 확인하고 있습니다. 완료될 때까지 다른 작업을 할 수 없습니다." />
+          <InlineLoader title="classi 에이전트 실행 중" body="세부 항목의 9개 항목 분류를 확인하고 있습니다." />
         </div>
       </Modal>
       <CenterModal open={Boolean(classiRejectedNotice)} title="세부항목 미반영" body={classiRejectedNotice && <div>
@@ -1790,21 +1800,15 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         </div>
       </div>} actionLabel="확인" onAction={() => setClassiRejectedNotice(null)} />
       <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 결과" body={<div>
-        <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>
-          {classificationMoveNotices.some((notice) => notice.categoryChanged)
-            ? 'classi 에이전트가 세부항목의 9개 항목 위치를 확인하고 변경했습니다.'
-            : 'classi 에이전트가 세부항목의 9개 항목 위치를 확인하고 현재 분류를 확정했습니다.'}
-        </div>
         <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
           {classificationMoveNotices.map((notice) => (
             <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
               <div title={notice.itemName} style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
+                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
                 <span style={{ color: C.primary, fontWeight: 900 }}>→</span>
-                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 999, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
+                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 8, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
               </div>
-              {notice.reason && <div style={{ marginTop: 7, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{notice.reason}</div>}
             </div>
           ))}
         </div>
@@ -1817,6 +1821,18 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button type="button" onClick={() => setDeleteTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
             <button type="button" onClick={confirmRemoveArchiveFile} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>삭제</button>
+          </div>
+        </div>
+      </Modal>
+      <Modal open={Boolean(deleteUsageItemTarget)} onClose={() => setDeleteUsageItemTarget(null)} zIndex={940} maxWidth={420}>
+        <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: '24px 24px 20px' }}>
+          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>세부 항목 삭제</div>
+          <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginBottom: 18 }}>
+            {deleteUsageItemTarget?.name ? `"${deleteUsageItemTarget.name}" 항목을 삭제하시겠습니까?` : '이 세부 항목을 삭제하시겠습니까?'}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button type="button" onClick={() => setDeleteUsageItemTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+            <button type="button" onClick={() => void confirmDeleteUsageItem()} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>삭제</button>
           </div>
         </div>
       </Modal>

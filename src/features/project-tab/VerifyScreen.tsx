@@ -854,23 +854,25 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 보완 요청 상태를 보냈습니다. 사용내역서 또는 증빙 자료를 수정한 뒤 다시 업로드 완료를 누르면 재검토할 수 있습니다.' },
     };
     const current = decisionMetaByStatus[sheReviewDecision];
-    const canApproveReview = Boolean(validationId && !validationConfirming && canApproveValidation);
+    const approveReviewDone = sheReviewDecision === 'review_completed';
+    const canApproveReview = Boolean(validationId && !validationConfirming && canApproveValidation && !approveReviewDone);
     const canRequestSupplement = Boolean(validationId && sheReviewDecision !== 'review_completed' && (supplementEntries.length > 0 || reviewRequiredCategories.length > 0) && !validationConfirming);
-    const reviewButtonStyle = (color: string, active: boolean, disabled = !validationId || validationConfirming): CSSProperties => ({
-      border: active ? 'none' : `1px solid ${C.g200}`,
+    const reviewButtonStyle = (color: string, active: boolean, disabled = !validationId || validationConfirming, completed = false): CSSProperties => ({
+      border: active && !completed ? 'none' : `1px solid ${C.g200}`,
       borderRadius: 999,
       padding: '9px 18px',
       minWidth: 82,
-      background: active ? color : C.white,
-      color: active ? C.white : C.g600,
+      background: completed ? C.g100 : active ? color : C.white,
+      color: completed ? C.g400 : active ? C.white : C.g600,
       fontFamily: 'inherit',
       fontSize: 13,
       fontWeight: 900,
       cursor: disabled ? 'not-allowed' : 'pointer',
       textAlign: 'center',
-      opacity: disabled && !active ? 0.5 : 1,
-      boxShadow: active ? '0 10px 22px rgba(27, 94, 59, .22)' : '0 7px 16px rgba(31, 55, 43, .08)',
+      opacity: completed ? 0.72 : disabled && !active ? 0.5 : 1,
+      boxShadow: completed ? 'none' : active ? '0 10px 22px rgba(27, 94, 59, .22)' : '0 7px 16px rgba(31, 55, 43, .08)',
     });
+    const approveReviewLabel = validationConfirming ? '처리 중' : approveReviewDone ? '검토 완료됨' : '검토 완료';
 
     return (
       <Card style={{ ...validationShellStyle, padding: '14px 16px', marginBottom: 12, border: `1px solid ${current.color}` }}>
@@ -885,7 +887,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto', alignItems: 'center' }}>
             <span style={compactChipStyle(C.g600, C.white)}>{result.checkedAt}</span>
             <Button size="sm" onClick={handleVerify} disabled={status === 'loading'}>{status === 'loading' ? '검증 중...' : '재검증하기'}</Button>
-            <button type="button" onClick={handleApproveValidation} disabled={!canApproveReview} style={reviewButtonStyle(C.ok, sheReviewDecision === 'review_completed', !canApproveReview)}>{validationConfirming ? '처리 중' : '검토 완료'}</button>
+            <button type="button" onClick={handleApproveValidation} disabled={!canApproveReview} style={reviewButtonStyle(C.ok, false, !canApproveReview, approveReviewDone)}>{approveReviewLabel}</button>
             <button type="button" onClick={handleSupplementRequest} disabled={!canRequestSupplement} style={reviewButtonStyle(C.warn, sheReviewDecision === 'supplement_requested', !canRequestSupplement)}>보완 요청</button>
           </div>
         </div>
