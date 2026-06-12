@@ -29,6 +29,7 @@ interface VerifyScreenProps {
   projectId?: string;
   usageStatementId?: number;
   initialStatus?: VerifyStatus;
+  initialSheReviewDecision?: SheReviewDecision;
   hideValidationIntro?: boolean;
   canStartValidation?: boolean;
   validationGateItems?: ValidationGateItem[];
@@ -139,7 +140,7 @@ const sumBy = (items: CategoryValidationResult[], key: 'usageAmount' | 'recogniz
   items.reduce((total, item) => total + item[key], 0);
 
 const flattenIssues = (items: CategoryValidationResult[]) =>
-  items.flatMap((item) => item.issues.map((issue) => ({ ...issue, categoryName: item.categoryName, decision: item.decision, riskLevel: item.riskLevel })));
+  items.flatMap((item) => item.decision === 'appropriate' ? [] : item.issues.map((issue) => ({ ...issue, categoryName: item.categoryName, decision: item.decision, riskLevel: item.riskLevel })));
 
 const flattenReviewItems = (items: CategoryValidationResult[]) =>
   items.flatMap((category) => category.items
@@ -253,22 +254,10 @@ const normalizeValidationIssues = (items: unknown[]): ValidationIssue[] =>
   items.map((item) => ({
     title: readStringField(item, ['title', 'issueTitle', 'issue_title', 'name']) || '보완 필요',
     description: readStringField(item, ['description', 'reason', 'message']) || '',
-    problemFileNames: readArrayField(item, ['problemFileNames', 'problem_file_names', 'files']).map((file) => String(file)),
+    problemFileNames: [],
     requiredAction: readStringField(item, ['requiredAction', 'required_action', 'action', 'request']) || '관련 증빙을 보완해 주세요.',
     recommendedFiles: readArrayField(item, ['recommendedFiles', 'recommended_files', 'requiredFiles', 'required_files']).map((file) => String(file)),
   }));
-
-const normalizeProblemFiles = (items: unknown[]) =>
-  items.map((item) => {
-    const record = asRecord(item);
-    if (!record) {
-      return { originalFilename: String(item) };
-    }
-    return {
-      fileId: readStringField(record, ['fileId', 'file_id', 'id']) || undefined,
-      originalFilename: readStringField(record, ['originalFilename', 'original_filename', 'fileName', 'file_name', 'name']) || '파일명 없음',
-    };
-  });
 
 const normalizeLegalBasis = (items: unknown[]): ValidationLegalBasis[] =>
   items.map((item) => ({
@@ -301,7 +290,7 @@ const normalizeValidationItems = (items: unknown[], category: {
       disputedAmount: disputedAmount || (decision === 'appropriate' ? 0 : amount),
       decision,
       reviewReason: readStringField(item, ['reviewReason', 'review_reason', 'reason', 'description', 'requiredAction', 'required_action']) || 'legal agent가 확인한 검토 사유가 없습니다.',
-      problemFiles: normalizeProblemFiles(readArrayField(item, ['problemFiles', 'problem_files', 'files', 'problemFileNames', 'problem_file_names'])),
+      problemFiles: [],
       legalBasis: legalBasis.length > 0 ? legalBasis : category.categoryLegalBasis,
     };
   });
@@ -313,7 +302,7 @@ const normalizeValidationItems = (items: unknown[], category: {
     disputedAmount: 0,
     decision: category.categoryDecision,
     reviewReason: issue.requiredAction || issue.description || 'legal agent가 확인한 검토 사유가 없습니다.',
-    problemFiles: issue.problemFileNames.map((fileName) => ({ originalFilename: fileName })),
+    problemFiles: [],
     legalBasis: category.categoryLegalBasis,
   }));
 };
@@ -329,7 +318,8 @@ const normalizeValidationResult = (source: unknown): ValidationDashboardResult =
     const disputedAmount = readNumberField(item, ['disputedAmount', 'disputed_amount', 'issueAmount', 'issue_amount', 'invalidAmount', 'invalid_amount']);
     const decision = normalizeDecision(readStringField(item, ['decision', 'result', 'resultCode', 'result_code', 'status']));
     const legalBasis = normalizeLegalBasis(readArrayField(item, ['legalBasis', 'legal_basis', 'basis', 'laws']));
-    const issues = normalizeValidationIssues(readArrayField(item, ['issues', 'validationIssues', 'validation_issues', 'problems']));
+    const rawIssues = normalizeValidationIssues(readArrayField(item, ['issues', 'validationIssues', 'validation_issues', 'problems']));
+    const issues = decision === 'appropriate' ? [] : rawIssues;
     const validationItems = normalizeValidationItems(readArrayField(item, ['items', 'itemResults', 'item_results', 'details']), {
       categoryName,
       categoryDecision: decision,
@@ -416,18 +406,23 @@ const buildLegalRunFallbackResult = (source: unknown, usageStatementId?: number)
   };
 };
 
-const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hideValidationIntro = false, canStartValidation = true, validationGateItems = [], validationDisabledReason, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
+const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', initialSheReviewDecision = 'pending', hideValidationIntro = false, canStartValidation = true, validationGateItems = [], validationDisabledReason, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
   const [selectedCategoryId, setSelectedCategoryId] = useState(4);
-  const [sheReviewDecision, setSheReviewDecision] = useState<SheReviewDecision>('pending');
+  const [sheReviewDecision, setSheReviewDecision] = useState<SheReviewDecision>(initialSheReviewDecision);
   const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
   const [agentFailureMessage, setAgentFailureMessage] = useState('');
   const [validationId, setValidationId] = useState('');
   const [validationConfirming, setValidationConfirming] = useState(false);
   const [validationStatusText, setValidationStatusText] = useState('');
   const [result, setResult] = useState<ValidationDashboardResult>(EMPTY_VALIDATION_RESULT);
+  const [legalTooltipKey, setLegalTooltipKey] = useState('');
   const categories = result.categories ?? [];
+
+  useEffect(() => {
+    setSheReviewDecision(initialSheReviewDecision);
+  }, [initialSheReviewDecision]);
 
   const sortedCategories = useMemo(
     () => [...categories].sort((a, b) => getDecisionWeight(b.decision) - getDecisionWeight(a.decision) || a.categoryId - b.categoryId),
@@ -446,7 +441,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       return reviewItems.map((item) => ({
         title: item.itemName,
         description: item.reviewReason,
-        problemFileNames: item.problemFiles.map((file) => file.originalFilename),
+        problemFileNames: [],
         requiredAction: item.reviewReason,
         recommendedFiles: [],
         categoryName: item.categoryName,
@@ -592,6 +587,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
 
   const handleSupplementRequest = async () => {
     if (!can(user, 'requestAction')) return;
+    if (sheReviewDecision === 'review_completed') return;
     if (!supplementEntries.length && !reviewRequiredCategories.length) return;
     const firstReviewCategory = reviewRequiredCategories[0];
     const reason = supplementEntries.length > 0
@@ -727,6 +723,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
                 .map((basis) => [basis.lawName, basis.article, basis.clause, basis.originalText || basis.summary || basis.agentReasoning].filter(Boolean).join(' '))
                 .filter(Boolean)
                 .join('\n\n') || '법령 원문이 제공되지 않았습니다.';
+              const tooltipKey = `${detail.usageStatementItemId || index}-${detail.itemName}`;
               return <div key={`${detail.usageStatementItemId || index}-${detail.itemName}`} style={{ border: `1px solid ${detailMeta.border}`, borderRadius: 'var(--ui-radius-panel)', background: C.white, padding: 12, display: 'grid', gap: 10 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, alignItems: 'start' }}>
                   <div style={{ minWidth: 0 }}>
@@ -736,7 +733,51 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
                     </div>
                     {detail.usedOn && <div style={{ fontSize: 11, fontWeight: 800, color: C.g500 }}>{detail.usedOn}</div>}
                   </div>
-                  <button type="button" title={legalText} style={{ border: `1px solid ${C.light}`, borderRadius: 999, background: C.bg, color: C.primary, padding: '5px 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: 'help', whiteSpace: 'nowrap' }}>법령 원문</button>
+                  <span style={{ position: 'relative', display: 'inline-flex' }}>
+                    <button
+                      type="button"
+                      aria-label="법령 원문 보기"
+                      onMouseEnter={() => setLegalTooltipKey(tooltipKey)}
+                      onFocus={() => setLegalTooltipKey(tooltipKey)}
+                      onMouseLeave={() => setLegalTooltipKey('')}
+                      onBlur={() => setLegalTooltipKey('')}
+                      style={{ border: `1px solid ${C.light}`, borderRadius: 999, background: C.bg, color: C.primary, padding: '5px 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: 'help', whiteSpace: 'nowrap' }}
+                    >
+                      법령 원문
+                    </button>
+                    {legalTooltipKey === tooltipKey && (
+                      <span
+                        role="tooltip"
+                        style={{
+                          position: 'absolute',
+                          top: 'calc(100% + 8px)',
+                          right: 0,
+                          zIndex: 20,
+                          width: 360,
+                          maxWidth: 'min(360px, calc(100vw - 48px))',
+                          border: `1px solid ${C.g200}`,
+                          borderRadius: 10,
+                          background: C.white,
+                          boxShadow: '0 14px 32px rgba(31,47,39,.16)',
+                          color: C.g800,
+                          padding: '10px 12px',
+                          fontSize: 12,
+                          fontWeight: 750,
+                          lineHeight: 1.55,
+                          textAlign: 'left',
+                          whiteSpace: 'normal',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          display: '-webkit-box',
+                          WebkitBoxOrient: 'vertical',
+                          WebkitLineClamp: 4,
+                          pointerEvents: 'none',
+                        }}
+                      >
+                        {legalText}
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
                   {[
@@ -751,9 +792,6 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
                 <div style={{ display: 'grid', gap: 5 }}>
                   <div style={{ fontSize: 11, fontWeight: 900, color: C.g500 }}>검토 사유</div>
                   <div style={{ fontSize: 12, fontWeight: 800, color: C.g600, lineHeight: 1.6 }}>{detail.reviewReason}</div>
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 850, color: C.g800, lineHeight: 1.55 }}>
-                  문제 파일: <span style={{ color: detail.problemFiles.length > 0 ? C.g600 : C.g400 }}>{detail.problemFiles.length > 0 ? detail.problemFiles.map((file) => file.originalFilename).join(', ') : '없음'}</span>
                 </div>
               </div>;
             })}
@@ -806,7 +844,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', hid
       supplement_requested: { label: '보완 요청', color: C.warn, bg: C.warnBg, description: '프로젝트 담당자에게 보완 요청 상태를 보냈습니다. 사용내역서 또는 증빙 자료를 수정한 뒤 다시 업로드 완료를 누르면 재검토할 수 있습니다.' },
     };
     const current = decisionMetaByStatus[sheReviewDecision];
-    const canRequestSupplement = Boolean(validationId && (supplementEntries.length > 0 || reviewRequiredCategories.length > 0) && !validationConfirming);
+    const canRequestSupplement = Boolean(validationId && sheReviewDecision !== 'review_completed' && (supplementEntries.length > 0 || reviewRequiredCategories.length > 0) && !validationConfirming);
     const reviewButtonStyle = (color: string, active: boolean, disabled = !validationId || validationConfirming): CSSProperties => ({
       border: active ? 'none' : `1px solid ${C.g200}`,
       borderRadius: 999,
