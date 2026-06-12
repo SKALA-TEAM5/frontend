@@ -1,5 +1,5 @@
 import { apiFetch } from './api-client';
-import type { BackendRoleCode, BackendUserProfile } from './auth-api';
+import type { BackendRoleCode } from './auth-api';
 import { PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, normalizeProjectStatus, type NewProjectInput, type ProjectStatus, type ProjectStatusCode, type ProjectSummary } from './project-data';
 
 export interface ProjectAssignee {
@@ -63,8 +63,20 @@ interface ProjectAssigneeListResponse {
   assignees: ProjectAssignee[];
 }
 
-interface UserListResponse {
-  items: BackendUserProfile[];
+export interface ProjectAssigneeCandidate {
+  userId: number;
+  id: number;
+  realName: string;
+  roleCode: BackendRoleCode | string;
+  employeeNo?: string;
+}
+
+interface AssigneeCandidatesResponse {
+  candidates: Array<{
+    userId: number;
+    realName: string;
+    roleCode: BackendRoleCode | string;
+  }>;
 }
 
 export interface ProjectListParams {
@@ -271,12 +283,23 @@ export const replaceProjectAssignees = async (projectId: string, assigneeUserIds
   return response.data.assignees;
 };
 
+export const listAssigneeCandidates = async (keyword?: string) => {
+  const query = keyword?.trim() ? `?keyword=${encodeURIComponent(keyword.trim())}` : '';
+  const response = await apiFetch<AssigneeCandidatesResponse>(`/projects/assignee-candidates${query}`);
+  return (response.data.candidates || []).map((candidate): ProjectAssigneeCandidate => ({
+    userId: candidate.userId,
+    id: candidate.userId,
+    realName: candidate.realName,
+    roleCode: candidate.roleCode,
+  }));
+};
+
 export const listProjectManagerCandidates = async () => {
-  const response = await apiFetch<UserListResponse>('/users?roleCode=user');
-  return response.data.items;
+  const candidates = await listAssigneeCandidates();
+  return candidates.filter((candidate) => isProjectManagerRole(candidate.roleCode));
 };
 
 export const listSheManagerCandidates = async () => {
-  const response = await apiFetch<UserListResponse>('/users?roleCode=admin');
-  return response.data.items;
+  const candidates = await listAssigneeCandidates();
+  return candidates.filter((candidate) => isSheManagerRole(candidate.roleCode));
 };

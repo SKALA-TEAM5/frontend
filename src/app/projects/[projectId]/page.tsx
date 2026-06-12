@@ -12,8 +12,7 @@ import { AppFrame } from '../../../components/common';
 import { ApiClientError } from '../../../lib/api-client';
 import { C } from '../../../lib/theme';
 import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getProjectSheManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
-import { getProject, isProjectManagerRole, isSheManagerRole, listProjectManagerCandidates, listSheManagerCandidates, replaceProjectAssignees, updateProject, type UpdateProjectInput } from '../../../lib/project-api';
-import type { BackendUserProfile } from '../../../lib/auth-api';
+import { getProject, isProjectManagerRole, isSheManagerRole, listAssigneeCandidates, replaceProjectAssignees, updateProject, type ProjectAssigneeCandidate, type UpdateProjectInput } from '../../../lib/project-api';
 import { completeUsageStatementReview, deleteProjectFile, deleteUsageStatement, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
 import { getAgentButtonStates, getOrchestratorStatus, isAgentStageRunning, parseUsageStatementWithOcr, waitForAgentButtonEnabled, type AgentButtonStage, type OrchestratorTodo } from '../../../lib/agent-api';
@@ -444,8 +443,8 @@ function ProjectDetailPageContent() {
     });
     const [projectInfoSaveError, setProjectInfoSaveError] = useState('');
     const [projectInfoSaving, setProjectInfoSaving] = useState(false);
-    const [managerCandidates, setManagerCandidates] = useState<BackendUserProfile[]>([]);
-    const [sheManagerCandidates, setSheManagerCandidates] = useState<BackendUserProfile[]>([]);
+    const [managerCandidates, setManagerCandidates] = useState<ProjectAssigneeCandidate[]>([]);
+    const [sheManagerCandidates, setSheManagerCandidates] = useState<ProjectAssigneeCandidate[]>([]);
     const [statementOverrides, setStatementOverrides] = useState<Record<string, Partial<MonthlyUsageStatementSummary>>>({});
     const showAgentFailure = (target: AgentFailureTarget, error?: unknown) => {
         setAgentFailureTarget(target);
@@ -946,20 +945,15 @@ function ProjectDetailPageContent() {
             setUploadCompleteSubmitting(false);
         }
     };
-    const loadManagerCandidates = async () => {
-        if (managerCandidates.length > 0)
+    const loadAssigneeCandidates = async () => {
+        if (managerCandidates.length > 0 && sheManagerCandidates.length > 0)
             return;
-        const candidates = await listProjectManagerCandidates();
-        setManagerCandidates(candidates);
-    };
-    const loadSheManagerCandidates = async () => {
-        if (sheManagerCandidates.length > 0)
-            return;
-        const candidates = await listSheManagerCandidates();
-        setSheManagerCandidates(candidates);
+        const candidates = await listAssigneeCandidates();
+        setManagerCandidates(candidates.filter((candidate) => isProjectManagerRole(candidate.roleCode)));
+        setSheManagerCandidates(candidates.filter((candidate) => isSheManagerRole(candidate.roleCode)));
     };
     const openProjectInfoModal = () => {
-        void Promise.all([loadManagerCandidates(), loadSheManagerCandidates()]).catch((error) => {
+        void loadAssigneeCandidates().catch((error) => {
             setProjectInfoSaveError(error instanceof Error ? error.message : '담당자 목록을 불러오지 못했습니다.');
         });
         const { startDate, endDate } = parseProjectPeriod(project.period);
