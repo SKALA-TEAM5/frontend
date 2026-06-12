@@ -18,7 +18,7 @@ interface AppFrameProps {
   children: React.ReactNode;
 }
 
-type HeaderIconName = 'dashboard' | 'projects' | 'users' | 'user';
+type HeaderIconName = 'dashboard' | 'projects' | 'usage' | 'users' | 'user';
 
 const HeaderIcon = ({ name, color }: { name: HeaderIconName; color: string }) => {
   const common = {
@@ -63,6 +63,17 @@ const HeaderIcon = ({ name, color }: { name: HeaderIconName; color: string }) =>
       </svg>
     );
   }
+  if (name === 'usage') {
+    return (
+      <svg {...common}>
+        <path {...strokeProps} d="M5 19V5" />
+        <path {...strokeProps} d="M5 19h15" />
+        <path {...strokeProps} d="M9 15.5v-4" />
+        <path {...strokeProps} d="M13 15.5v-8" />
+        <path {...strokeProps} d="M17 15.5v-6" />
+      </svg>
+    );
+  }
   return (
     <svg {...common}>
       <path {...strokeProps} d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
@@ -81,7 +92,10 @@ export default function AppFrame({ description, actions, mainClassName, children
   const [logoutPending, setLogoutPending] = useState(false);
   const hasHeaderContent = Boolean(description || actions);
   const headerNavItems = user.role === 'system_admin'
-    ? [{ href: '/admin/users', label: '사용자 관리', icon: 'users' as const }]
+    ? [
+        { href: '/admin/users', label: '사용자 관리', icon: 'users' as const },
+        { href: '/usage-records', label: 'AI 사용 금액', icon: 'usage' as const },
+      ]
     : user.role === 'project_manager'
       ? [{ href: '/projects', label: '담당 프로젝트', icon: 'projects' as const }]
     : [

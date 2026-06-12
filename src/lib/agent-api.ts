@@ -419,6 +419,14 @@ export const getReportDetail = async (projectId: string, usageStatementId: numbe
   return response.data;
 };
 
+export const saveReportDraft = async (projectId: string, usageStatementId: number, reportDraft: unknown) => {
+  const response = await apiFetch<ReportDetailResponse>(`/projects/${projectId}/agents/report`, {
+    method: 'PUT',
+    body: { usageStatementId, reportDraft },
+  });
+  return response.data;
+};
+
 export const getLegalDetail = async (projectId: string, usageStatementId: number) => {
   const response = await apiFetch<LegalDetailResponse>(
     `/projects/${projectId}/agents/legal?usageStatementId=${usageStatementId}`,

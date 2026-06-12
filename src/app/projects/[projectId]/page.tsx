@@ -13,7 +13,7 @@ import { ApiClientError } from '../../../lib/api-client';
 import { C } from '../../../lib/theme';
 import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getProjectSheManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
 import { getProject, isProjectManagerRole, isSheManagerRole, listAssigneeCandidates, replaceProjectAssignees, updateProject, type ProjectAssigneeCandidate, type UpdateProjectInput } from '../../../lib/project-api';
-import { completeUsageStatementReview, deleteProjectFile, deleteUsageStatement, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
+import { completeUsageStatementReview, deleteProjectFile, deleteUsageStatement, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, requestUsageStatementSupplement, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
 import { getAgentButtonStates, getOrchestratorStatus, isAgentStageRunning, parseUsageStatementWithOcr, waitForAgentButtonEnabled, type AgentButtonStage, type OrchestratorTodo } from '../../../lib/agent-api';
 import { can } from '../../../lib/permissions';
@@ -1421,14 +1421,15 @@ function ProjectDetailPageContent() {
           border: `1px solid ${uploadCompleteAlreadySubmitted ? C.primary : !canSubmitUploadComplete ? C.g200 : C.primary}`,
           borderRadius: 999,
           padding: '0 16px',
-          background: uploadCompleteAlreadySubmitted ? C.primary : !canSubmitUploadComplete ? C.g100 : C.bg,
+          background: uploadCompleteAlreadySubmitted ? '#15523A' : !canSubmitUploadComplete ? C.g100 : C.bg,
           color: uploadCompleteAlreadySubmitted ? C.white : !canSubmitUploadComplete ? C.g400 : C.primary,
           cursor: uploadCompleteAlreadySubmitted ? 'default' : !canSubmitUploadComplete || uploadCompleteSubmitting ? 'not-allowed' : 'pointer',
           fontSize: 13,
           fontWeight: 900,
           fontFamily: 'inherit',
           whiteSpace: 'nowrap',
-          boxShadow: uploadCompleteAlreadySubmitted ? '0 8px 18px rgba(27, 94, 59, .18)' : 'none',
+          boxShadow: uploadCompleteAlreadySubmitted ? 'inset 0 2px 5px rgba(0,0,0,.22), inset 0 -1px 0 rgba(255,255,255,.14)' : 'none',
+          transform: uploadCompleteAlreadySubmitted ? 'translateY(1px)' : 'none',
         }}
       >
         {uploadCompleteSubmitting ? '처리 중...' : uploadCompleteAlreadySubmitted ? '업로드 완료됨' : '업로드 완료'}
@@ -1651,7 +1652,7 @@ function ProjectDetailPageContent() {
             }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onVerificationComplete={refreshSelectedAgentButtonState} uploadCompleteAction={uploadCompleteAction}/>}
         </>}
       </div>),
-        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} onValidationComplete={() => {
+        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} initialSheReviewDecision={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED ? 'review_completed' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? 'supplement_requested' : 'pending'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} onValidationComplete={() => {
                 setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
                 void refreshSelectedAgentButtonState();
             }} onValidationApproved={async () => {
@@ -1661,10 +1662,15 @@ function ProjectDetailPageContent() {
                     return;
                 }
                 try {
-                    if (selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT) {
+                    const backendWorkflowStatus = selectedStatementArchive?.workflowStatus;
+                    if (backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED
+                        && backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+                        && backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED) {
                         await submitUsageStatement(project.id, usageStatementId);
                     }
-                    await completeUsageStatementReview(project.id, usageStatementId);
+                    if (backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED) {
+                        await completeUsageStatementReview(project.id, usageStatementId);
+                    }
                     setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
                     patchMonthWorkflow(selectedStatement.month, USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED);
                     setProject((current) => applyWorkflowToProject(current, USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED));
@@ -1673,17 +1679,37 @@ function ProjectDetailPageContent() {
                 } catch (error) {
                     showAgentFailure('server-request', error);
                 }
-            }} onActionRequested={async () => {
+            }} onActionRequested={async (details) => {
                 const usageStatementId = selectedStatementArchive?.usageStatementId;
                 if (!usageStatementId) {
                     showAgentFailure('server-request');
                     return;
                 }
                 try {
-                    if (selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT) {
+                    const backendWorkflowStatus = selectedStatementArchive?.workflowStatus;
+                    if (backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED
+                        && backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+                        && backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED) {
                         await submitUsageStatement(project.id, usageStatementId);
                     }
+                    if (backendWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) {
+                        await requestUsageStatementSupplement(project.id, usageStatementId);
+                    }
                     setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
+                    patchMonthWorkflow(selectedStatement.month, USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED, {
+                        title: details.title,
+                        reason: details.reason,
+                        assignee: details.assignee,
+                        dueDate: details.dueDate,
+                        requestedAt: details.requestedAt,
+                    });
+                    setProject((current) => applyWorkflowToProject(current, USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED, {
+                        title: details.title,
+                        reason: details.reason,
+                        assignee: details.assignee,
+                        dueDate: details.dueDate,
+                        requestedAt: details.requestedAt,
+                    }));
                     await refreshArchiveData(project.id);
                 } catch (error) {
                     showAgentFailure('server-request', error);

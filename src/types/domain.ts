@@ -43,6 +43,7 @@ export interface EvidenceFile {
   uploadedAt?: string;
   uploadedBy?: string;
   documentType?: string;
+  evidenceTypeCode?: BackendEvidenceTypeCode | string;
   statusCode?: string;
   categoryIds?: number[];
   usageItemIds?: string[];

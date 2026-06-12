@@ -303,7 +303,7 @@ export const BACKEND_EVIDENCE_TYPE_CODES: BackendEvidenceTypeCode[] = [
   'other_document',
 ];
 
-const isBackendEvidenceTypeCode = (code?: string | null): code is BackendEvidenceTypeCode =>
+export const isBackendEvidenceTypeCode = (code?: string | null): code is BackendEvidenceTypeCode =>
   Boolean(code && (BACKEND_EVIDENCE_TYPE_CODES as string[]).includes(code));
 
 export const backendEvidenceTypeToCategory = (code?: string | null): EvidenceCategory => {
@@ -320,7 +320,10 @@ const evidenceCodeToKind = (code?: string | null): FolderEvidenceCategory => {
   return category === 'usage_statement' ? 'other_document' : category;
 };
 
-const kindToEvidenceCode = (kind: EvidenceCategory): BackendEvidenceTypeCode => {
+const kindToEvidenceCode = (kind: EvidenceCategory, evidenceTypeCode?: BackendEvidenceTypeCode | string): BackendEvidenceTypeCode => {
+  if (isBackendEvidenceTypeCode(evidenceTypeCode) && backendEvidenceTypeToCategory(evidenceTypeCode) === kind) {
+    return evidenceTypeCode;
+  }
   if (kind === 'tax_invoice') return 'tax_invoice';
   return kind;
 };
@@ -427,6 +430,7 @@ const evidenceFileToEntry = (projectId: string, file: EvidenceFileResponse, kind
     uploadedAt: formatFileDate(file),
     uploadedBy: '',
     documentType: file.evidenceTypeName,
+    evidenceTypeCode: file.evidenceTypeCode,
     previewUrl: file.mimeType?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, file.fileId) : '',
     categoryIds: [catId],
     usageItemIds: [usageItemId],
@@ -446,6 +450,7 @@ const projectFileToEntry = (projectId: string, file: ProjectFileResponse | Proje
     uploadedAt: formatFileDate(file) || (uploadedFromList ? '' : new Date().toISOString().slice(0, 10)),
     uploadedBy: '',
     documentType: 'uploadedEvidenceTypeName' in file ? file.uploadedEvidenceTypeName : undefined,
+    evidenceTypeCode: file.uploadedEvidenceTypeCode,
     statusCode: file.statusCode,
     previewUrl: file.mimeType?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, fileId) : '',
     categoryIds: [],
@@ -673,9 +678,10 @@ export const uploadProjectFile = async (projectId: string, file: File, kind: Evi
   return projectFileToEntry(projectId, response.data);
 };
 
-export const uploadEvidenceFileToItem = async (projectId: string, itemId: string, file: File, kind: FolderEvidenceCategory) => {
+export const uploadEvidenceFileToItem = async (projectId: string, itemId: string, file: File, kind: FolderEvidenceCategory, evidenceTypeCode?: BackendEvidenceTypeCode | string) => {
   const formData = new FormData();
-  formData.set('evidenceTypeCode', kindToEvidenceCode(kind));
+  const resolvedEvidenceTypeCode = kindToEvidenceCode(kind, evidenceTypeCode);
+  formData.set('evidenceTypeCode', resolvedEvidenceTypeCode);
   formData.set('file', file);
   const response = await apiFetch<LinkedEvidenceFileUploadResponse>(`/projects/${projectId}/usage-statement-items/${itemId}/evidence-files/upload`, {
     method: 'POST',
@@ -691,6 +697,7 @@ export const uploadEvidenceFileToItem = async (projectId: string, itemId: string
     uploadedAt: formatFileDate(response.data) || new Date().toISOString().slice(0, 10),
     uploadedBy: '',
     documentType: response.data.uploadedEvidenceTypeName,
+    evidenceTypeCode: response.data.uploadedEvidenceTypeCode || resolvedEvidenceTypeCode,
     statusCode: response.data.statusCode,
     previewUrl: fileId && (response.data.mimeType || file.type)?.startsWith('image/') ? getProjectFilePreviewUrl(projectId, fileId) : '',
   });
