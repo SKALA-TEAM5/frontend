@@ -69,9 +69,12 @@ const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
     cash_receipt: '현금영수증',
     transaction_statement: '거래명세서',
     statement_of_transaction: '거래명세서',
+    purchase_detail: '구매내역서',
+    purchase_details: '구매내역서',
     bank_transfer_confirmation: '계좌이체 확인증',
     account_transfer_confirmation: '계좌이체 확인증',
     transfer_confirmation: '이체확인증',
+    transfer_confirm: '이체확인증',
     deposit_confirmation: '입금확인증',
     invoice: '계산서',
     tax_invoice: '세금계산서',
@@ -81,6 +84,8 @@ const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
     site_photo: '현장사진',
     site_photos: '현장사진',
     field_photo: '현장사진',
+    item_photo: '물품 사진',
+    item_photos: '물품 사진',
     work_photo: '작업사진',
     installation_photo: '설치 사진',
     before_after_photo: '설치 전후 비교 사진',
@@ -89,10 +94,13 @@ const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
     safety_facility_photo: '안전시설 설치 사진',
     attendance_list: '참석자 명단',
     attendee_list: '참석자 명단',
+    edu_attendance: '교육 참석자 명단',
+    education_attendance: '교육 참석자 명단',
     training_completion_certificate: '교육 이수증',
     education_completion_certificate: '교육 이수증',
     training_material: '교육자료',
     education_material: '교육자료',
+    appointment_report: '선임 신고서',
     certificate: '확인서',
     confirmation_document: '확인서',
     contract: '계약서',
@@ -105,13 +113,20 @@ const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
     daily_report: '작업일지',
     inspection_report: '점검표',
     checklist: '점검표',
+    supply_ledger: '지급대장',
+    inventory_ledger: '재고대장',
     payroll: '임금대장',
+    pay_stub: '급여명세서',
     wage_statement: '임금명세서',
     salary_statement: '급여명세서',
     employment_contract: '근로계약서',
     worker_roster: '근로자 명부',
     consultant_report: '컨설팅 보고서',
+    tech_guidance_contract: '기술지도 계약서',
     technical_guidance_report: '기술지도 보고서',
+    tech_guidance_report: '기술지도 보고서',
+    tech_guidance_photo: '기술지도 사진',
+    tech_guidance_계약서: '기술지도 계약서',
     risk_assessment_report: '위험성평가 보고서',
     measurement_report: '측정 결과서',
     test_report: '검사 성적서',
@@ -273,12 +288,6 @@ const EVIDENCE_KIND_LABELS: Record<FolderEvidenceCategory, string> = {
     tax_invoice: '세금계산서',
     other_document: '기타 자료',
 };
-const EVIDENCE_SECTIONS: Array<{ id: FolderEvidenceCategory; label: string }> = [
-    { id: 'receipt', label: '영수증' },
-    { id: 'site_photo', label: '사진' },
-    { id: 'tax_invoice', label: '세금계산서' },
-    { id: 'other_document', label: '기타' },
-];
 
 const addUsageItemInputStyle = {
     height: 42,
@@ -443,6 +452,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const [todoSidebarOpen, setTodoSidebarOpen] = useState(false);
     const [todoSidebarPinned, setTodoSidebarPinned] = useState(false);
     const [todoHoverBlocked, setTodoHoverBlocked] = useState(false);
+    const [collapsedTodoGroupIds, setCollapsedTodoGroupIds] = useState<Record<string, boolean>>({});
     const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(resolvedUsageItems[0]?.categoryId || 1);
     const [selectedUsageItemId, setSelectedUsageItemId] = useState(resolvedUsageItems[0]?.id || '');
     const pendingUsageDetailSeedRef = useRef<ArchiveSeed | null>(null);
@@ -1298,18 +1308,67 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         })}
       </div>
     );
-    const renderTodoGroup = (kind: FolderEvidenceCategory) => {
-        const items = usageDetailTodoItems.filter((todo) => todo.kind === kind);
-        if (!items.length)
-            return null;
+    const getTodoGroupMeta = (todo: UsageDetailTodoItem) => {
+        const usageItem = resolveTodoUsageItem(todo, resolvedUsageItems);
+        if (usageItem)
+            return {
+                id: `item:${usageItem.id}`,
+                label: usageItem.name,
+                subLabel: getCategoryDisplayName(usageItem.categoryId),
+                order: resolvedUsageItems.findIndex((item) => String(item.id) === String(usageItem.id)),
+            };
+        if (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT)
+            return {
+                id: `context:${normalizeTodoIdText(todo.context)}`,
+                label: todo.context,
+                subLabel: todo.categoryId ? getCategoryDisplayName(todo.categoryId) : '세부 내역',
+                order: resolvedUsageItems.length + 1,
+            };
+        if (todo.categoryId)
+            return {
+                id: `category:${todo.categoryId}`,
+                label: getCategoryDisplayName(todo.categoryId),
+                subLabel: '9개 항목 전체',
+                order: resolvedUsageItems.length + todo.categoryId / 100,
+            };
+        return {
+            id: 'unassigned',
+            label: '세부 내역 미지정',
+            subLabel: todo.categoryId ? getCategoryDisplayName(todo.categoryId) : '위치를 확인해 주세요',
+            order: resolvedUsageItems.length + 2,
+        };
+    };
+    const todoGroups = Array.from(usageDetailTodoItems.reduce((groupMap, todo) => {
+        const meta = getTodoGroupMeta(todo);
+        const current = groupMap.get(meta.id);
+        if (current) {
+            current.items.push(todo);
+            return groupMap;
+        }
+        groupMap.set(meta.id, { ...meta, items: [todo] });
+        return groupMap;
+    }, new Map<string, { id: string; label: string; subLabel: string; order: number; items: UsageDetailTodoItem[] }>()).values())
+        .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'ko'));
+    const renderTodoGroup = (group: { id: string; label: string; subLabel: string; items: UsageDetailTodoItem[] }) => {
+        const items = group.items;
         const activeCount = items.filter((todo) => !completedTodoIds[todo.id]).length;
+        const collapsed = Boolean(collapsedTodoGroupIds[group.id]);
         return (
-          <div key={kind} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: 7, display: 'grid', gap: 7, marginBottom: 8, position: 'relative' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 900, color: activeCount ? C.g800 : C.g400 }}>{EVIDENCE_KIND_LABELS[kind]}</div>
-              <div style={{ minWidth: 20, height: 18, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 10, fontWeight: 900 }}>{activeCount}</div>
-            </div>
-            {renderTodoList(items)}
+          <div key={group.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: 7, display: 'grid', gap: collapsed ? 0 : 7, marginBottom: 8, position: 'relative' }}>
+            <button
+              type="button"
+              aria-expanded={!collapsed}
+              onClick={() => setCollapsedTodoGroupIds((current) => ({ ...current, [group.id]: !current[group.id] }))}
+              style={{ width: '100%', border: 'none', background: 'transparent', padding: 0, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto auto', alignItems: 'center', gap: 7, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+            >
+              <span style={{ minWidth: 0 }}>
+                <span title={group.label} style={{ display: 'block', fontSize: 12, fontWeight: 900, color: activeCount ? C.g800 : C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.label}</span>
+                <span title={group.subLabel} style={{ display: 'block', marginTop: 2, fontSize: 10, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.subLabel}</span>
+              </span>
+              <span style={{ minWidth: 20, height: 18, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 10, fontWeight: 900 }}>{activeCount}</span>
+              <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: 999, border: `1px solid ${C.g200}`, color: C.g600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform .14s ease' }}>⌄</span>
+            </button>
+            {!collapsed && renderTodoList(items)}
           </div>
         );
     };
@@ -1332,7 +1391,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                   </div>
                 </div>
                 <div className="usage-detail-todo-scroll" style={{ overflowY: 'auto', overflowX: 'hidden', padding: '12px 8px 12px 12px', scrollbarWidth: 'thin', scrollbarColor: `${C.g200} transparent`, background: C.white, overscrollBehavior: 'contain' }}>
-                  {EVIDENCE_SECTIONS.map((section) => renderTodoGroup(section.id))}
+                  {todoGroups.map((group) => renderTodoGroup(group))}
                 </div>
               </aside>
             )}
