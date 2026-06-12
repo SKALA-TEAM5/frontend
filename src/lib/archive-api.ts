@@ -303,7 +303,7 @@ export const BACKEND_EVIDENCE_TYPE_CODES: BackendEvidenceTypeCode[] = [
   'other_document',
 ];
 
-const isBackendEvidenceTypeCode = (code?: string | null): code is BackendEvidenceTypeCode =>
+export const isBackendEvidenceTypeCode = (code?: string | null): code is BackendEvidenceTypeCode =>
   Boolean(code && (BACKEND_EVIDENCE_TYPE_CODES as string[]).includes(code));
 
 export const backendEvidenceTypeToCategory = (code?: string | null): EvidenceCategory => {
