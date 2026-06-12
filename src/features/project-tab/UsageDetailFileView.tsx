@@ -198,9 +198,9 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     <div key={file.id} draggable onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ position: 'relative', border: `1px solid ${C.g100}`, background: C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: 6 }}>
         <div style={{ minWidth: 0 }}>
-          <div title={file.name} style={{ fontSize: 12, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
+          <div title={file.name} style={{ fontSize: 13, color: C.g800, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 10, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
+            <span style={{ fontSize: 11, color: C.g400 }}>{file.uploadedAt || '날짜 미상'}</span>
           </div>
         </div>
         <button type="button" aria-label={`${file.name} 더보기`} onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); const isOpen = openFileMenu?.file.id === file.id && openFileMenu.kind === kind; fileMenuAnchorRef.current = isOpen ? null : event.currentTarget; setOpenFileMenu(isOpen ? null : { kind, file, top: rect.top, left: rect.right + 4 }); }} style={{ width: 26, height: 26, border: 'none', borderRadius: 999, background: 'transparent', color: openFileMenu?.file.id === file.id && openFileMenu.kind === kind ? C.g800 : C.g400, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -216,11 +216,11 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     const left = Math.min(openFileMenu.left, window.innerWidth - menuWidth - 8);
     return createPortal(
       <div style={{ position: 'fixed', top: openFileMenu.top, left, zIndex: 1100, width: menuWidth, border: `1px solid ${C.g200}`, borderRadius: 8, background: C.white, boxShadow: '0 12px 26px rgba(31,47,39,.14)', padding: 3 }}>
-        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setPreviewTarget(openFileMenu.file); setShowVisionBoxes(true); setOpenFileMenu(null); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: '6px 4px', textAlign: 'center' }}>미리보기</button>
+        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setPreviewTarget(openFileMenu.file); setShowVisionBoxes(true); setOpenFileMenu(null); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>미리보기</button>
         <div style={{ height: 1, background: C.g100, margin: '2px 4px' }} />
-        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; openFileEditModal(openFileMenu.kind, openFileMenu.file); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: '6px 4px', textAlign: 'center' }}>수정</button>
+        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; openFileEditModal(openFileMenu.kind, openFileMenu.file); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>수정</button>
         <div style={{ height: 1, background: C.g100, margin: '2px 4px' }} />
-        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setOpenFileMenu(null); onRemove(openFileMenu.kind, selectedCatId, activeItem?.id || selectedUsageItemId, openFileMenu.file.id); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.danger, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: '6px 4px', textAlign: 'center' }}>삭제</button>
+        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setOpenFileMenu(null); onRemove(openFileMenu.kind, selectedCatId, activeItem?.id || selectedUsageItemId, openFileMenu.file.id); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.danger, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>삭제</button>
       </div>,
       document.body,
     );
@@ -256,7 +256,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                   key={`${detection.label}-${index}`}
                   style={{ position: 'absolute', left: `${x}%`, top: `${y}%`, width: `${width}%`, height: `${height}%`, border: `2px solid ${boxColor}`, boxSizing: 'border-box', pointerEvents: 'none' }}
                 >
-                  <span style={{ position: 'absolute', left: -3, top: -3, transform: 'translate(-50%, -50%)', width: 20, height: 20, borderRadius: 999, background: boxColor, color: C.white, border: `2px solid ${C.white}`, boxShadow: '0 2px 6px rgba(31,47,39,.24)', fontSize: 10, fontWeight: 900, lineHeight: '16px', textAlign: 'center' }}>
+                  <span style={{ position: 'absolute', left: -3, top: -3, transform: 'translate(-50%, -50%)', width: 20, height: 20, borderRadius: 999, background: boxColor, color: C.white, border: `2px solid ${C.white}`, boxShadow: '0 2px 6px rgba(31,47,39,.24)', fontSize: 11, fontWeight: 800, lineHeight: '16px', textAlign: 'center' }}>
                     {index + 1}
                   </span>
                 </div>
@@ -268,8 +268,8 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
               {detections.map((detection, index) => {
                 const boxColor = detection.status === 'bad' ? '#E53935' : '#2F73D9';
                 return (
-                  <span key={`${detection.label}-legend-${index}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${detection.status === 'bad' ? '#FFCDD2' : '#BBD2FA'}`, borderRadius: 999, background: detection.status === 'bad' ? C.dangerBg : '#F0F6FF', color: detection.status === 'bad' ? C.danger : '#1D57A8', padding: '4px 8px', fontSize: 10, fontWeight: 900, lineHeight: 1.2 }}>
-                    <span style={{ width: 16, height: 16, borderRadius: 999, background: boxColor, color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 900, flexShrink: 0 }}>{index + 1}</span>
+                  <span key={`${detection.label}-legend-${index}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${detection.status === 'bad' ? '#FFCDD2' : '#BBD2FA'}`, borderRadius: 999, background: detection.status === 'bad' ? C.dangerBg : '#F0F6FF', color: detection.status === 'bad' ? C.danger : '#1D57A8', padding: '4px 8px', fontSize: 11, fontWeight: 800, lineHeight: 1.2 }}>
+                    <span style={{ width: 16, height: 16, borderRadius: 999, background: boxColor, color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, flexShrink: 0 }}>{index + 1}</span>
                     <span>{detection.label} {detection.confidence.toFixed(2)}</span>
                   </span>
                 );
@@ -277,20 +277,20 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
             </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: previewTarget.visionValidation ? 'minmax(0,1fr) auto' : 'minmax(0,1fr)', gap: 10, alignItems: 'center', marginTop: 12 }}>
-            <div title={previewTarget.name} style={{ minWidth: 0, fontSize: 13, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{previewTarget.name}</div>
+            <div title={previewTarget.name} style={{ minWidth: 0, fontSize: 14, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{previewTarget.name}</div>
             {previewTarget.visionValidation && (
-              <span style={{ border: `1px solid ${previewTarget.visionValidation.status === 'unsuitable' ? '#FFCDD2' : C.g200}`, borderRadius: 999, background: previewTarget.visionValidation.status === 'unsuitable' ? C.dangerBg : C.bg, color: previewTarget.visionValidation.status === 'unsuitable' ? C.danger : C.primary, padding: '5px 10px', fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap' }}>
+              <span style={{ border: `1px solid ${previewTarget.visionValidation.status === 'unsuitable' ? '#FFCDD2' : C.g200}`, borderRadius: 999, background: previewTarget.visionValidation.status === 'unsuitable' ? C.dangerBg : C.bg, color: previewTarget.visionValidation.status === 'unsuitable' ? C.danger : C.primary, padding: '5px 10px', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>
                 비전 결과 {previewTarget.visionValidation.status === 'unsuitable' ? '부적합' : '적합'}
               </span>
             )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
             {previewTarget.visionValidation && (
-              <button type="button" onClick={() => setShowVisionBoxes((value) => !value)} style={{ border: `1px solid ${showVisionBoxes ? C.primary : C.g200}`, borderRadius: 999, background: showVisionBoxes ? C.bg : C.white, color: showVisionBoxes ? C.primary : C.g600, padding: '7px 10px', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <button type="button" onClick={() => setShowVisionBoxes((value) => !value)} style={{ border: `1px solid ${showVisionBoxes ? C.primary : C.g200}`, borderRadius: 999, background: showVisionBoxes ? C.bg : C.white, color: showVisionBoxes ? C.primary : C.g600, padding: '7px 10px', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 바운더리 박스 {showVisionBoxes ? 'ON' : 'OFF'}
               </button>
             )}
-            <button type="button" onClick={() => setPreviewTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, padding: '8px 14px' }}>
+            <button type="button" onClick={() => setPreviewTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, padding: '8px 14px' }}>
               닫기
             </button>
           </div>
@@ -303,9 +303,9 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     <div data-ui="usage-detail-file-view.1" onClick={() => setOpenFileMenu(null)} style={{ position: 'relative', width: '100%', minWidth: 0, overflow: 'visible' }}>
       <section style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 6, overflow: 'hidden', minWidth: 0 }}>
         <div style={{ display: 'grid', gridTemplateColumns: layoutColumns, borderBottom: `1px solid ${C.g200}`, background: C.bg, minWidth: 0 }}>
-          <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 14, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>9개 항목</div>
-          <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 14, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center' }}>사용내역서 세부 항목</div>
-          <div style={{ padding: '8px 14px', fontSize: 14, color: C.g800, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 15, color: C.g800, fontWeight: 800, display: 'flex', alignItems: 'center' }}>9개 항목</div>
+          <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 15, color: C.g800, fontWeight: 800, display: 'flex', alignItems: 'center' }}>사용내역서 세부 항목</div>
+          <div style={{ padding: '8px 14px', fontSize: 15, color: C.g800, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <span>파일보기</span>
             {fileHeaderAction && <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0 }}>{fileHeaderAction}</span>}
           </div>
@@ -322,10 +322,10 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                 const active = cat.id === selectedCatId;
                 return (
                   <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${hasProblem || hasActionRequest ? (active ? C.danger : '#FFCDD2') : active ? C.primary : C.g100}`, background: hasProblem || hasActionRequest ? C.dangerBg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', boxShadow: active ? `0 0 0 1px ${hasProblem || hasActionRequest ? 'rgba(229,57,53,.18)' : 'rgba(27,94,59,.18)'}` : 'none' }}>
-                    <div style={{ fontSize: 12, fontWeight: 900, color: hasProblem || hasActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{cat.short}</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: hasProblem || hasActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'pre-line', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{cat.short}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
-                      <span style={{ fontSize: 10, color: C.g400, fontWeight: 800 }}>{items.length}개 세부</span>
-                      <span style={{ fontSize: 10, color: hasProblem || hasActionRequest ? C.danger : C.g400, fontWeight: 900 }}>{count}건</span>
+                      <span style={{ fontSize: 11, color: C.g400, fontWeight: 700 }}>{items.length}개 세부</span>
+                      <span style={{ fontSize: 11, color: hasProblem || hasActionRequest ? C.danger : C.g400, fontWeight: 800 }}>{count}건</span>
                     </div>
                   </button>
                 );
@@ -337,7 +337,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
             <div className="usage-detail-y-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 560, overflowY: 'auto', paddingRight: 3 }}>
               <div className="thin-x-scroll" style={{ width: '100%', paddingBottom: 4 }}>
                 <div style={{ minWidth: 560, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: usageItemRowColumns, gap: 8, alignItems: 'center', padding: '0 10px 4px', color: C.g400, fontSize: 10, fontWeight: 900 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: usageItemRowColumns, gap: 8, alignItems: 'center', padding: '0 10px 4px', color: C.g400, fontSize: 11, fontWeight: 800 }}>
                     <span>사용일자</span>
                     <span>사용내역</span>
                     <span style={{ textAlign: 'center' }}>단위</span>
@@ -346,7 +346,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                     <span style={{ textAlign: 'right' }}>계</span>
                     <span />
                   </div>
-                  {filteredItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 6, padding: 14, fontSize: 12, color: C.g400, textAlign: 'center', background: '#FCFEFD' }}>OCR 항목이 없습니다</div>}
+                  {filteredItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 6, padding: 14, fontSize: 13, color: C.g400, textAlign: 'center', background: '#FCFEFD' }}>OCR 항목이 없습니다</div>}
                   {filteredItems.map((item) => {
                     const active = item.id === activeItem.id;
                     const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, item.categoryId, item.id).some((file) => isProblemFile?.(file)));
@@ -370,12 +370,12 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                           title={[item.date, item.name, item.unit, item.quantity, item.unitPrice ? fmt(item.unitPrice) : '', fmt(item.amount)].filter(Boolean).join(' ')}
                           style={{ display: 'grid', gridTemplateColumns: usageItemRowColumns, gap: 8, alignItems: 'center', minWidth: 0 }}
                         >
-                          <span style={{ fontSize: 11, color: hasProblemOrActionRequest ? C.danger : C.g600, fontWeight: 900, whiteSpace: 'nowrap' }}>{item.date || '-'}</span>
-                          <span style={{ minWidth: 0, fontSize: 12, fontWeight: 900, color: hasProblemOrActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'normal', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{item.name}</span>
-                          <span style={{ fontSize: 11, color: C.g600, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'center' }}>{item.unit || '-'}</span>
-                          <span style={{ fontSize: 11, color: C.g600, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>{item.quantity ?? '-'}</span>
-                          <span style={{ fontSize: 11, color: C.g600, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>{item.unitPrice ? fmt(item.unitPrice) : '-'}</span>
-                          <span style={{ fontSize: 12, color: hasProblemOrActionRequest ? C.danger : active ? C.primary : C.g800, fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>{fmt(item.amount)}</span>
+                          <span style={{ fontSize: 12, color: hasProblemOrActionRequest ? C.danger : C.g600, fontWeight: 800, whiteSpace: 'nowrap' }}>{item.date || '-'}</span>
+                          <span style={{ minWidth: 0, fontSize: 13, fontWeight: 800, color: hasProblemOrActionRequest ? C.danger : active ? C.primary : C.g800, lineHeight: 1.35, whiteSpace: 'normal', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{item.name}</span>
+                          <span style={{ fontSize: 12, color: C.g600, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'center' }}>{item.unit || '-'}</span>
+                          <span style={{ fontSize: 12, color: C.g600, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'right' }}>{item.quantity ?? '-'}</span>
+                          <span style={{ fontSize: 12, color: C.g600, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'right' }}>{item.unitPrice ? fmt(item.unitPrice) : '-'}</span>
+                          <span style={{ fontSize: 13, color: hasProblemOrActionRequest ? C.danger : active ? C.primary : C.g800, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'right' }}>{fmt(item.amount)}</span>
                           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, alignSelf: 'center' }}>
                             <button
                               type="button"
@@ -383,7 +383,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                                 event.stopPropagation();
                                 openEditUsageItemModal(item);
                               }}
-                              style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, padding: '4px 7px' }}
+                              style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 800, padding: '4px 7px' }}
                             >
                               수정
                             </button>
@@ -394,13 +394,13 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                                 event.stopPropagation();
                                 onDeleteUsageItem(item);
                               }}
-                              style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: C.g400, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: 16, fontWeight: 900, lineHeight: 1 }}
+                              style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: C.g400, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: 17, fontWeight: 800, lineHeight: 1 }}
                             >
                               ×
                             </button>
                           </div>
                         </div>
-                        {hasActionRequest && actionRequest?.dueDate && <div style={{ marginTop: 5, fontSize: 10, fontWeight: 900, color: C.g600, background: C.white, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '2px 6px', display: 'inline-flex' }}>기한 {actionRequest.dueDate}</div>}
+                        {hasActionRequest && actionRequest?.dueDate && <div style={{ marginTop: 5, fontSize: 11, fontWeight: 800, color: C.g600, background: C.white, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '2px 6px', display: 'inline-flex' }}>기한 {actionRequest.dueDate}</div>}
                       </div>
                     );
                   })}
@@ -417,7 +417,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
               {EVIDENCE_SECTIONS.map((section) => {
                 const files = getFiles(section.id, selectedCatId, activeItem?.id);
                 const uploadButton = (compact = false) => (
-                  <button type="button" aria-label={`${section.label} 업로드`} onClick={() => onUpload(section.id, selectedCatId, activeItem?.id || selectedUsageItemId)} style={{ width: compact ? 24 : 32, height: compact ? 24 : 32, border: `1px solid ${C.light}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <button type="button" aria-label={`${section.label} 업로드`} onClick={() => onUpload(section.id, selectedCatId, activeItem?.id || selectedUsageItemId)} style={{ width: compact ? 24 : 32, height: compact ? 24 : 32, border: `1px solid ${C.light}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                     <span aria-hidden="true" style={{ position: 'relative', width: compact ? 12 : 14, height: compact ? 12 : 14, display: 'inline-block' }}>
                       <span style={{ position: 'absolute', left: 0, top: compact ? 5 : 6, width: compact ? 12 : 14, height: 2, borderRadius: 999, background: C.primary }} />
                       <span style={{ position: 'absolute', left: compact ? 5 : 6, top: 0, width: 2, height: compact ? 12 : 14, borderRadius: 999, background: C.primary }} />
@@ -428,9 +428,9 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                   <div key={section.id} onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(section.id, selectedCatId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 8, background: C.white, padding: 11 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                        <span style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>{section.label}</span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: C.g800 }}>{section.label}</span>
                       </div>
-                      <div style={{ fontSize: 10, fontWeight: 900, color: C.g400 }}>{files.length}</div>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: C.g400 }}>{files.length}</div>
                     </div>
                     {renderEvidenceTodos?.(section.id)}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -452,23 +452,23 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
           <div style={{ padding: '22px 24px 16px', borderBottom: `1px solid ${C.g100}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 22, fontWeight: 900, color: C.g800 }}>파일 수정</div>
+                <div style={{ fontSize: 23, fontWeight: 800, color: C.g800 }}>파일 수정</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, minWidth: 0, flexWrap: 'wrap' }}>
-                  <div title={moveTarget?.file.name} style={{ minWidth: 0, maxWidth: 430, fontSize: 13, color: C.g600, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{moveTarget?.file.name}</div>
+                  <div title={moveTarget?.file.name} style={{ minWidth: 0, maxWidth: 430, fontSize: 14, color: C.g600, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{moveTarget?.file.name}</div>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '5px 9px', background: C.bg, color: C.primary, whiteSpace: 'nowrap' }}>
-                    <span style={{ fontSize: 10, color: C.g400, fontWeight: 900 }}>현재 위치</span>
-                    <span style={{ fontSize: 11, fontWeight: 900 }}>{cats.find((cat) => cat.id === moveTarget?.catId)?.short || '-'} · {EVIDENCE_SECTIONS.find((section) => section.id === moveTarget?.kind)?.label || '-'}</span>
+                    <span style={{ fontSize: 11, color: C.g400, fontWeight: 800 }}>현재 위치</span>
+                    <span style={{ fontSize: 12, fontWeight: 800 }}>{cats.find((cat) => cat.id === moveTarget?.catId)?.short || '-'} · {EVIDENCE_SECTIONS.find((section) => section.id === moveTarget?.kind)?.label || '-'}</span>
                   </span>
                 </div>
               </div>
-              <button type="button" onClick={closeFileEditModal} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
+              <button type="button" onClick={closeFileEditModal} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 25, lineHeight: 1 }}>×</button>
             </div>
           </div>
 
           <div style={{ padding: '18px 24px 20px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 8, alignItems: 'end', marginBottom: 18 }}>
               <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>파일명</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>파일명</span>
                 <input
                   value={fileEditDraft}
                   onChange={(event) => setFileEditDraft(event.target.value)}
@@ -478,12 +478,12 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                       confirmRenameFile();
                     }
                   }}
-                  style={{ height: 42, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontFamily: 'inherit', fontSize: 14, fontWeight: 800, padding: '0 12px', outline: 'none', minWidth: 0 }}
+                  style={{ height: 42, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontFamily: 'inherit', fontSize: 15, fontWeight: 700, padding: '0 12px', outline: 'none', minWidth: 0 }}
                 />
               </label>
-              <button type="button" onClick={confirmRenameFile} disabled={!fileEditDraft.trim()} style={{ border: 'none', borderRadius: 999, padding: '10px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: fileEditDraft.trim() ? 'pointer' : 'not-allowed', opacity: fileEditDraft.trim() ? 1 : 0.45 }}>파일명 수정</button>
+              <button type="button" onClick={confirmRenameFile} disabled={!fileEditDraft.trim()} style={{ border: 'none', borderRadius: 999, padding: '10px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: fileEditDraft.trim() ? 'pointer' : 'not-allowed', opacity: fileEditDraft.trim() ? 1 : 0.45 }}>파일명 수정</button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12, color: C.g400, fontSize: 12, fontWeight: 900 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12, color: C.g400, fontSize: 13, fontWeight: 800 }}>
               <span>{cats.find((cat) => cat.id === moveTargetCatId)?.short || '9개 항목'}</span>
               <span>›</span>
               <span>{selectedMoveTargetUsageItem?.name || '사용내역서 세부 내용'}</span>
@@ -492,12 +492,12 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px,.9fr) minmax(190px,1.1fr) minmax(150px,.8fr)', gap: 10, minHeight: 330 }}>
               <section style={{ border: `1px solid ${C.g200}`, borderRadius: 14, overflow: 'hidden', background: '#FCFEFD' }}>
-                <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.g100}`, fontSize: 12, fontWeight: 900, color: C.g800 }}>9개 항목</div>
+                <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.g100}`, fontSize: 13, fontWeight: 800, color: C.g800 }}>9개 항목</div>
                 <div style={{ maxHeight: 286, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {cats.map((cat) => {
                     const active = moveTargetCatId === cat.id;
                     return (
-                      <button key={cat.id} type="button" onClick={() => selectMoveTargetCat(cat.id)} style={{ width: '100%', border: `1px solid ${active ? C.light : 'transparent'}`, borderRadius: 10, background: active ? C.bg : 'transparent', color: active ? C.primary : C.g800, padding: '9px 10px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, lineHeight: 1.35, wordBreak: 'keep-all' }}>
+                      <button key={cat.id} type="button" onClick={() => selectMoveTargetCat(cat.id)} style={{ width: '100%', border: `1px solid ${active ? C.light : 'transparent'}`, borderRadius: 10, background: active ? C.bg : 'transparent', color: active ? C.primary : C.g800, padding: '9px 10px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, lineHeight: 1.35, wordBreak: 'keep-all' }}>
                         {cat.short}
                       </button>
                     );
@@ -506,15 +506,15 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
               </section>
 
               <section style={{ border: `1px solid ${C.g200}`, borderRadius: 14, overflow: 'hidden', background: '#FCFEFD' }}>
-                <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.g100}`, fontSize: 12, fontWeight: 900, color: C.g800 }}>사용내역서 세부 내용</div>
+                <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.g100}`, fontSize: 13, fontWeight: 800, color: C.g800 }}>사용내역서 세부 내용</div>
                 <div style={{ maxHeight: 286, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {moveTargetUsageItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 10, padding: 12, color: C.g400, fontSize: 12, textAlign: 'center' }}>세부 항목이 없습니다</div>}
+                  {moveTargetUsageItems.length === 0 && <div style={{ border: `1px dashed ${C.g200}`, borderRadius: 10, padding: 12, color: C.g400, fontSize: 13, textAlign: 'center' }}>세부 항목이 없습니다</div>}
                   {moveTargetUsageItems.map((item) => {
                     const active = moveTargetUsageItemId === item.id;
                     return (
                       <button key={item.id} type="button" onClick={() => setMoveTargetUsageItemId(item.id)} style={{ width: '100%', border: `1px solid ${active ? C.light : 'transparent'}`, borderRadius: 10, background: active ? C.bg : 'transparent', color: active ? C.primary : C.g800, padding: '9px 10px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' }}>
-                        <div title={item.name} style={{ fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
-                        <div style={{ fontSize: 10, color: C.g400, fontWeight: 800, marginTop: 3 }}>{fmt(item.amount)}</div>
+                        <div title={item.name} style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                        <div style={{ fontSize: 11, color: C.g400, fontWeight: 700, marginTop: 3 }}>{fmt(item.amount)}</div>
                       </button>
                     );
                   })}
@@ -522,12 +522,12 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
               </section>
 
               <section style={{ border: `1px solid ${C.g200}`, borderRadius: 14, overflow: 'hidden', background: '#FCFEFD' }}>
-                <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.g100}`, fontSize: 12, fontWeight: 900, color: C.g800 }}>유형</div>
+                <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.g100}`, fontSize: 13, fontWeight: 800, color: C.g800 }}>유형</div>
                 <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {EVIDENCE_SECTIONS.map((section) => {
                     const active = moveTargetKind === section.id;
                     return (
-                      <button key={section.id} type="button" onClick={() => setMoveTargetKind(section.id)} style={{ width: '100%', border: `1px solid ${active ? C.light : 'transparent'}`, borderRadius: 10, background: active ? C.bg : 'transparent', color: active ? C.primary : C.g800, padding: '11px 10px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 900 }}>
+                      <button key={section.id} type="button" onClick={() => setMoveTargetKind(section.id)} style={{ width: '100%', border: `1px solid ${active ? C.light : 'transparent'}`, borderRadius: 10, background: active ? C.bg : 'transparent', color: active ? C.primary : C.g800, padding: '11px 10px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 800 }}>
                         {section.label}
                       </button>
                     );
@@ -538,12 +538,12 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: '16px 24px', background: '#FCFEFD', borderTop: `1px solid ${C.g100}` }}>
-            <div style={{ fontSize: 12, color: C.g400, fontWeight: 800 }}>
+            <div style={{ fontSize: 13, color: C.g400, fontWeight: 700 }}>
               파일명 수정, 다운로드, 위치 이동을 처리합니다.
             </div>
             <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-              <button type="button" disabled={!moveTarget?.file.fileId} onClick={() => moveTarget && onDownloadFile?.(moveTarget.file)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: moveTarget?.file.fileId ? C.g600 : C.g400, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: moveTarget?.file.fileId ? 'pointer' : 'not-allowed' }}>다운로드</button>
-              <button type="button" onClick={confirmMove} disabled={!moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: !moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId) ? 'not-allowed' : 'pointer', opacity: !moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId) ? 0.45 : 1 }}>이동</button>
+              <button type="button" disabled={!moveTarget?.file.fileId} onClick={() => moveTarget && onDownloadFile?.(moveTarget.file)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: moveTarget?.file.fileId ? C.g600 : C.g400, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: moveTarget?.file.fileId ? 'pointer' : 'not-allowed' }}>다운로드</button>
+              <button type="button" onClick={confirmMove} disabled={!moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: !moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId) ? 'not-allowed' : 'pointer', opacity: !moveTarget || !moveTargetUsageItemId || (moveTarget.catId === moveTargetCatId && moveTarget.kind === moveTargetKind && selectedUsageItemId === moveTargetUsageItemId) ? 0.45 : 1 }}>이동</button>
             </div>
           </div>
         </div>
@@ -553,44 +553,44 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
           <div style={{ padding: '22px 24px 16px', borderBottom: `1px solid ${C.g100}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 22, fontWeight: 900, color: C.g800 }}>세부 항목 수정</div>
-                <div style={{ fontSize: 12, color: C.g400, fontWeight: 800, marginTop: 6 }}>기본 정보와 9개 항목 위치를 함께 수정합니다.</div>
+                <div style={{ fontSize: 23, fontWeight: 800, color: C.g800 }}>세부 항목 수정</div>
+                <div style={{ fontSize: 13, color: C.g400, fontWeight: 700, marginTop: 6 }}>기본 정보와 9개 항목 위치를 함께 수정합니다.</div>
               </div>
-              <button type="button" onClick={() => setEditUsageItemTarget(null)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
+              <button type="button" onClick={() => setEditUsageItemTarget(null)} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 25, lineHeight: 1 }}>×</button>
             </div>
           </div>
 
           <div style={{ padding: '18px 24px 20px', display: 'grid', gap: 16, overflowY: 'auto', minHeight: 0 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(130px, 150px)', gap: 10 }}>
-              <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 900, color: C.g800 }}>
+              <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 800, color: C.g800 }}>
                 항목명
-                <input value={editUsageItemDraft.name} onChange={(event) => setEditUsageItemDraft((draft) => ({ ...draft, name: event.target.value }))} style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontWeight: 800, color: C.g800, fontFamily: 'inherit' }} />
+                <input value={editUsageItemDraft.name} onChange={(event) => setEditUsageItemDraft((draft) => ({ ...draft, name: event.target.value }))} style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, fontWeight: 700, color: C.g800, fontFamily: 'inherit' }} />
               </label>
-              <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 900, color: C.g800 }}>
+              <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 800, color: C.g800 }}>
                 사용일자
-                <input type="date" value={editUsageItemDraft.date} onChange={(event) => setEditUsageItemDraft((draft) => ({ ...draft, date: event.target.value }))} style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontWeight: 800, color: C.g800, fontFamily: 'inherit' }} />
+                <input type="date" value={editUsageItemDraft.date} onChange={(event) => setEditUsageItemDraft((draft) => ({ ...draft, date: event.target.value }))} style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, fontWeight: 700, color: C.g800, fontFamily: 'inherit' }} />
               </label>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, .75fr) minmax(0, .8fr) minmax(0, 1fr) minmax(100px, 120px)', gap: 10, alignItems: 'end' }}>
-              <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 900, color: C.g800 }}>
+              <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 800, color: C.g800 }}>
                 단위
-                <input value={editUsageItemDraft.unit} onChange={(event) => setEditUsageItemDraft((draft) => ({ ...draft, unit: event.target.value }))} style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontWeight: 800, color: C.g800, fontFamily: 'inherit' }} />
+                <input value={editUsageItemDraft.unit} onChange={(event) => setEditUsageItemDraft((draft) => ({ ...draft, unit: event.target.value }))} style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, fontWeight: 700, color: C.g800, fontFamily: 'inherit' }} />
               </label>
-              <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 900, color: C.g800 }}>
+              <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 800, color: C.g800 }}>
                 수량
-                <input inputMode="decimal" value={editUsageItemDraft.quantity} onChange={(event) => setEditUsageItemDraft((draft) => ({ ...draft, quantity: event.target.value }))} style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontWeight: 800, color: C.g800, fontFamily: 'inherit' }} />
+                <input inputMode="decimal" value={editUsageItemDraft.quantity} onChange={(event) => setEditUsageItemDraft((draft) => ({ ...draft, quantity: event.target.value }))} style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, fontWeight: 700, color: C.g800, fontFamily: 'inherit' }} />
               </label>
-              <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 900, color: C.g800 }}>
+              <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 800, color: C.g800 }}>
                 단가
-                <input inputMode="numeric" value={editUsageItemDraft.unitPrice} onChange={(event) => setEditUsageItemDraft((draft) => ({ ...draft, unitPrice: event.target.value }))} style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontWeight: 800, color: C.g800, fontFamily: 'inherit' }} />
+                <input inputMode="numeric" value={editUsageItemDraft.unitPrice} onChange={(event) => setEditUsageItemDraft((draft) => ({ ...draft, unitPrice: event.target.value }))} style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, fontWeight: 700, color: C.g800, fontFamily: 'inherit' }} />
               </label>
               <div style={{ minWidth: 0, border: `1px solid ${C.g100}`, borderRadius: 10, padding: '10px 12px', background: '#FCFEFD' }}>
-                <div style={{ fontSize: 11, color: C.g400, fontWeight: 900, marginBottom: 3 }}>금액</div>
-                <div style={{ fontSize: 13, color: C.g800, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fmt(calculateUsageLineAmount(editUsageItemDraft.quantity, editUsageItemDraft.unitPrice))}</div>
+                <div style={{ fontSize: 12, color: C.g400, fontWeight: 800, marginBottom: 3 }}>금액</div>
+                <div style={{ fontSize: 14, color: C.g800, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fmt(calculateUsageLineAmount(editUsageItemDraft.quantity, editUsageItemDraft.unitPrice))}</div>
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6 }}>
-              <div style={{ gridColumn: '1 / -1', fontSize: 12, fontWeight: 900, color: C.g800, marginBottom: 2 }}>9개 항목 위치</div>
+              <div style={{ gridColumn: '1 / -1', fontSize: 13, fontWeight: 800, color: C.g800, marginBottom: 2 }}>9개 항목 위치</div>
               {cats.map((cat) => {
                 const active = editUsageItemDraft.categoryId === cat.id;
                 return (
@@ -598,23 +598,23 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                     key={cat.id}
                     type="button"
                     onClick={() => setEditUsageItemDraft((draft) => ({ ...draft, categoryId: cat.id }))}
-                    style={{ minWidth: 0, width: '100%', minHeight: 58, border: `1px solid ${active ? C.light : C.g200}`, borderRadius: 10, background: active ? C.bg : C.white, color: active ? C.primary : C.g800, padding: '10px 12px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, lineHeight: 1.35, wordBreak: 'keep-all', overflowWrap: 'anywhere' }}
+                    style={{ minWidth: 0, width: '100%', minHeight: 58, border: `1px solid ${active ? C.light : C.g200}`, borderRadius: 10, background: active ? C.bg : C.white, color: active ? C.primary : C.g800, padding: '10px 12px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 800, lineHeight: 1.35, wordBreak: 'keep-all', overflowWrap: 'anywhere' }}
                   >
                     {cat.short}
                   </button>
                 );
               })}
             </div>
-            {editUsageItemError && <div style={{ fontSize: 12, color: C.danger, fontWeight: 900 }}>{editUsageItemError}</div>}
+            {editUsageItemError && <div style={{ fontSize: 13, color: C.danger, fontWeight: 800 }}>{editUsageItemError}</div>}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: '16px 24px', background: '#FCFEFD', borderTop: `1px solid ${C.g100}`, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 12, color: C.g400, fontWeight: 800 }}>
+            <div style={{ fontSize: 13, color: C.g400, fontWeight: 700 }}>
               위치를 바꾸면 연결된 파일도 함께 이동합니다.
             </div>
             <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-              <button type="button" onClick={() => setEditUsageItemTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
-              <button type="button" onClick={confirmEditUsageItem} disabled={!editUsageItemTarget} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: !editUsageItemTarget ? 'not-allowed' : 'pointer', opacity: !editUsageItemTarget ? 0.45 : 1 }}>저장</button>
+              <button type="button" onClick={() => setEditUsageItemTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+              <button type="button" onClick={confirmEditUsageItem} disabled={!editUsageItemTarget} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: !editUsageItemTarget ? 'not-allowed' : 'pointer', opacity: !editUsageItemTarget ? 0.45 : 1 }}>저장</button>
             </div>
           </div>
         </div>

@@ -307,10 +307,6 @@ const getNextMonthKey = (month?: string) => {
     base.setMonth(base.getMonth() + 1);
     return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
 };
-const isSupplementClearedWorkflow = (status?: string | null) => {
-    const normalized = normalizeUsageWorkflowStatus(status);
-    return normalized === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || normalized === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED;
-};
 const applyWorkflowToProject = (project: ProjectSummary, status: SharedWorkflowStatus, actionRequestDetails?: ProjectSummary['actionRequestDetails']): ProjectSummary => ({
     ...project,
     hasActionRequest: status === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
@@ -322,21 +318,6 @@ const withActionRequestMonth = (details: ProjectSummary['actionRequestDetails'] 
         return details;
     return details.month || !month ? details : { ...details, month };
 };
-const orchestratorTodosToDetails = (todos: OrchestratorTodo[], month?: string, assignee = FALLBACK_ACTION_ASSIGNEE): ProjectSummary['actionRequestDetails'] | undefined => {
-    const openTodos = todos.filter((todo) => todo.statusCode !== 'closed' && !todo.confirmed);
-    if (!openTodos.length)
-        return undefined;
-    const reason = openTodos.map((todo, index) => `${index + 1}. ${formatActionGuideReason(todo.reason)}`).join('\n');
-    return {
-        title: '부족한 서류 안내',
-        reason,
-        assignee,
-        dueDate: '',
-        requestedAt: '-',
-        month,
-    };
-};
-const getPendingOrchestratorTodos = (todos: OrchestratorTodo[] = []) => todos.filter((todo) => todo.statusCode !== 'closed' && !todo.confirmed);
 const formatLegalDisabledReason = (reason?: string | null) => {
     const text = (reason || '').trim();
     if (!text)
@@ -497,7 +478,7 @@ function ProjectDetailPageContent() {
                     ...entry,
                     workflowStatus: status,
                     actionRequestDetails: status === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? withActionRequestMonth(actionRequestDetails, month) : undefined,
-                    orchestratorTodos: status === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? entry.orchestratorTodos : [],
+                    orchestratorTodos: entry.orchestratorTodos,
                 },
             };
         });
@@ -509,18 +490,15 @@ function ProjectDetailPageContent() {
         }
         try {
             const archiveWorkflowStatus = normalizeUsageWorkflowStatus(item.workflowStatus);
-            const clearedByWorkflow = archiveWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-                && isSupplementClearedWorkflow(archiveWorkflowStatus);
             const status = await getOrchestratorStatus(project.id || projectId, item.usageStatementId);
-            const todos = clearedByWorkflow ? [] : status.todos || [];
-            const pendingTodos = getPendingOrchestratorTodos(todos);
-            const actionRequestDetails = orchestratorTodosToDetails(pendingTodos, month, getProjectAssigneeLabel(project));
+            const todos = status.todos || [];
+            const actionRequestDetails = archiveWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+                ? withActionRequestMonth(project.actionRequestDetails, month)
+                : undefined;
             return {
                 ...item,
                 statementSummary: { ...item.statementSummary, month, label: formatMonthLabel(month) },
-                workflowStatus: clearedByWorkflow
-                    ? (archiveWorkflowStatus || item.workflowStatus)
-                    : actionRequestDetails ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : item.workflowStatus,
+                workflowStatus: archiveWorkflowStatus || item.workflowStatus,
                 actionRequestDetails,
                 orchestratorTodos: todos,
                 legalResultCode: status.legalResultCode,
@@ -587,7 +565,6 @@ function ProjectDetailPageContent() {
     const selectedMonthHasUploadedStatement = Boolean(selectedStatement.sourceFileName && selectedStatement.sourceFileName !== '-');
     const hasUsageStatement = monthlyStatements.length > 0 || Boolean(archiveSeed?.usage_statement?.length || archiveUsageItems.length);
     const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
-    const selectedOpenOrchestratorTodos = getPendingOrchestratorTodos(selectedStatementArchive?.orchestratorTodos);
     const selectedLegalResultCode = String(selectedStatementArchive?.legalResultCode || '').toLowerCase();
     const selectedLegalAllowsReport = selectedLegalResultCode === 'success' || selectedLegalResultCode === 'hil' || (!selectedLegalResultCode && selectedValidationStatus === 'done');
     const selectedReportGenerationEnabled = Boolean(
@@ -603,7 +580,6 @@ function ProjectDetailPageContent() {
                 : '법령 검증 결과가 있어야 보고서 초안을 생성할 수 있습니다.');
     const selectedMonthHasActionRequest = Boolean(
         selectedStatementArchive?.workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-        || selectedOpenOrchestratorTodos.length
     );
     const selectedMonthWorkflowStatus: SharedWorkflowStatus = selectedStatementArchive?.workflowStatus
         || (selectedMonthHasActionRequest
@@ -614,9 +590,8 @@ function ProjectDetailPageContent() {
             || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED);
     const uploadCompleteAlreadySubmitted = selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED
         || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED;
-    const selectedMonthShouldDisplayWorkflowStatus = selectedMonthHasUploadedStatement || Boolean(selectedStatementArchive?.workflowStatus || selectedOpenOrchestratorTodos.length);
+    const selectedMonthShouldDisplayWorkflowStatus = selectedMonthHasUploadedStatement || Boolean(selectedStatementArchive?.workflowStatus);
     const selectedMonthActionRequestDetails = selectedStatementArchive?.actionRequestDetails
-        || orchestratorTodosToDetails(selectedOpenOrchestratorTodos, selectedStatement.month, getProjectAssigneeLabel(project))
         || (selectedMonthHasActionRequest ? withActionRequestMonth(project.actionRequestDetails, selectedStatement.month) : undefined);
     const selectedValidationGateItems = buildValidationGateItems({
         usageStatementUploaded: selectedMonthHasUploadedStatement,
@@ -898,16 +873,15 @@ function ProjectDetailPageContent() {
             if (!entry)
                 return current;
             const archiveWorkflowStatus = normalizeUsageWorkflowStatus(entry.workflowStatus);
-            const clearedByWorkflow = archiveWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-                && isSupplementClearedWorkflow(archiveWorkflowStatus);
-            const todos = clearedByWorkflow ? [] : status.todos || [];
-            const pendingTodos = getPendingOrchestratorTodos(todos);
+            const todos = status.todos || [];
             return {
                 ...current,
                 [selectedStatement.month]: {
                     ...entry,
                     orchestratorTodos: todos,
-                    actionRequestDetails: orchestratorTodosToDetails(pendingTodos, selectedStatement.month, getProjectAssigneeLabel(project)),
+                    actionRequestDetails: archiveWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
+                        ? entry.actionRequestDetails
+                        : undefined,
                     legalReady: status.legalReady,
                     legalDisabledReason: status.legalDisabledReason,
                     legalResultCode: status.legalResultCode,
@@ -942,9 +916,7 @@ function ProjectDetailPageContent() {
                     actionRequestDetails: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
                         ? entry.actionRequestDetails
                         : undefined,
-                    orchestratorTodos: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-                        ? entry.orchestratorTodos
-                        : [],
+                    orchestratorTodos: entry.orchestratorTodos,
                     legalReady: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT ? false : entry.legalReady,
                     legalResultCode: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT ? null : entry.legalResultCode,
                     legalDisabledReason: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT ? '유효성 검증을 다시 실행해야 합니다.' : entry.legalDisabledReason,
@@ -1168,7 +1140,12 @@ function ProjectDetailPageContent() {
                         if (savedArchive) {
                             setArchiveUsageItems(savedArchive.usageItems);
                         }
-                        setProject((current) => ({ ...current, hasUploads: true }));
+                        const latestProject = await getProject(project.id).catch(() => null);
+                        setProject((current) => ({
+                            ...current,
+                            ...(latestProject || {}),
+                            hasUploads: true,
+                        }));
                         setSelectedMonth(month);
                         await refreshArchiveData(project.id);
                         setUsageUploadStage('idle');
@@ -1187,7 +1164,7 @@ function ProjectDetailPageContent() {
                 usageUploadTimersRef.current.forEach((timer) => window.clearTimeout(timer));
                 usageUploadTimersRef.current = [];
                 setUsageUploadStage('idle');
-                setUsageUploadFailureMessage('사용내역서 업로드 처리를 시작하지 못했습니다.');
+                setUsageUploadFailureMessage('사용내역서 업로드 처리를 하지 못했습니다.');
             }
         };
         input.click();
@@ -1292,8 +1269,8 @@ function ProjectDetailPageContent() {
       background: C.white,
       color: C.g800,
       fontFamily: 'inherit',
-      fontSize: 15,
-      fontWeight: 900,
+      fontSize: 16,
+      fontWeight: 800,
       outline: 'none',
     };
     const monthCreateButtonStyle: CSSProperties = {
@@ -1301,19 +1278,19 @@ function ProjectDetailPageContent() {
       borderRadius: 999,
       padding: '0 18px',
       fontFamily: 'inherit',
-      fontSize: 13,
-      fontWeight: 900,
+      fontSize: 14,
+      fontWeight: 800,
       cursor: 'pointer',
     };
     const monthCreateModal = (
       <Modal open={monthCreateModalOpen} onClose={() => setMonthCreateModalOpen(false)} zIndex={970} maxWidth={390}>
         <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 16, boxShadow: '0 18px 44px rgba(0,0,0,.16)', overflow: 'hidden' }}>
           <div style={{ padding: '22px 22px 18px' }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 6 }}>사용내역서 월 추가</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.g400, lineHeight: 1.55, marginBottom: 18 }}>추가할 사용내역서의 연도와 월을 입력해 주세요.</div>
+          <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, marginBottom: 6 }}>사용내역서 월 추가</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.g400, lineHeight: 1.55, marginBottom: 18 }}>추가할 사용내역서의 연도와 월을 입력해 주세요.</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
             <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>연도</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>연도</span>
               <input
                 value={newMonthYear}
                 onChange={(event) => {
@@ -1326,7 +1303,7 @@ function ProjectDetailPageContent() {
               />
             </label>
             <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>월</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>월</span>
               <input
                 value={newMonthNo}
                 onChange={(event) => {
@@ -1339,7 +1316,7 @@ function ProjectDetailPageContent() {
               />
             </label>
           </div>
-          {newMonthError && <div style={{ marginTop: 10, borderRadius: 8, background: C.dangerBg, color: C.danger, padding: '9px 10px', fontSize: 12, fontWeight: 900 }}>{newMonthError}</div>}
+          {newMonthError && <div style={{ marginTop: 10, borderRadius: 8, background: C.dangerBg, color: C.danger, padding: '9px 10px', fontSize: 13, fontWeight: 800 }}>{newMonthError}</div>}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px 18px', borderTop: `1px solid ${C.g100}`, background: '#FAFBFA' }}>
             <button type="button" onClick={() => setMonthCreateModalOpen(false)} style={{ ...monthCreateButtonStyle, border: `1px solid ${C.g200}`, background: C.white, color: C.g600 }}>취소</button>
@@ -1356,14 +1333,14 @@ function ProjectDetailPageContent() {
         setMonthDeleteError('');
       }} zIndex={980} maxWidth={440}>
         <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>사용내역서 월 삭제</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, marginBottom: 8 }}>사용내역서 월 삭제</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.6 }}>
             {monthDeleteTarget?.label} 사용내역서를 삭제하시겠습니까? 해당 월의 사용내역서와 증빙 서류가 제거됩니다.
           </div>
-          {monthDeleteError && <div style={{ marginTop: 12, borderRadius: 10, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 12, fontWeight: 900, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{monthDeleteError}</div>}
+          {monthDeleteError && <div style={{ marginTop: 12, borderRadius: 10, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 800, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{monthDeleteError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-            <button type="button" onClick={() => { setMonthDeleteTarget(null); setMonthDeleteError(''); }} disabled={monthDeleting} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: monthDeleting ? C.g400 : C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: monthDeleting ? 'not-allowed' : 'pointer' }}>취소</button>
-            <button type="button" onClick={deleteUsageMonth} disabled={monthDeleting} style={{ height: 38, border: 'none', borderRadius: 999, background: monthDeleting ? C.g200 : C.danger, color: C.white, padding: '0 16px', fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: monthDeleting ? 'wait' : 'pointer' }}>{monthDeleting ? '삭제 중' : '삭제'}</button>
+            <button type="button" onClick={() => { setMonthDeleteTarget(null); setMonthDeleteError(''); }} disabled={monthDeleting} style={{ height: 38, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: monthDeleting ? C.g400 : C.g600, padding: '0 15px', fontFamily: 'inherit', fontSize: 14, fontWeight: 800, cursor: monthDeleting ? 'not-allowed' : 'pointer' }}>취소</button>
+            <button type="button" onClick={deleteUsageMonth} disabled={monthDeleting} style={{ height: 38, border: 'none', borderRadius: 999, background: monthDeleting ? C.g200 : C.danger, color: C.white, padding: '0 16px', fontFamily: 'inherit', fontSize: 14, fontWeight: 800, cursor: monthDeleting ? 'wait' : 'pointer' }}>{monthDeleting ? '삭제 중' : '삭제'}</button>
           </div>
         </div>
       </Modal>
@@ -1415,31 +1392,31 @@ function ProjectDetailPageContent() {
             <div style={{ padding: '20px 22px 16px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 900, color: C.danger }}>부족한 서류 안내</span>
-                  {selectedMonthActionRequestDetails?.dueDate && <span style={{ fontSize: 11, fontWeight: 900, color: C.g600, background: C.g100, borderRadius: 999, padding: '4px 8px' }}>기한 {selectedMonthActionRequestDetails.dueDate}</span>}
+                  <span style={{ fontSize: 14, fontWeight: 800, color: C.danger }}>부족한 서류 안내</span>
+                  {selectedMonthActionRequestDetails?.dueDate && <span style={{ fontSize: 12, fontWeight: 800, color: C.g600, background: C.g100, borderRadius: 999, padding: '4px 8px' }}>기한 {selectedMonthActionRequestDetails.dueDate}</span>}
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, lineHeight: 1.35 }}>부족한 서류를 확인해 주세요</div>
-                {actionGuideMeta && <div style={{ fontSize: 12, color: C.g400, fontWeight: 900, marginTop: 6 }}>{actionGuideMeta}</div>}
+                <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, lineHeight: 1.35 }}>부족한 서류를 확인해 주세요</div>
+                {actionGuideMeta && <div style={{ fontSize: 13, color: C.g400, fontWeight: 800, marginTop: 6 }}>{actionGuideMeta}</div>}
               </div>
-              <button type="button" aria-label="부족한 서류 안내 닫기" onClick={closeActionGuide} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 24, lineHeight: 1 }}>×</button>
+              <button type="button" aria-label="부족한 서류 안내 닫기" onClick={closeActionGuide} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 25, lineHeight: 1 }}>×</button>
             </div>
             <div style={{ padding: '18px 22px 20px' }}>
               <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
                 {(actionGuideItems.length > 0 ? actionGuideItems : ['제출 자료를 다시 확인해 주세요.']).map((item, index) => (
                   <div key={`${item}-${index}`} style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr)', gap: 8, alignItems: 'start', border: `1px solid ${C.g100}`, borderRadius: 6, background: '#FCFEFD', padding: '10px 12px' }}>
-                    <span style={{ width: 24, height: 24, borderRadius: 999, background: C.g100, color: C.g600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>{index + 1}</span>
-                    <span style={{ minWidth: 0, fontSize: 13, color: C.g600, fontWeight: 800, lineHeight: 1.65 }}>{item}</span>
+                    <span style={{ width: 24, height: 24, borderRadius: 999, background: C.g100, color: C.g600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800 }}>{index + 1}</span>
+                    <span style={{ minWidth: 0, fontSize: 14, color: C.g600, fontWeight: 700, lineHeight: 1.65 }}>{item}</span>
                   </div>
                 ))}
               </div>
               {actionGuideRequestedFiles.length > 0 && <div style={{ border: `1px solid ${C.g100}`, borderRadius: 6, background: '#FCFEFD', padding: '12px 14px', display: 'grid', gap: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 900, color: C.g800 }}>요청 자료</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.g800 }}>요청 자료</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {actionGuideRequestedFiles.map((fileName) => <span key={fileName} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '4px 8px', fontSize: 12, fontWeight: 900 }}>{fileName}</span>)}
+                  {actionGuideRequestedFiles.map((fileName) => <span key={fileName} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '4px 8px', fontSize: 13, fontWeight: 800 }}>{fileName}</span>)}
                 </div>
               </div>}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-                <button type="button" onClick={closeActionGuide} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>닫기</button>
+                <button type="button" onClick={closeActionGuide} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>닫기</button>
               </div>
             </div>
           </div>
@@ -1479,12 +1456,12 @@ function ProjectDetailPageContent() {
     const safetyUsageBarWidth = Math.min(100, Math.max(0, safetyUsagePercent));
     const remainingSafetyCost = Math.max(0, totalSafetyCost - usedSafetyCost);
     const usageStatementInfoRows = [
-        ['건설업체명', project.constructionCompany, '공사명', project.constructionName],
-        ['소재지', project.location, '대표자', project.representative],
-        ['공사금액', `${project.constructionAmount}원`, '공사기간', project.period],
-        ['발주자', project.client, '공정률', project.progressRate],
+        ['대표자', project.representative, '발주자', project.client],
+        ['건설업체명', project.constructionCompany, '소재지', project.location],
         ['프로젝트 담당자', getProjectAssigneeLabel(project), 'SHE 담당자', getProjectSheManagerLabel(project)],
-        ['계상된 안전관리비', `${project.plannedAmount}원`, '사용률', `${safetyUsagePercent}%`],
+        ['공사금액', `${project.constructionAmount}원`, '계상된 안전관리비', `${project.plannedAmount}원`],
+        ['공사기간', project.period, '공정률', project.progressRate],
+        ['사용률', `${safetyUsagePercent}%`],
         ...(selectedMonth
             ? [
                 ['업로드일', selectedStatement.uploadedAt, '최종수정일', selectedStatement.documentWrittenDate],
@@ -1494,17 +1471,17 @@ function ProjectDetailPageContent() {
     const showUsageStatementHeaderInfo = true;
     if (projectLoading) {
         return (<AppFrame title="프로젝트 상세">
-          <Card style={{ padding: 24, textAlign: 'center', color: C.g400, fontWeight: 900, borderRadius: 6 }}>프로젝트 정보를 불러오는 중입니다.</Card>
+          <Card style={{ padding: 24, textAlign: 'center', color: C.g400, fontWeight: 800, borderRadius: 6 }}>프로젝트 정보를 불러오는 중입니다.</Card>
         </AppFrame>);
     }
     if (projectError) {
         return (<AppFrame title="프로젝트 상세">
-          <Card style={{ padding: 24, textAlign: 'center', color: C.danger, fontWeight: 900, borderRadius: 6 }}>{projectError}</Card>
+          <Card style={{ padding: 24, textAlign: 'center', color: C.danger, fontWeight: 800, borderRadius: 6 }}>{projectError}</Card>
         </AppFrame>);
     }
     const canUploadUsageStatementFile = canUploadEvidence && Boolean(selectedMonth) && !selectedMonthHasUploadedStatement;
     const usageUploadButton = canUploadUsageStatementFile ? (
-      <button type="button" onClick={uploadUsageStatementFromOverview} disabled={usageUploadStage !== 'idle'} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: usageUploadStage === 'idle' ? C.primary : C.g400, height: 34, padding: '0 13px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: usageUploadStage === 'idle' ? 'pointer' : 'wait', boxShadow: 'none', whiteSpace: 'nowrap' }}>
+      <button type="button" onClick={uploadUsageStatementFromOverview} disabled={usageUploadStage !== 'idle'} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: usageUploadStage === 'idle' ? C.primary : C.g400, height: 34, padding: '0 13px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, fontFamily: 'inherit', cursor: usageUploadStage === 'idle' ? 'pointer' : 'wait', boxShadow: 'none', whiteSpace: 'nowrap' }}>
         {usageUploadStage === 'ocr' ? 'OCR/분류 처리 중' : usageUploadStage === 'classifying' ? '목록 갱신 중' : '사용내역서 업로드'}
       </button>
     ) : null;
@@ -1522,8 +1499,8 @@ function ProjectDetailPageContent() {
           background: uploadCompleteDisabled ? C.g100 : C.bg,
           color: uploadCompleteDisabled ? C.g400 : C.primary,
           cursor: uploadCompleteDisabled ? 'not-allowed' : 'pointer',
-          fontSize: 13,
-          fontWeight: 900,
+          fontSize: 14,
+          fontWeight: 800,
           fontFamily: 'inherit',
           whiteSpace: 'nowrap',
           boxShadow: 'none',
@@ -1537,10 +1514,10 @@ function ProjectDetailPageContent() {
       <div style={{ display: 'grid', gap: 18 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 900, color: C.g800 }}>월별 사용내역서</div>
-            <div style={{ marginTop: 5, fontSize: 13, fontWeight: 800, color: C.g400 }}>확인할 월을 선택하거나 새 월을 추가해 주세요.</div>
+            <div style={{ fontSize: 21, fontWeight: 800, color: C.g800 }}>월별 사용내역서</div>
+            <div style={{ marginTop: 5, fontSize: 14, fontWeight: 700, color: C.g400 }}>확인할 월을 선택하거나 새 월을 추가해 주세요.</div>
           </div>
-          <div style={{ height: 32, padding: '0 12px', borderRadius: 999, border: `1px solid ${C.g200}`, background: C.bg, color: C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap' }}>
+          <div style={{ height: 32, padding: '0 12px', borderRadius: 999, border: `1px solid ${C.g200}`, background: C.bg, color: C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>
             {monthlyStatements.length}개월
           </div>
         </div>
@@ -1578,17 +1555,17 @@ function ProjectDetailPageContent() {
                     setMonthDeleteError('');
                     setMonthDeleteTarget(statement);
                   }}
-                  style={{ position: 'absolute', top: 12, right: 12, width: 24, height: 24, borderRadius: 999, border: `1px solid ${hasSupplementRequest ? '#FFCDD2' : C.g200}`, background: C.white, color: hasSupplementRequest ? C.danger : C.g400, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 900, lineHeight: 1, cursor: 'pointer' }}
+                  style={{ position: 'absolute', top: 12, right: 12, width: 24, height: 24, borderRadius: 999, border: `1px solid ${hasSupplementRequest ? '#FFCDD2' : C.g200}`, background: C.white, color: hasSupplementRequest ? C.danger : C.g400, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 800, lineHeight: 1, cursor: 'pointer' }}
                 >
                   ×
                 </span>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 28 }}>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: hasSupplementRequest ? C.danger : C.g800 }}>{statement.label}</div>
+                    <div style={{ fontSize: 19, fontWeight: 800, color: hasSupplementRequest ? C.danger : C.g800 }}>{statement.label}</div>
                   </div>
                   <div style={{ marginTop: 9, minHeight: 19, display: 'flex', alignItems: 'center' }}>
                     {workflowMeta && (
-                      <span style={{ color: workflowMeta.color, fontSize: 12, fontWeight: 900, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                      <span style={{ color: workflowMeta.color, fontSize: 13, fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
                         {workflowMeta.label}
                       </span>
                     )}
@@ -1596,10 +1573,10 @@ function ProjectDetailPageContent() {
                 </div>
                 <div style={{ borderTop: `1px solid ${hasSupplementRequest ? '#FFE1E4' : C.g100}`, paddingTop: 12, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'end', gap: 10 }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 10, fontWeight: 900, color: C.g400 }}>누계</div>
-                    <div title={`${totalAmount}원`} style={{ marginTop: 4, fontSize: 15, fontWeight: 900, color: hasSupplementRequest ? C.danger : uploaded ? C.primary : C.g600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{totalAmount}원</div>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: C.g400 }}>누계</div>
+                    <div title={`${totalAmount}원`} style={{ marginTop: 4, fontSize: 16, fontWeight: 800, color: hasSupplementRequest ? C.danger : uploaded ? C.primary : C.g600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{totalAmount}원</div>
                   </div>
-                  <div style={{ height: 28, padding: '0 10px', borderRadius: 999, border: `1px solid ${hasSupplementRequest ? '#FFCDD2' : C.light}`, background: C.white, color: hasSupplementRequest ? C.danger : C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900 }}>보기</div>
+                  <div style={{ height: 28, padding: '0 10px', borderRadius: 999, border: `1px solid ${hasSupplementRequest ? '#FFCDD2' : C.light}`, background: C.white, color: hasSupplementRequest ? C.danger : C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>보기</div>
                 </div>
               </button>
             );
@@ -1624,34 +1601,34 @@ function ProjectDetailPageContent() {
         {!selectedMonth ? monthGridContent : !hasUsageStatement ? (
           <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
-              <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 9 }}>사용내역서가 없습니다</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 9 }}>사용내역서가 없습니다</div>
             </div>
           </div>
         ) : <>
         <div data-ui="project-detail.15" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', alignItems: 'center', gap: 10, marginBottom: 16, minWidth: 0 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap' }}>사용내역서</div>
-              <div style={{ fontSize: 12, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap' }}>사용내역서</div>
+              <div style={{ fontSize: 13, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {usageUploadStage === 'ocr' ? 'OCR 처리 후 세부 항목 분류까지 진행하고 있습니다.' : usageUploadStage === 'classifying' ? '분류 결과를 화면에 반영하고 있습니다.' : '사용 현황 및 9개 항목 요약'}
               </div>
             </div>
           </div>
           <div />
           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-              <button type="button" onClick={() => updateTab('details')} style={{ height: 40, border: 'none', borderRadius: 999, background: C.primary, color: C.white, cursor: 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>세부 내역 보기</button>
+              <button type="button" onClick={() => updateTab('details')} style={{ height: 40, border: 'none', borderRadius: 999, background: C.primary, color: C.white, cursor: 'pointer', fontSize: 14, fontWeight: 800, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>세부 내역 보기</button>
           </div>
         </div>
         <>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '18px 20px', marginBottom: 16, boxShadow: '0 8px 18px rgba(31,47,39,.04)' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 900, color: C.g800 }}>안전관리비 사용 현황</div>
-              <div style={{ fontSize: 12, color: C.g400, fontWeight: 800, marginTop: 4 }}>사용한 안전관리비 / 계상된 안전관리비</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.g800 }}>안전관리비 사용 현황</div>
+              <div style={{ fontSize: 13, color: C.g400, fontWeight: 700, marginTop: 4 }}>사용한 안전관리비 / 계상된 안전관리비</div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 24, lineHeight: 1, fontWeight: 900, color: C.primary }}>{safetyUsagePercent}%</div>
-              <div style={{ fontSize: 11, color: C.g400, fontWeight: 900, marginTop: 5 }}>사용률</div>
+              <div style={{ fontSize: 25, lineHeight: 1, fontWeight: 800, color: C.primary }}>{safetyUsagePercent}%</div>
+              <div style={{ fontSize: 12, color: C.g400, fontWeight: 800, marginTop: 5 }}>사용률</div>
             </div>
           </div>
           <div style={{ height: 18, borderRadius: 999, background: C.g100, border: `1px solid ${C.g200}`, overflow: 'hidden', marginBottom: 13 }}>
@@ -1664,11 +1641,11 @@ function ProjectDetailPageContent() {
               ['잔여', `${remainingSafetyCost.toLocaleString('ko-KR')}원`, C.g600],
             ].map(([label, value, color], index) => (
               <Fragment key={label}>
-                {index === 1 && <div aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.g400, fontSize: 18, fontWeight: 900 }}>-</div>}
-                {index === 2 && <div aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.g400, fontSize: 18, fontWeight: 900 }}>=</div>}
+                {index === 1 && <div aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.g400, fontSize: 19, fontWeight: 800 }}>-</div>}
+                {index === 2 && <div aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.g400, fontSize: 19, fontWeight: 800 }}>=</div>}
                 <div style={{ borderRadius: 10, background: C.white, border: `1px solid ${C.g200}`, padding: '11px 12px', minWidth: 0 }}>
-                  <div style={{ fontSize: 11, color: C.g400, fontWeight: 900, marginBottom: 5 }}>{label}</div>
-                  <div title={value} style={{ fontSize: 14, color, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+                  <div style={{ fontSize: 12, color: C.g400, fontWeight: 800, marginBottom: 5 }}>{label}</div>
+                  <div title={value} style={{ fontSize: 15, color, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
                 </div>
               </Fragment>
             ))}
@@ -1677,7 +1654,7 @@ function ProjectDetailPageContent() {
         <div className="thin-x-scroll" style={usageTableScrollStyle}>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', minWidth: usageSummaryGridStyle.minWidth }}>
           <div style={{ ...usageSummaryGridStyle, background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
-            {['항목', '전회', '금회', '누계'].map((head) => <div key={head} style={{ padding: '10px 12px', fontSize: 13, color: C.g600, fontWeight: 900, textAlign: head === '항목' ? 'left' : 'right', borderRight: head === '누계' ? 'none' : `1px solid ${C.g200}` }}>{head}</div>)}
+            {['항목', '전회', '금회', '누계'].map((head) => <div key={head} style={{ padding: '10px 12px', fontSize: 14, color: C.g600, fontWeight: 800, textAlign: head === '항목' ? 'left' : 'right', borderRight: head === '누계' ? 'none' : `1px solid ${C.g200}` }}>{head}</div>)}
           </div>
           {[...editableUsageRows, [
             '계',
@@ -1687,10 +1664,10 @@ function ProjectDetailPageContent() {
           ] as [string, string, string, string]].map(([item, previous, current, cumulative], index) => {
                 const isTotal = item === '계';
                 return (<div key={item} style={{ ...usageSummaryGridStyle, background: isTotal ? C.g100 : C.white, borderBottom: index === overviewUsageRows.length - 1 ? 'none' : `1px solid ${C.g200}` }}>
-                <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, borderRight: `1px solid ${C.g200}` }}>{item}</div>
-                <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, textAlign: 'right', borderRight: `1px solid ${C.g200}` }}>{previous}</div>
-                <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, textAlign: 'right', borderRight: `1px solid ${C.g200}` }}>{current}</div>
-                <div style={{ padding: '10px 12px', fontSize: 13, color: C.g800, fontWeight: isTotal ? 900 : 800, textAlign: 'right' }}>{cumulative}</div>
+                <div style={{ padding: '10px 12px', fontSize: 14, color: C.g800, fontWeight: isTotal ? 800 : 700, borderRight: `1px solid ${C.g200}` }}>{item}</div>
+                <div style={{ padding: '10px 12px', fontSize: 14, color: C.g800, fontWeight: isTotal ? 800 : 700, textAlign: 'right', borderRight: `1px solid ${C.g200}` }}>{previous}</div>
+                <div style={{ padding: '10px 12px', fontSize: 14, color: C.g800, fontWeight: isTotal ? 800 : 700, textAlign: 'right', borderRight: `1px solid ${C.g200}` }}>{current}</div>
+                <div style={{ padding: '10px 12px', fontSize: 14, color: C.g800, fontWeight: isTotal ? 800 : 700, textAlign: 'right' }}>{cumulative}</div>
               </div>);
             })}
         </div>
@@ -1702,14 +1679,14 @@ function ProjectDetailPageContent() {
         {!hasUsageStatement ? (
           <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
-              <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 9 }}>사용내역서가 없습니다</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 9 }}>사용내역서가 없습니다</div>
             </div>
           </div>
         ) : <>
         {!selectedMonthHasUploadedStatement ? <>
         <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 9 }}>{selectedStatement.label} 사용내역서가 업로드되지 않았습니다</div>
+            <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 9 }}>{selectedStatement.label} 사용내역서가 업로드되지 않았습니다</div>
             {usageUploadButton}
           </div>
         </div>
@@ -1821,7 +1798,7 @@ function ProjectDetailPageContent() {
       <Card style={{ padding: '18px 20px', marginBottom: 14, overflow: 'visible', position: 'relative', zIndex: 20, borderRadius: 12, border: `1px solid ${C.g200}`, boxShadow: projectDetailCardShadow, width: detailPanelWidth, minWidth: selectedMonth ? tabPanelMinWidth : 0, maxWidth: '100%', marginLeft: 'auto', marginRight: 'auto' }}>
         <div data-ui="project-detail.19" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div data-ui="project-detail.20" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
-            <h2 data-ui="project-detail.21" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 22, fontWeight: 900, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>
+            <h2 data-ui="project-detail.21" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 23, fontWeight: 800, color: C.g800, lineHeight: 1.25, margin: 0, minWidth: 240, flex: '1 1 360px' }}>
               {selectedMonth && <button type="button" aria-label="월 목록으로 돌아가기" title="월 목록으로 돌아가기" onClick={() => setSelectedMonth('')} style={{ width: 30, height: 30, border: `1px solid ${C.g200}`, borderRadius: 999, padding: 0, background: C.white, color: C.primary, fontFamily: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', flex: '0 0 auto' }}>
                 <ChevronIcon direction="left" size={15} color={C.primary} />
               </button>}
@@ -1829,48 +1806,48 @@ function ProjectDetailPageContent() {
                 <ChevronIcon direction="left" size={15} color={C.primary} />
               </button>}
               <span>{project.constructionName} 계약 정산</span>
-              <span style={{ fontSize: 12, fontWeight: 900, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>{project.contractNumber}</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: C.g400, lineHeight: 1, whiteSpace: 'nowrap' }}>{project.contractNumber}</span>
               {selectedMonthShouldDisplayWorkflowStatus && selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED && (canViewActionGuide ? (
-                <button type="button" ref={actionRequestBadgeRef} data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer', lineHeight: 1, whiteSpace: 'nowrap' }}>
+                <button type="button" ref={actionRequestBadgeRef} data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer', lineHeight: 1, whiteSpace: 'nowrap' }}>
                   {STATUS_META[selectedMonthWorkflowStatus].label}
                 </button>
               ) : (
-                <span data-ui="project-detail.27" style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap', lineHeight: 1 }}>
+                <span data-ui="project-detail.27" style={{ fontSize: 13, fontWeight: 700, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap', lineHeight: 1 }}>
                   {STATUS_META[selectedMonthWorkflowStatus].label}
                 </span>
               ))}
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flex: '1 1 260px', maxWidth: '100%', minWidth: 0, flexWrap: 'wrap' }}>
-              {showUsageStatementHeaderInfo && <button type="button" onClick={() => setProjectHeaderOpen((open) => !open)} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, height: 34, padding: '0 11px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 7px 16px rgba(31, 55, 43, .08)' }}>
+              {showUsageStatementHeaderInfo && <button type="button" onClick={() => setProjectHeaderOpen((open) => !open)} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, height: 34, padding: '0 11px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 7px 16px rgba(31, 55, 43, .08)' }}>
                 <ChevronIcon direction={projectHeaderOpen ? 'up' : 'down'} size={14} />
               </button>}
               {activeTab === 'overview' && selectedMonth ? usageUploadButton : null}
-              {canEditManagers && <button type="button" onClick={openProjectInfoModal} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, height: 34, padding: '0 13px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer', boxShadow: 'none' }}>기본 정보 수정</button>}
+              {canEditManagers && <button type="button" onClick={openProjectInfoModal} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, height: 34, padding: '0 13px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', boxShadow: 'none' }}>기본 정보 수정</button>}
             </div>
           </div>
           {projectHeaderOpen && showUsageStatementHeaderInfo && <div data-ui="project-detail.26" style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 2, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {selectedMonth && <span style={{ fontSize: 13, fontWeight: 900, color: C.primary, whiteSpace: 'nowrap' }}>{selectedStatement.label}</span>}
-              <span style={{ fontSize: 13, fontWeight: 900, color: C.g400 }}>사용내역서 기본 정보</span>
+              {selectedMonth && <span style={{ fontSize: 14, fontWeight: 800, color: C.primary, whiteSpace: 'nowrap' }}>{selectedStatement.label}</span>}
+              <span style={{ fontSize: 14, fontWeight: 800, color: C.g400 }}>사용내역서 기본 정보</span>
               {selectedMonthShouldDisplayWorkflowStatus && selectedMonthWorkflowStatus !== USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED && (canViewActionGuide ? (
-                <button type="button" ref={actionRequestBadgeRef} data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, fontFamily: 'inherit', fontSize: 12, fontWeight: 800, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }}>
+                <button type="button" ref={actionRequestBadgeRef} data-ui="project-detail.27" className={shouldPulseActionBadge ? 'action-request-pulse' : undefined} onClick={() => setActionGuideOpen(true)} style={{ border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }}>
                   {STATUS_META[selectedMonthWorkflowStatus].label}
                 </button>
               ) : (
-                <span data-ui="project-detail.27" style={{ fontSize: 12, fontWeight: 800, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap' }}>
+                <span data-ui="project-detail.27" style={{ fontSize: 13, fontWeight: 700, color: STATUS_META[selectedMonthWorkflowStatus].color, background: STATUS_META[selectedMonthWorkflowStatus].bg, border: `1px solid ${STATUS_META[selectedMonthWorkflowStatus].color}`, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap' }}>
                   {STATUS_META[selectedMonthWorkflowStatus].label}
                 </span>
               ))}
             </div>
             <div className="thin-x-scroll" style={usageTableScrollStyle}>
-              <div data-ui="project-detail.16" style={{ ...usageInfoGridStyle, border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', fontSize: 13 }}>
+              <div data-ui="project-detail.16" style={{ ...usageInfoGridStyle, border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', fontSize: 14 }}>
                 {usageStatementInfoRows.map(([labelA, valueA, labelB, valueB]) => (
                   <Fragment key={`${labelA}-${labelB}`}>
-                    <div data-ui="project-detail.17" style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 900, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelA}</div>
-                    <div data-ui="project-detail.18" title={valueA} style={{ gridColumn: labelB ? undefined : 'span 3', padding: '9px 11px', color: C.g800, fontWeight: 800, borderRight: labelB ? `1px solid ${C.g200}` : 'none', borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueA}</div>
+                    <div data-ui="project-detail.17" style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelA}</div>
+                    <div data-ui="project-detail.18" title={valueA} style={{ gridColumn: labelB ? undefined : 'span 3', padding: '9px 11px', color: C.g800, fontWeight: 700, borderRight: labelB ? `1px solid ${C.g200}` : 'none', borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueA}</div>
                     {labelB && <>
-                      <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 900, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelB}</div>
-                      <div title={valueB} style={{ padding: '9px 11px', color: C.g800, fontWeight: 800, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueB}</div>
+                      <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelB}</div>
+                      <div title={valueB} style={{ padding: '9px 11px', color: C.g800, fontWeight: 700, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueB}</div>
                     </>}
                   </Fragment>
                 ))}
@@ -1907,11 +1884,11 @@ function ProjectDetailPageContent() {
         <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto', marginLeft: -36, width: 'calc(100% + 36px)' }}>
           {classificationMoveNotices.map((notice) => (
             <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
-              <div title={notice.itemName} style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
+              <div title={notice.itemName} style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 6, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
-                <span style={{ color: C.primary, fontWeight: 900 }}>→</span>
-                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 6, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
+                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 6, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
+                <span style={{ color: C.primary, fontWeight: 800 }}>→</span>
+                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 6, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
               </div>
             </div>
           ))}
@@ -1920,14 +1897,14 @@ function ProjectDetailPageContent() {
       <Modal open={uploadCompleteConfirmOpen} onClose={() => setUploadCompleteConfirmOpen(false)} zIndex={930} maxWidth={420}>
         <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.g200}`, boxShadow: '0 22px 52px rgba(31,47,39,.18)', overflow: 'hidden' }}>
           <div style={{ padding: '20px 22px 17px', borderBottom: `1px solid ${C.g100}` }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, lineHeight: 1.35, marginBottom: 8 }}>미완료 보완 TODO가 있습니다</div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
+            <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, lineHeight: 1.35, marginBottom: 8 }}>미완료 보완 TODO가 있습니다</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.65 }}>
               미완료 보완 TODO {activeSupplementTodoCount}건이 남아 있습니다. 그래도 업로드 완료 처리할까요?
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px 18px', background: '#FAFBFA' }}>
-            <button type="button" onClick={() => setUploadCompleteConfirmOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={() => void completeReviewRequest(true)} disabled={uploadCompleteSubmitting} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: uploadCompleteSubmitting ? 'wait' : 'pointer', opacity: uploadCompleteSubmitting ? 0.72 : 1 }}>업로드 완료</button>
+            <button type="button" onClick={() => setUploadCompleteConfirmOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+            <button type="button" onClick={() => void completeReviewRequest(true)} disabled={uploadCompleteSubmitting} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: uploadCompleteSubmitting ? 'wait' : 'pointer', opacity: uploadCompleteSubmitting ? 0.72 : 1 }}>업로드 완료</button>
           </div>
         </div>
       </Modal>
@@ -1935,7 +1912,7 @@ function ProjectDetailPageContent() {
 
       {selectedMonth && <div data-ui="project-detail.28" style={{ width: detailPanelWidth, maxWidth: '100%', margin: '0 auto 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div role="tablist" aria-label="프로젝트 상세 탭" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: '1 1 360px', minWidth: 0, borderBottom: `1px solid ${C.g200}`, overflowX: 'auto' }}>
-          {availableTabs.map((tab) => (<button data-ui="project-detail.29" key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} onClick={() => updateTab(tab.id)} style={{ border: 'none', borderBottom: `2px solid ${activeTab === tab.id ? C.primary : 'transparent'}`, background: 'transparent', color: activeTab === tab.id ? C.primary : C.g600, opacity: activeTab === tab.id ? 1 : 0.58, padding: '8px 12px 9px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: activeTab === tab.id ? 900 : 800, whiteSpace: 'nowrap' }}>
+          {availableTabs.map((tab) => (<button data-ui="project-detail.29" key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} onClick={() => updateTab(tab.id)} style={{ border: 'none', borderBottom: `2px solid ${activeTab === tab.id ? C.primary : 'transparent'}`, background: 'transparent', color: activeTab === tab.id ? C.primary : C.g600, opacity: activeTab === tab.id ? 1 : 0.58, padding: '8px 12px 9px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: activeTab === tab.id ? 800 : 700, whiteSpace: 'nowrap' }}>
               {tab.label}
             </button>))}
         </div>

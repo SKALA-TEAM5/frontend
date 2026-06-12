@@ -133,8 +133,8 @@ const chipStyle = (color: string, bg: string, border?: string): CSSProperties =>
   border: border ? `1px solid ${border}` : 'none',
   background: bg,
   color,
-  fontSize: 11,
-  fontWeight: 900,
+  fontSize: 12,
+  fontWeight: 800,
   lineHeight: 1,
   whiteSpace: 'nowrap',
 });
@@ -149,8 +149,8 @@ const reportGateChipStyle = (color: string, bg: string, border: string): CSSProp
   border: `1px solid ${border}`,
   background: bg,
   color,
-  fontSize: 10,
-  fontWeight: 900,
+  fontSize: 11,
+  fontWeight: 800,
   lineHeight: 1,
   whiteSpace: 'nowrap',
 });
@@ -172,8 +172,8 @@ const reportInputStyle: CSSProperties = {
   background: 'transparent',
   color: C.g800,
   fontFamily: 'inherit',
-  fontSize: 14,
-  fontWeight: 500,
+  fontSize: 15,
+  fontWeight: 400,
   lineHeight: 1.75,
   outline: 'none',
   padding: '6px 8px',
@@ -409,12 +409,12 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
             : Math.max(720, columnCount * 132);
       return <div key={tableIndex} style={{ width: '100%', maxWidth: '100%', minWidth: 0, marginTop: tableIndex === 0 ? 0 : 16 }}>
         {table.title !== null && (
-          <div style={{ padding: '4px 0 8px', fontSize: 13, fontWeight: 700, color: C.g800 }}>{table.title}</div>
+          <div style={{ padding: '4px 0 8px', fontSize: 14, fontWeight: 600, color: C.g800 }}>{table.title}</div>
         )}
         <div className="thin-x-scroll" style={{ display: 'block', width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden' }}>
           <div style={{ width: '100%', minWidth, boxSizing: 'border-box', border: `1px solid ${C.g200}`, borderBottom: 'none', borderRadius: 6, overflow: 'hidden', background: C.white }}>
             {table.headers.length > 0 && <div style={{ display: 'grid', gridTemplateColumns: columnTemplate, background: '#F1F5F3', borderBottom: `1px solid ${C.g200}` }}>
-              {table.headers.map((header) => <div key={header} style={{ padding: '9px 10px', borderRight: `1px solid ${C.g200}`, fontSize: 13, fontWeight: 700, color: C.g800, textAlign: 'left' }}>{header}</div>)}
+              {table.headers.map((header) => <div key={header} style={{ padding: '9px 10px', borderRight: `1px solid ${C.g200}`, fontSize: 14, fontWeight: 600, color: C.g800, textAlign: 'left' }}>{header}</div>)}
             </div>}
             {table.rows.map((row, rowIndex) => {
               const rowHeight = Math.max(...row.map((cell, cellIndex) => getReportCellHeight(section.section_id, cellIndex, cell)));
@@ -422,7 +422,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
               <div key={rowIndex} style={{ display: 'grid', gridTemplateColumns: columnTemplate, borderBottom: `1px solid ${C.g200}` }}>
                 {row.map((cell, cellIndex) => {
                   const isLabel = isTemplateLabelCell(section.section_id, table.headers.length > 0, cellIndex, rowIndex, cell) || isLockedDataCell(section.section_id, tableIndex, table, cellIndex);
-                  const commonCellStyle: CSSProperties = { minHeight: rowHeight, borderRight: cellIndex === row.length - 1 ? 'none' : `1px solid ${C.g200}`, background: isLabel ? '#F1F5F3' : C.white, color: isLabel ? C.g600 : C.g800, textAlign: 'left', fontSize: 13, fontWeight: isLabel ? 700 : 500 };
+                  const commonCellStyle: CSSProperties = { minHeight: rowHeight, borderRight: cellIndex === row.length - 1 ? 'none' : `1px solid ${C.g200}`, background: isLabel ? '#F1F5F3' : C.white, color: isLabel ? C.g600 : C.g800, textAlign: 'left', fontSize: 14, fontWeight: isLabel ? 600 : 400 };
                   return isLabel
                     ? <div key={cellIndex} style={{ ...commonCellStyle, padding: '9px 10px', display: 'flex', alignItems: 'flex-start', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.65 }}>{cell}</div>
                     : <textarea className="report-edit-field" key={cellIndex} value={cell} rows={1} onChange={(event) => updateReportTableCell(sectionIndex, tableIndex, rowIndex, cellIndex, event.target.value)} style={{ ...reportInputStyle, ...commonCellStyle, height: rowHeight, resize: 'none', overflow: 'hidden', border: 'none', borderRight: commonCellStyle.borderRight, borderRadius: 0, padding: '9px 10px', whiteSpace: 'pre-wrap' }} />;
@@ -438,12 +438,12 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     return <div className="report-document-scroll" style={{ borderRadius: 14, background: '#F7F8FA', padding: '22px 18px', maxHeight: 'min(820px, calc(100vh - 188px))', minHeight: 520, overflowY: 'auto', overflowX: 'hidden' }}>
       <div style={{ width: '100%', maxWidth: 920, boxSizing: 'border-box', minWidth: 0, margin: '0 auto', background: C.white, border: '1px solid #E0E7E2', boxShadow: '0 10px 24px rgba(31,47,39,.07)', padding: '40px 48px', display: 'grid', gap: 28 }}>
         <div style={{ textAlign: 'center', padding: '14px 0 8px' }}>
-          <textarea className="report-edit-field" value={reportDraft.title} onChange={(event) => updateReportTopField('title', event.target.value)} style={{ ...reportInputStyle, resize: 'vertical', textAlign: 'center', fontSize: 22, fontWeight: 800, lineHeight: 1.45, minHeight: 72 }} />
+          <textarea className="report-edit-field" value={reportDraft.title} onChange={(event) => updateReportTopField('title', event.target.value)} style={{ ...reportInputStyle, resize: 'vertical', textAlign: 'center', fontSize: 23, fontWeight: 700, lineHeight: 1.45, minHeight: 72 }} />
         </div>
         {reportDraft.report_sections.map((section, sectionIndex) => (
           <section key={section.section_id} style={{ display: 'grid', gap: 12, minWidth: 0 }}>
             {section.section_id !== 'cover' && (
-              <input className="report-edit-field" value={section.title} onChange={(event) => updateReportSectionTitle(sectionIndex, event.target.value)} style={{ ...reportInputStyle, border: 'none', borderBottom: `1px solid ${C.g200}`, borderRadius: 0, padding: '8px 0 9px', fontSize: 17, fontWeight: 800, background: 'transparent' }} />
+              <input className="report-edit-field" value={section.title} onChange={(event) => updateReportSectionTitle(sectionIndex, event.target.value)} style={{ ...reportInputStyle, border: 'none', borderBottom: `1px solid ${C.g200}`, borderRadius: 0, padding: '8px 0 9px', fontSize: 18, fontWeight: 700, background: 'transparent' }} />
             )}
             {section.paragraphs.map((paragraph, paragraphIndex) => (
               <textarea className="report-edit-field" key={paragraphIndex} value={paragraph} onChange={(event) => updateReportParagraph(sectionIndex, paragraphIndex, event.target.value)} style={{ ...reportInputStyle, minHeight: paragraph.length > 90 ? 86 : 46, resize: 'vertical', border: section.kind === 'opinion' ? `1px solid ${C.g200}` : '1px solid transparent', background: section.kind === 'opinion' ? C.white : 'transparent' }} />
@@ -464,7 +464,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     ? '선택된 월의 사용내역서 정보가 없어 보고서를 생성할 수 없습니다.'
     : reportDisabledReason;
   const reportActionButtonStyle: CSSProperties = {
-    fontSize: 12,
+    fontSize: 13,
     padding: '8px 13px',
     boxShadow: `0 6px 14px ${C.primaryShadow}`,
   };
@@ -477,15 +477,15 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
       : { label: '미완료', color: C.warn, bg: C.warnBg, border: '#FFE082' };
     return (
       <div style={reportGateCardStyle}>
-        <div style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>보고서 생성 조건</div>
+        <div style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>보고서 생성 조건</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-panel)', background: C.white, overflow: 'hidden' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, alignItems: 'center', padding: '11px 12px' }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>{missingProjectInfo ? '사용내역서 선택' : '법령 검증'}</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: C.g800 }}>{missingProjectInfo ? '사용내역서 선택' : '법령 검증'}</span>
                 <span style={reportGateChipStyle(C.primary, C.bg, C.light)}>필수</span>
               </div>
-              <div style={{ marginTop: 4, fontSize: 11, fontWeight: 800, color: C.g500, lineHeight: 1.45 }}>
+              <div style={{ marginTop: 4, fontSize: 12, fontWeight: 700, color: C.g500, lineHeight: 1.45 }}>
                 {missingProjectInfo ? '보고서를 생성할 월별 사용내역서를 먼저 선택해야 합니다.' : '법령 검증 탭에서 법령 검증을 먼저 실행해야 합니다.'}
               </div>
             </div>
@@ -501,11 +501,11 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: C.g800 }}>보고서 생성</div>
-            {reportStatus === 'done' && <span style={{ ...chipStyle(reportWorkflowMeta.color, reportWorkflowMeta.bg), minHeight: 22, fontSize: 10 }}>{reportWorkflowMeta.label}</span>}
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>보고서 생성</div>
+            {reportStatus === 'done' && <span style={{ ...chipStyle(reportWorkflowMeta.color, reportWorkflowMeta.bg), minHeight: 22, fontSize: 11 }}>{reportWorkflowMeta.label}</span>}
           </div>
-          <div style={{ fontSize: 12, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{canGenerateReport ? '법령 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '보고서 생성을 위한 조건을 먼저 완료해 주세요.'}</div>
-          {reportStatus === 'done' && <div style={{ fontSize: 11, color: C.g400, marginTop: 4 }}>{reportWorkflowMeta.description}</div>}
+          <div style={{ fontSize: 13, color: C.g400, marginTop: 5, lineHeight: 1.6 }}>{canGenerateReport ? '법령 검증의 판정, 법령 근거, 보완 요청을 보고서 초안으로 정리합니다.' : '보고서 생성을 위한 조건을 먼저 완료해 주세요.'}</div>
+          {reportStatus === 'done' && <div style={{ fontSize: 12, color: C.g400, marginTop: 4 }}>{reportWorkflowMeta.description}</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
           <span title={!canGenerateReport ? reportGenerateDisabledReason : undefined} style={{ display: 'inline-flex' }}>
@@ -517,14 +517,14 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
       </div>
       {reportStatus === 'generating' && <div style={{ marginTop: 16 }}>
         <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}><div style={{ height: '100%', width: `${reportProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} /></div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{REPORT_STEPS.map((step, index) => <span key={step} style={{ fontSize: 11, fontWeight: 800, color: reportProgress >= ((index + 1) * 100) / REPORT_STEPS.length ? C.primary : C.g400, background: C.g100, borderRadius: 999, padding: '5px 9px' }}>{step}</span>)}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{REPORT_STEPS.map((step, index) => <span key={step} style={{ fontSize: 12, fontWeight: 700, color: reportProgress >= ((index + 1) * 100) / REPORT_STEPS.length ? C.primary : C.g400, background: C.g100, borderRadius: 999, padding: '5px 9px' }}>{step}</span>)}</div>
       </div>}
       <div style={{ display: 'grid' }}>{renderReportGate()}</div>
     </Card>
 
     {validationComplete && reportStatus === 'idle' && <Card style={{ padding: '22px 24px', marginBottom: 18, background: '#F7F8FA', boxShadow: 'none', border: `1px solid ${C.g200}` }}>
-      <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>보고서가 아직 생성되지 않았습니다</div>
-      <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6, marginTop: 5 }}>보고서 생성하기를 누르면 초안과 항목별 검토 결과가 생성됩니다.</div>
+      <div style={{ fontSize: 14, fontWeight: 800, color: C.g800 }}>보고서가 아직 생성되지 않았습니다</div>
+      <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginTop: 5 }}>보고서 생성하기를 누르면 초안과 항목별 검토 결과가 생성됩니다.</div>
     </Card>}
 
     {reportStatus === 'done' && renderReportEditor()}

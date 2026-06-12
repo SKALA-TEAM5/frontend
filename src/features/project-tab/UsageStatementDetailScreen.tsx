@@ -10,9 +10,8 @@ import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
 import { backendEvidenceTypeToCategory, changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, isBackendEvidenceTypeCode, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
-import { confirmAgentTodo, getOrchestratorStatus, getVisionValidationResults, listSafeLeeEvidenceRequirements, runEvidenceReviewAgent, safeLeeRequirementsToMap, waitForAgentButtonEnabled, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
-import { ApiClientError } from '../../lib/api-client';
-import type { ArchiveSeed, BackendEvidenceTypeCode, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
+import { confirmAgentTodo, getOrchestratorStatus, getVisionValidationResults, runEvidenceReviewAgent, waitForAgentButtonEnabled, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
+import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 type UsageDetailValidationStatus = 'idle' | 'running' | 'done';
 interface UsageStatementDetailScreenProps {
     projectId: string;
@@ -171,7 +170,7 @@ const translateEvidenceDocumentName = (value: string) => {
     const key = normalizeEvidenceNameKey(trimmed);
     if (EVIDENCE_DOCUMENT_NAME_LABELS[key])
         return EVIDENCE_DOCUMENT_NAME_LABELS[key];
-    const translated = EVIDENCE_DOCUMENT_MATCHERS.reduce((next, matcher) => next.replace(matcher.pattern, (match, prefix, suffix) => `${prefix}${matcher.label}${suffix}`), trimmed);
+    const translated = EVIDENCE_DOCUMENT_MATCHERS.reduce((next, matcher) => next.replace(matcher.pattern, (_match, prefix, suffix) => `${prefix}${matcher.label}${suffix}`), trimmed);
     return translated
         .replace(/\b(?:missing|required|requirement|evidence|document|documents|file|files|upload|needed|need|proof)\b/gi, '')
         .replace(/[_-]+/g, ' ')
@@ -183,7 +182,7 @@ const translateEvidenceText = (value?: string) => {
     const text = (value || '').trim();
     if (!text)
         return '';
-    return EVIDENCE_DOCUMENT_MATCHERS.reduce((next, matcher) => next.replace(matcher.pattern, (match, prefix, suffix) => `${prefix}${matcher.label}${suffix}`), text)
+    return EVIDENCE_DOCUMENT_MATCHERS.reduce((next, matcher) => next.replace(matcher.pattern, (_match, prefix, suffix) => `${prefix}${matcher.label}${suffix}`), text)
         .replace(/\bmissing\s*(?:evidence|documents?|files?)?\b/gi, '누락 증빙')
         .replace(/\brequired\s*(?:evidence|documents?|files?)?\b/gi, '필수 증빙')
         .replace(/\b(?:evidence|document|documents|file|files)\b/gi, '증빙')
@@ -405,8 +404,8 @@ const addUsageItemInputStyle = {
     background: C.white,
     color: C.g800,
     fontFamily: 'inherit',
-    fontSize: 14,
-    fontWeight: 800,
+    fontSize: 15,
+    fontWeight: 700,
     padding: '0 12px',
     outline: 'none',
 } as const;
@@ -492,21 +491,6 @@ const resolveTodoUsageItem = (todo: UsageDetailTodoItem, usageItems: UsageLineIt
     return findUsageItemFromTodoText(`${todo.title} ${todo.detail || ''} ${todo.context || ''}`, usageItems);
 };
 
-const getTodoLocationLabel = (todo: UsageDetailTodoItem, usageItems: UsageLineItem[]) => {
-    if (todo.backendTodoId) {
-        return [
-            todo.backendCategoryName,
-            todo.context,
-            todo.backendAgentTypeCode,
-        ].filter(Boolean).join(' ∙ ');
-    }
-    const usageItem = resolveTodoUsageItem(todo, usageItems);
-    const categoryId = usageItem?.categoryId || todo.categoryId;
-    const categoryName = categoryId ? getCategoryDisplayName(categoryId) : '';
-    const context = usageItem?.name || (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT ? todo.context : '');
-    return [categoryName, context].filter(Boolean).join(' ∙ ') || '위치 확인 필요';
-};
-
 const getTodoAgentTypeLabel = (todo: UsageDetailTodoItem) => (
     todo.backendAgentTypeCode || (todo.source === 'law' ? 'legal' : todo.source === 'vision' ? 'vision' : 'link')
 );
@@ -568,8 +552,6 @@ const toNounPhraseDetail = (value?: string) => {
         .replace(/[.。]$/u, '')
         .trim();
 };
-const isApiStatus = (error: unknown, status: number) => error instanceof ApiClientError && error.status === status;
-const isClientApiError = (error: unknown) => error instanceof ApiClientError && error.status >= 400 && error.status < 500;
 export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onVerificationComplete, uploadCompleteAction }: UsageStatementDetailScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(usageDetailSeed || createDefaultArchiveData()));
@@ -1353,80 +1335,6 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                         body: 'vision model이 사진 속 현장 상태와 세부 항목의 적합성을 판단합니다.',
                     }
                     : null;
-    const runSafetyDocMatching = async () => {
-        if (matchingStatus === 'running')
-            return;
-        if (!usageStatementId) {
-            setMatchingError('사용내역서 ID가 없어 Safety Doc Agent를 실행할 수 없습니다.');
-            return;
-        }
-        const loadStoredRequirements = async () => {
-            const requirementEntries = await Promise.all(resolvedUsageItems.map(async (item) => {
-                const requirements = await listSafeLeeEvidenceRequirements(projectId, usageStatementId, item.id).catch(() => []);
-                return safeLeeRequirementsToMap(item.id, requirements);
-            }));
-            const storedRequiredEvidence = requirementEntries.reduce<SafetyDocAgentRequiredEvidenceMap>((result, entry) => ({ ...result, ...entry }), {});
-            setRequiredEvidenceByLine(storedRequiredEvidence);
-            setFileData((current) => normalizeArchiveData(current));
-            return storedRequiredEvidence;
-        };
-        setMatchingStatus('running');
-        setMatchingError('');
-        setMatchingNotice('');
-        try {
-            await runEvidenceReviewAgent(projectId, usageStatementId);
-            await waitForAgentButtonEnabled(projectId, usageStatementId, 'validate');
-            const agentRequiredEvidence = await loadStoredRequirements();
-            setRequiredEvidenceByLine(agentRequiredEvidence);
-            setMatchingStatus('done');
-            setMatchingNotice(Object.keys(agentRequiredEvidence).length
-                ? 'Safety Doc Agent 실행 후 저장된 필수 증빙을 반영했습니다.'
-                : 'Safety Doc Agent가 추가로 요구한 증빙이 없습니다.');
-        } catch (error) {
-            if (isApiStatus(error, 501)) {
-                const storedRequiredEvidence = await loadStoredRequirements();
-                setMatchingStatus('done');
-                setMatchingNotice(Object.keys(storedRequiredEvidence).length
-                    ? 'Safety Doc Agent 실행 API가 아직 구현되지 않아 저장된 필수 증빙 데이터를 표시합니다.'
-                    : 'Safety Doc Agent 실행 API가 아직 구현되지 않아 표시할 필수 증빙 결과가 없습니다.');
-                return;
-            }
-            if (isClientApiError(error)) {
-                setMatchingStatus('idle');
-                setMatchingError(getAgentFailureMessage('evidence-matching', error));
-                return;
-            }
-            const storedRequiredEvidence = await loadStoredRequirements();
-            setMatchingStatus('done');
-            setMatchingNotice(Object.keys(storedRequiredEvidence).length
-                ? 'Safety Doc Agent 응답을 받지 못해 저장된 필수 증빙 데이터를 표시합니다.'
-                : 'Safety Doc Agent 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.');
-        }
-    };
-    const runVisionPhotoValidation = async () => {
-        if (photoValidationStatus === 'running')
-            return;
-        if (!usageStatementId) {
-            showAgentFailure('photo-validation');
-            return;
-        }
-        setPhotoValidationNotice(null);
-        setPhotoValidationStatus('running');
-        try {
-            await runEvidenceReviewAgent(projectId, usageStatementId);
-            await waitForAgentButtonEnabled(projectId, usageStatementId, 'validate');
-            const [nextTodos, nextVisionResults] = await Promise.all([
-                refreshOrchestratorStatusTodos(),
-                refreshVisionValidationResults(),
-            ]);
-            applyVisionValidationResults(nextTodos, nextVisionResults);
-            setPhotoValidationStatus('done');
-            setPhotoValidationNotice({ type: 'ok', message: 'Vision 실행 결과가 저장되었습니다.' });
-        } catch (error) {
-            setPhotoValidationStatus('idle');
-            setPhotoValidationNotice({ type: 'bad', message: getAgentFailureMessage('photo-validation', error) });
-        }
-    };
     const waitForVerificationStep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
     const runUsageDetailVerification = async () => {
         if (usageDetailVerificationRunning)
@@ -1512,15 +1420,15 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: 10,
-                    fontWeight: 900,
+                    fontSize: 11,
+                    fontWeight: 800,
                     marginTop: 1,
                   }}
                 >
                   {done ? '✓' : ''}
                 </span>
                 <span style={{ minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 12, fontWeight: 900, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{titleText}</span>
+                  <span style={{ display: 'block', fontSize: 13, fontWeight: 800, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{titleText}</span>
                 </span>
               </div>
             </button>
@@ -1598,10 +1506,10 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
               style={{ width: '100%', border: 'none', background: 'transparent', padding: 0, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto auto', alignItems: 'center', gap: 7, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
             >
               <span style={{ minWidth: 0 }}>
-                <span title={group.label} style={{ display: 'block', fontSize: 12, fontWeight: 900, color: activeCount ? C.g800 : C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.label}</span>
-                <span title={group.agentType} style={{ display: 'block', marginTop: 2, fontSize: 10, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.agentType}</span>
+                <span title={group.label} style={{ display: 'block', fontSize: 13, fontWeight: 800, color: activeCount ? C.g800 : C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.label}</span>
+                <span title={group.agentType} style={{ display: 'block', marginTop: 2, fontSize: 11, fontWeight: 700, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.agentType}</span>
               </span>
-              <span style={{ minWidth: 20, height: 18, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 10, fontWeight: 900 }}>{activeCount}</span>
+              <span style={{ minWidth: 20, height: 18, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 11, fontWeight: 800 }}>{activeCount}</span>
               <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: 999, border: `1px solid ${C.g200}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                 <ChevronIcon direction={collapsed ? 'right' : 'down'} size={14} color={C.g600} />
               </span>
@@ -1619,10 +1527,10 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
               <aside data-ui="usage-detail-screen.todo-panel" onClick={() => setTodoSidebarPinned(true)} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 320, maxWidth: 'calc(100vw - 24px)', height: 'calc(100vh - var(--app-header-height))', zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '10px 0 0 10px', background: C.white, boxShadow: '-18px 0 42px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)', overscrollBehavior: 'contain', opacity: todoSidebarPinned ? 1 : 0.95, transition: 'opacity .16s ease' }}>
                 <div style={{ position: 'sticky', top: 0, zIndex: 2, background: C.white, borderBottom: `1px solid ${C.g200}`, padding: '16px 16px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>보완 TODO</div>
+                    <div style={{ fontSize: 19, fontWeight: 800, color: C.g800 }}>보완 TODO</div>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 900, color: C.primary }}>{activeTodoCount}건</div>
-                      <button type="button" aria-label="보완 TODO 접기" onClick={(event) => { event.stopPropagation(); setTodoSidebarPinned(false); setTodoSidebarOpen(false); setTodoHoverBlocked(true); }} style={{ width: 28, height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 18, fontWeight: 900, lineHeight: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: C.primary }}>{activeTodoCount}건</div>
+                      <button type="button" aria-label="보완 TODO 접기" onClick={(event) => { event.stopPropagation(); setTodoSidebarPinned(false); setTodoSidebarOpen(false); setTodoHoverBlocked(true); }} style={{ width: 28, height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 19, fontWeight: 800, lineHeight: 1 }}>
                         »
                       </button>
                     </div>
@@ -1635,13 +1543,13 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             )}
             {!todoSidebarOpen && (
               <aside data-ui="usage-detail-screen.todo-rail" onMouseEnter={() => { if (!todoHoverBlocked) setTodoSidebarOpen(true); }} onMouseLeave={() => setTodoHoverBlocked(false)} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 45, height: 180, zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '14px 0 0 14px', background: C.white, boxShadow: '-10px 0 28px rgba(31,47,39,.10)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '10px 6px' }}>
-                <button type="button" aria-label="보완 TODO 펼치기" onClick={() => { setTodoHoverBlocked(false); setTodoSidebarPinned(true); setTodoSidebarOpen(true); }} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 20, fontWeight: 900, lineHeight: 1, boxShadow: '0 8px 18px rgba(31,47,39,.10)' }}>
+                <button type="button" aria-label="보완 TODO 펼치기" onClick={() => { setTodoHoverBlocked(false); setTodoSidebarPinned(true); setTodoSidebarOpen(true); }} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 21, fontWeight: 800, lineHeight: 1, boxShadow: '0 8px 18px rgba(31,47,39,.10)' }}>
                   «
                 </button>
                 <div style={{ width: 30, borderTop: `1px solid ${C.g200}` }} />
                 <button type="button" onClick={() => { setTodoHoverBlocked(false); setTodoSidebarPinned(true); setTodoSidebarOpen(true); }} style={{ width: 36, minHeight: 92, border: 'none', borderRadius: 10, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', gap: 5, padding: '7px 3px' }}>
-                  <span aria-hidden="true" style={{ width: 23, height: 23, borderRadius: 999, border: `2px solid ${C.primary}`, background: C.white, color: C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900 }}>{activeTodoCount}</span>
-                  <span style={{ fontSize: 10, fontWeight: 900, lineHeight: 1.2, writingMode: 'vertical-rl', letterSpacing: 0 }}>보완 TODO</span>
+                  <span aria-hidden="true" style={{ width: 23, height: 23, borderRadius: 999, border: `2px solid ${C.primary}`, background: C.white, color: C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>{activeTodoCount}</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, lineHeight: 1.2, writingMode: 'vertical-rl', letterSpacing: 0 }}>보완 TODO</span>
                 </button>
               </aside>
             )}
@@ -1661,14 +1569,14 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           <div className="usage-detail-verification-loader">
             <div className="usage-detail-loader-ocean" aria-hidden="true" />
             <div style={{ display: 'grid', gap: 10, minWidth: 0 }}>
-              <div style={{ fontSize: 18, fontWeight: 900, color: C.g800 }}>{usageDetailLoadingMessage.title}</div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.55 }}>{usageDetailLoadingMessage.body}</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: C.g800 }}>{usageDetailLoadingMessage.title}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.55 }}>{usageDetailLoadingMessage.body}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 4 }}>
                 {steps.map((step, index) => {
                     const active = index === usageDetailVerificationStepIndex;
                     const done = index < usageDetailVerificationStepIndex;
                     return (
-                      <div key={step.id} style={{ border: `1px solid ${active ? C.primary : done ? C.light : C.g200}`, borderRadius: 999, background: active ? C.bg : done ? '#F4FBF6' : C.white, color: active ? C.primary : done ? C.ok : C.g400, padding: '7px 8px', textAlign: 'center', fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div key={step.id} style={{ border: `1px solid ${active ? C.primary : done ? C.light : C.g200}`, borderRadius: 999, background: active ? C.bg : done ? '#F4FBF6' : C.white, color: active ? C.primary : done ? C.ok : C.g400, padding: '7px 8px', textAlign: 'center', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {done ? '완료 · ' : active ? '진행 · ' : ''}{step.label}
                       </div>
                     );
@@ -1683,12 +1591,12 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
       <div data-ui="usage-detail-screen.2" className="screen-enter" style={{ display: contentVisible ? 'grid' : 'none', gap: 12, minWidth: 0 }}>
         <div data-ui="usage-detail-screen.detail-header" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', alignItems: 'center', gap: 10, marginBottom: 4, minWidth: 0 }}>
           <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap' }}>세부 내역</div>
-            <div style={{ fontSize: 12, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>사용내역서 세부 내역 및 증빙 파일 보기</div>
+            <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap' }}>세부 내역</div>
+            <div style={{ fontSize: 13, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>사용내역서 세부 내역 및 증빙 파일 보기</div>
           </div>
           <div />
           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={() => void runUsageDetailVerification()} disabled={usageDetailVerificationRunning} style={{ height: 40, border: `1px solid ${usageDetailVerificationDone ? C.primary : C.g800}`, borderRadius: 999, background: usageDetailVerificationDone ? C.bg : C.white, color: usageDetailVerificationDone ? C.primary : C.g800, cursor: usageDetailVerificationRunning ? 'wait' : 'pointer', fontSize: 13, fontWeight: 900, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{usageDetailVerificationLabel}</button>
+            <button type="button" onClick={() => void runUsageDetailVerification()} disabled={usageDetailVerificationRunning} style={{ height: 40, border: `1px solid ${usageDetailVerificationDone ? C.primary : C.g800}`, borderRadius: 999, background: usageDetailVerificationDone ? C.bg : C.white, color: usageDetailVerificationDone ? C.primary : C.g800, cursor: usageDetailVerificationRunning ? 'wait' : 'pointer', fontSize: 14, fontWeight: 800, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{usageDetailVerificationLabel}</button>
             {uploadCompleteAction}
           </div>
         </div>
@@ -1696,16 +1604,16 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         {matchingError && (
           <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: C.danger, lineHeight: 1.5 }}>{matchingError}</div>
-              <button type="button" onClick={() => setMatchingError('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.danger, lineHeight: 1.5 }}>{matchingError}</div>
+              <button type="button" onClick={() => setMatchingError('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 19, lineHeight: 1 }}>×</button>
             </div>
           </Card>
         )}
         {usageDetailActionError && (
           <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: C.danger, lineHeight: 1.5 }}>{usageDetailActionError}</div>
-              <button type="button" onClick={() => setUsageDetailActionError('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.danger, lineHeight: 1.5 }}>{usageDetailActionError}</div>
+              <button type="button" onClick={() => setUsageDetailActionError('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 19, lineHeight: 1 }}>×</button>
             </div>
           </Card>
         )}
@@ -1713,13 +1621,13 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           <Card style={{ marginBottom: 12, padding: '12px 14px', background: photoValidationNotice?.type === 'bad' ? C.dangerBg : C.bg, border: `1px solid ${photoValidationNotice?.type === 'bad' ? '#FFCDD2' : C.light}` }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'start', gap: 12 }}>
               <div style={{ display: 'grid', gap: 5, minWidth: 0 }}>
-                {matchingNotice && <div style={{ fontSize: 13, fontWeight: 900, color: photoValidationNotice?.type === 'bad' ? C.danger : C.primary, lineHeight: 1.5 }}>{matchingNotice}</div>}
-                {photoValidationNotice && <div style={{ fontSize: 13, fontWeight: 900, color: photoValidationNotice.type === 'bad' ? C.danger : C.primary, lineHeight: 1.5 }}>{photoValidationNotice.message}</div>}
+                {matchingNotice && <div style={{ fontSize: 14, fontWeight: 800, color: photoValidationNotice?.type === 'bad' ? C.danger : C.primary, lineHeight: 1.5 }}>{matchingNotice}</div>}
+                {photoValidationNotice && <div style={{ fontSize: 14, fontWeight: 800, color: photoValidationNotice.type === 'bad' ? C.danger : C.primary, lineHeight: 1.5 }}>{photoValidationNotice.message}</div>}
               </div>
               <button type="button" onClick={() => {
                 setMatchingNotice('');
                 setPhotoValidationNotice(null);
-              }} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+              }} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 19, lineHeight: 1 }}>×</button>
             </div>
           </Card>
         )}
@@ -1742,40 +1650,40 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
       </div>
       <Modal open={addUsageItemModalOpen} onClose={() => setAddUsageItemModalOpen(false)} zIndex={960} maxWidth={520}>
         <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: '24px 24px 20px' }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>세부 항목 추가</div>
-          <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginBottom: 16 }}>
+          <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, marginBottom: 8 }}>세부 항목 추가</div>
+          <div style={{ fontSize: 14, color: C.g600, lineHeight: 1.6, marginBottom: 16 }}>
             입력한 항목은 classi 에이전트가 9개 항목 기준으로 분류합니다.
           </div>
           <div style={{ display: 'grid', gap: 12 }}>
             <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>사용내역</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>사용내역</span>
               <input value={addUsageItemDraft.name} onChange={(event) => setAddUsageItemDraft((current) => ({ ...current, name: event.target.value }))} autoFocus style={addUsageItemInputStyle} />
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
               <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>사용일자</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>사용일자</span>
                 <input type="date" value={addUsageItemDraft.date} onChange={(event) => setAddUsageItemDraft((current) => ({ ...current, date: event.target.value }))} style={addUsageItemInputStyle} />
               </label>
               <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>단위</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>단위</span>
                 <input value={addUsageItemDraft.unit} onChange={(event) => setAddUsageItemDraft((current) => ({ ...current, unit: event.target.value }))} style={addUsageItemInputStyle} />
               </label>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
               <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>수량</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>수량</span>
                 <input value={addUsageItemDraft.quantity} onChange={(event) => setAddUsageItemDraft((current) => ({ ...current, quantity: event.target.value }))} inputMode="decimal" style={addUsageItemInputStyle} />
               </label>
               <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>단가</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>단가</span>
                 <input value={addUsageItemDraft.unitPrice} onChange={(event) => setAddUsageItemDraft((current) => ({ ...current, unitPrice: event.target.value }))} inputMode="numeric" style={addUsageItemInputStyle} />
               </label>
             </div>
           </div>
-          {addUsageItemError && <div style={{ marginTop: 12, color: C.danger, fontSize: 12, fontWeight: 900 }}>{addUsageItemError}</div>}
+          {addUsageItemError && <div style={{ marginTop: 12, color: C.danger, fontSize: 13, fontWeight: 800 }}>{addUsageItemError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-            <button type="button" onClick={() => setAddUsageItemModalOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={submitAddUsageItem} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>완료</button>
+            <button type="button" onClick={() => setAddUsageItemModalOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+            <button type="button" onClick={submitAddUsageItem} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>완료</button>
           </div>
         </div>
       </Modal>
@@ -1786,28 +1694,28 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         </div>
       </Modal>
       <CenterModal open={Boolean(classiRejectedNotice)} title="세부항목 미반영" body={classiRejectedNotice && <div>
-        <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>
+        <div style={{ marginBottom: 10, fontSize: 14, color: C.g600, lineHeight: 1.6 }}>
           classi 에이전트가 입력한 세부항목을 부적절로 판단해 화면에 추가하지 않았습니다.
         </div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
-          <div title={classiRejectedNotice.itemName} style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{classiRejectedNotice.itemName}</div>
+          <div title={classiRejectedNotice.itemName} style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{classiRejectedNotice.itemName}</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-            <span title={classiRejectedNotice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{classiRejectedNotice.fromCategoryName}</span>
-            <span style={{ color: C.danger, fontWeight: 900 }}>×</span>
-            <span title={classiRejectedNotice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: '1px solid #FFCDD2', borderRadius: 999, padding: '6px 9px', background: C.dangerBg, color: C.danger, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{classiRejectedNotice.toCategoryName}</span>
+            <span title={classiRejectedNotice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{classiRejectedNotice.fromCategoryName}</span>
+            <span style={{ color: C.danger, fontWeight: 800 }}>×</span>
+            <span title={classiRejectedNotice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: '1px solid #FFCDD2', borderRadius: 999, padding: '6px 9px', background: C.dangerBg, color: C.danger, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{classiRejectedNotice.toCategoryName}</span>
           </div>
-          <div style={{ marginTop: 7, fontSize: 11, color: C.g600, lineHeight: 1.5 }}>{classiRejectedNotice.reason}</div>
+          <div style={{ marginTop: 7, fontSize: 12, color: C.g600, lineHeight: 1.5 }}>{classiRejectedNotice.reason}</div>
         </div>
       </div>} actionLabel="확인" onAction={() => setClassiRejectedNotice(null)} />
       <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 결과" body={<div>
         <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
           {classificationMoveNotices.map((notice) => (
             <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
-              <div title={notice.itemName} style={{ fontSize: 13, fontWeight: 900, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
+              <div title={notice.itemName} style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
-                <span style={{ color: C.primary, fontWeight: 900 }}>→</span>
-                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 8, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
+                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
+                <span style={{ color: C.primary, fontWeight: 800 }}>→</span>
+                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 8, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
               </div>
             </div>
           ))}
@@ -1816,23 +1724,23 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
 
       <Modal open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} zIndex={940} maxWidth={420}>
         <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: '24px 24px 20px' }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>파일 삭제</div>
-          <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginBottom: 18 }}>이 파일을 아카이브에서 삭제하시겠습니까?</div>
+          <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, marginBottom: 8 }}>파일 삭제</div>
+          <div style={{ fontSize: 14, color: C.g600, lineHeight: 1.6, marginBottom: 18 }}>이 파일을 삭제하시겠습니까?</div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button type="button" onClick={() => setDeleteTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={confirmRemoveArchiveFile} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>삭제</button>
+            <button type="button" onClick={() => setDeleteTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+            <button type="button" onClick={confirmRemoveArchiveFile} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>삭제</button>
           </div>
         </div>
       </Modal>
       <Modal open={Boolean(deleteUsageItemTarget)} onClose={() => setDeleteUsageItemTarget(null)} zIndex={940} maxWidth={420}>
         <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: '24px 24px 20px' }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: C.g800, marginBottom: 8 }}>세부 항목 삭제</div>
-          <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6, marginBottom: 18 }}>
+          <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, marginBottom: 8 }}>세부 항목 삭제</div>
+          <div style={{ fontSize: 14, color: C.g600, lineHeight: 1.6, marginBottom: 18 }}>
             {deleteUsageItemTarget?.name ? `"${deleteUsageItemTarget.name}" 항목을 삭제하시겠습니까?` : '이 세부 항목을 삭제하시겠습니까?'}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button type="button" onClick={() => setDeleteUsageItemTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={() => void confirmDeleteUsageItem()} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: 'pointer' }}>삭제</button>
+            <button type="button" onClick={() => setDeleteUsageItemTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
+            <button type="button" onClick={() => void confirmDeleteUsageItem()} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>삭제</button>
           </div>
         </div>
       </Modal>

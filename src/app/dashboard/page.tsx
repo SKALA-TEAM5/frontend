@@ -31,23 +31,6 @@ const DASHBOARD_CHART_COLORS = [
   '#97BBF5FF',
 ] as const;
 
-const supplementRequestBadgeStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  flexShrink: 0,
-  height: 22,
-  padding: '0 8px',
-  borderRadius: 999,
-  border: `1px solid #EFAEB7`,
-  background: '#FFF4F5',
-  color: C.danger,
-  fontSize: 11,
-  fontWeight: 800,
-  lineHeight: 1,
-  whiteSpace: 'nowrap',
-};
-
 const supplementRequestDotStyle: CSSProperties = {
   width: 8,
   height: 8,
@@ -181,12 +164,6 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
   }
 };
 
-const formatMonthLabel = (month?: string) => {
-  const match = month?.match(/^(\d{4})-(\d{2})/);
-  if (!match) return '월 정보 없음';
-  return `${match[1]}년 ${Number(match[2])}월`;
-};
-
 const getProjectMonthWorkflowStatus = (project: ProjectSummary): UsageWorkflowStatus | undefined =>
   hasSupplementRequiredMonth(project) ? USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED : normalizeUsageWorkflowStatus(project.latestUsageStatementStatusCode);
 
@@ -216,8 +193,8 @@ const fieldStyle: CSSProperties = {
   borderRadius: 8,
   border: `1px solid ${C.g200}`,
   fontFamily: 'inherit',
-  fontSize: 13,
-  fontWeight: 700,
+  fontSize: 14,
+  fontWeight: 600,
   lineHeight: '20px',
   color: C.g800,
   background: C.white,
@@ -228,7 +205,7 @@ const compactFieldStyle: CSSProperties = {
   height: 30,
   padding: '0 9px',
   borderRadius: 6,
-  fontSize: 11,
+  fontSize: 12,
   lineHeight: '16px',
 };
 
@@ -255,8 +232,8 @@ const legalReviewFilterStyle = (active: boolean): CSSProperties => ({
   background: active ? '#F4FBF6' : C.white,
   color: active ? C.primary : C.g800,
   fontFamily: 'inherit',
-  fontSize: 11,
-  fontWeight: 800,
+  fontSize: 12,
+  fontWeight: 700,
   cursor: 'pointer',
   boxShadow: active ? 'inset 0 0 0 1px rgba(24, 111, 67, .06)' : 'none',
   transition: 'background .16s ease, border-color .16s ease, color .16s ease',
@@ -274,8 +251,8 @@ const legalReviewCheckStyle = (active: boolean): CSSProperties => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: 11,
-  fontWeight: 900,
+  fontSize: 12,
+  fontWeight: 800,
   lineHeight: 1,
 });
 
@@ -519,12 +496,6 @@ export default function DashboardPage() {
   }, [activeProjects, contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, sortBy, sortDirection, status]);
   const [rangeStart = '', rangeEnd = ''] = period.split('~');
 
-  const workflowProjects = {
-    [USAGE_WORKFLOW_STATUS.DRAFT]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.DRAFT),
-    [USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED),
-    [USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED),
-    [USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED]: projects.filter((project) => getProjectMonthWorkflowStatus(project) === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED),
-  };
   const reviewNeededProjectCount = projects.filter((project) => {
     const workflow = getProjectMonthWorkflowStatus(project);
     return workflow === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
@@ -659,7 +630,7 @@ export default function DashboardPage() {
   if (user.role === 'project_manager') {
     return (
       <AppFrame title="프로젝트 대시보드" mainClassName="dashboard-main">
-        <Card style={{ padding: 28, color: C.danger, fontSize: 14, fontWeight: 700 }}>접근 권한이 없습니다.</Card>
+        <Card style={{ padding: 28, color: C.danger, fontSize: 15, fontWeight: 600 }}>접근 권한이 없습니다.</Card>
       </AppFrame>
     );
   }
@@ -676,21 +647,21 @@ export default function DashboardPage() {
                 <div style={{ minWidth: 0, alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 18 }}>
                   <img src="/uploads/character.png" alt="" aria-hidden="true" style={{ width: 108, height: 108, objectFit: 'contain', flex: '0 0 auto', filter: 'drop-shadow(0 10px 22px rgba(0,0,0,.30))' }} />
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 24, lineHeight: 1.35, fontWeight: 700, color: C.white, letterSpacing: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    <div style={{ fontSize: 25, lineHeight: 1.35, fontWeight: 600, color: C.white, letterSpacing: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       i-veri가 안전한 현장 운영을 지원합니다.
                     </div>
-                    <div style={{ marginTop: 12, color: 'rgba(255,255,255,.86)', fontSize: 13, fontWeight: 700, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    <div style={{ marginTop: 12, color: 'rgba(255,255,255,.86)', fontSize: 14, fontWeight: 600, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       프로젝트 검증 현황과 보완 요청을 한 화면에서 확인하고 관리하세요.
                     </div>
                   </div>
                 </div>
                 <div style={{ minWidth: 220, color: C.white, textAlign: 'right', alignSelf: 'end', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', gap: 12 }}>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.72)' }}>마지막 업데이트</div>
-                    <div style={{ marginTop: 6, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>2026. 5. 15. 15:20</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,.72)' }}>마지막 업데이트</div>
+                    <div style={{ marginTop: 6, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>2026. 5. 15. 15:20</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                    <button type="button" aria-label="대시보드 새로고침" onClick={() => void refreshDashboardProjects()} disabled={dashboardRefreshing} style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid rgba(255,255,255,.42)', background: 'rgba(255,255,255,.08)', color: C.white, cursor: dashboardRefreshing ? 'wait' : 'pointer', fontSize: 17, fontWeight: 700, flex: '0 0 auto', opacity: dashboardRefreshing ? .75 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <button type="button" aria-label="대시보드 새로고침" onClick={() => void refreshDashboardProjects()} disabled={dashboardRefreshing} style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid rgba(255,255,255,.42)', background: 'rgba(255,255,255,.08)', color: C.white, cursor: dashboardRefreshing ? 'wait' : 'pointer', fontSize: 18, fontWeight: 600, flex: '0 0 auto', opacity: dashboardRefreshing ? .75 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span className={dashboardRefreshing ? 'dashboard-refresh-icon--spinning' : undefined} aria-hidden="true">↻</span>
                     </button>
                   </div>
@@ -699,7 +670,7 @@ export default function DashboardPage() {
             </section>
           </div>
         <aside style={{ alignSelf: 'start', position: 'relative', zIndex: 40, overflow: 'visible', border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: 14, boxShadow: 'var(--ui-shadow-card)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
-          <button type="button" onClick={handleDashboardLogout} disabled={logoutPending} style={{ position: 'absolute', top: 13, right: 13, height: 24, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1 }}>
+          <button type="button" onClick={handleDashboardLogout} disabled={logoutPending} style={{ position: 'absolute', top: 13, right: 13, height: 24, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1 }}>
             {logoutPending ? '로그아웃 중' : '로그아웃'}
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, paddingRight: 70 }}>
@@ -710,14 +681,14 @@ export default function DashboardPage() {
               </svg>
             </div>
 	            <div style={{ minWidth: 0, flex: 1 }}>
-		              <div style={{ fontSize: 15, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name || '사용자'}</div>
-		              <div style={{ marginTop: 3, fontSize: 11, fontWeight: 700, color: C.g600 }}>{ROLE_LABELS[user.role]}</div>
+		              <div style={{ fontSize: 16, fontWeight: 600, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name || '사용자'}</div>
+		              <div style={{ marginTop: 3, fontSize: 12, fontWeight: 600, color: C.g600 }}>{ROLE_LABELS[user.role]}</div>
 	            </div>
 	          </div>
 	          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
 		            <div style={{ border: `1px solid ${C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0 }}>
-	              <div style={{ fontSize: 10, fontWeight: 700, color: C.g400 }}>전체 프로젝트</div>
-		              <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.g800 }}>{dashboardSummary?.summary.totalProjects ?? projects.length}</div>
+	              <div style={{ fontSize: 11, fontWeight: 600, color: C.g400 }}>전체 프로젝트</div>
+		              <div style={{ marginTop: 5, fontSize: 20, lineHeight: 1, fontWeight: 600, color: C.g800 }}>{dashboardSummary?.summary.totalProjects ?? projects.length}</div>
 	            </div>
             <div style={{ position: 'relative', minWidth: 0 }}>
               <button
@@ -725,7 +696,7 @@ export default function DashboardPage() {
                 onClick={openReviewNeededProjects}
                 style={{ width: '100%', border: `1px solid ${C.g200}`, borderRadius: 8, padding: '8px 10px', minWidth: 0, background: C.white, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}
               >
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, fontSize: 10, fontWeight: 700, color: C.g400 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, fontSize: 11, fontWeight: 600, color: C.g400 }}>
                   <span>법령 검증 필요</span>
                   <span className="review-needed-info-wrap" style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                     <span aria-label="도움말" role="img" style={{ width: 14, height: 14, color: C.g500, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>
@@ -750,8 +721,8 @@ export default function DashboardPage() {
                         background: C.g800,
                         color: C.white,
                         padding: '7px 8px',
-                        fontSize: 10,
-                        fontWeight: 800,
+                        fontSize: 11,
+                        fontWeight: 700,
                         lineHeight: 1.45,
                         boxShadow: '0 10px 22px rgba(31,55,43,.18)',
                         whiteSpace: 'normal',
@@ -761,7 +732,7 @@ export default function DashboardPage() {
                     </span>
                   </span>
                 </div>
-                <div style={{ marginTop: 5, fontSize: 19, lineHeight: 1, fontWeight: 700, color: C.primary }}>{dashboardSummary?.summary.reviewNeededProjects ?? reviewNeededProjectCount}</div>
+                <div style={{ marginTop: 5, fontSize: 20, lineHeight: 1, fontWeight: 600, color: C.primary }}>{dashboardSummary?.summary.reviewNeededProjects ?? reviewNeededProjectCount}</div>
               </button>
             </div>
 		          </div>
@@ -769,7 +740,7 @@ export default function DashboardPage() {
 		            <button
 		              type="button"
 		              onClick={() => router.push('/usage-records')}
-			              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FAFBFA', color: C.g600, fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'pointer', opacity: .9 }}
+			              style={{ height: 28, border: `1px solid ${C.g200}`, borderRadius: 6, background: '#FAFBFA', color: C.g600, fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', opacity: .9 }}
 		            >
 		              AI 사용금액
 		            </button>
@@ -782,8 +753,8 @@ export default function DashboardPage() {
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', overflow: 'visible' }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>진행 중인 프로젝트 현황</div>
-              <Link href="/projects" style={{ fontSize: 12, fontWeight: 700, color: C.primary, textDecoration: 'none' }}>전체 프로젝트 보기 〉</Link>
+              <div style={{ fontSize: 16, fontWeight: 600, color: C.g800 }}>진행 중인 프로젝트 현황</div>
+              <Link href="/projects" style={{ fontSize: 13, fontWeight: 600, color: C.primary, textDecoration: 'none' }}>전체 프로젝트 보기 〉</Link>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(170px, 1fr) max-content', gap: 8, marginBottom: 12, minWidth: 0 }}>
               <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
@@ -825,15 +796,15 @@ export default function DashboardPage() {
                   {projectTableHeaders.map((header) => {
                     const active = sortBy === header.field;
                     return (
-                      <th key={header.label} style={{ position: 'sticky', top: 0, zIndex: 1, width: header.width, height: 40, padding: 0, borderBottom: `1px solid ${C.g200}`, background: 'color-mix(in srgb, var(--c-bg) 28%, #F8F9F8)', color: C.g600, fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'left' }}>
+                      <th key={header.label} style={{ position: 'sticky', top: 0, zIndex: 1, width: header.width, height: 40, padding: 0, borderBottom: `1px solid ${C.g200}`, background: 'color-mix(in srgb, var(--c-bg) 28%, #F8F9F8)', color: C.g600, fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap', textAlign: 'left' }}>
                         <button
                           type="button"
                           onClick={() => toggleProjectTableSort(header.field)}
                           aria-sort={active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
-                          style={{ width: '100%', height: 40, border: 'none', background: 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, padding: header.field === 'startDate' ? '0 8px' : '0 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}
+                          style={{ width: '100%', height: 40, border: 'none', background: 'transparent', color: active ? C.primary : C.g600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, padding: header.field === 'startDate' ? '0 8px' : '0 12px', fontFamily: 'inherit', fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap' }}
                         >
                           <span>{header.label}</span>
-                          <span aria-hidden="true" style={{ opacity: active ? 1 : .25, fontSize: 10, lineHeight: 1 }}>{active ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
+                          <span aria-hidden="true" style={{ opacity: active ? 1 : .25, fontSize: 11, lineHeight: 1 }}>{active ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
                         </button>
                       </th>
                     );
@@ -850,19 +821,19 @@ export default function DashboardPage() {
                   const hasSupplementRequest = workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
                   return (
                     <tr key={project.id} onClick={() => router.push(`/projects/${project.id}`)} style={{ cursor: 'pointer' }}>
-                      <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g800, fontSize: 13, fontWeight: 700 }}>
+                      <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g800, fontSize: 14, fontWeight: 600 }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                           <span style={{ whiteSpace: 'nowrap' }}>{project.constructionName}</span>
                           {hasSupplementRequest && <span aria-label="보완 요청" title="보완 요청" style={supplementRequestDotStyle} />}
                         </span>
                       </td>
-                      <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g600, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{project.contractNumber}</td>
+                      <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, color: C.g600, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{project.contractNumber}</td>
                       <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, minWidth: 150 }}>
                         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 34px', gap: 8, alignItems: 'center' }}>
                           <div style={{ height: 8, background: C.g100, borderRadius: 999, overflow: 'hidden' }}>
                             <div style={{ width: `${progress}%`, height: '100%', background: progress >= 70 ? C.primary : progress >= 30 ? '#2F73B7' : '#C9545E' }} />
                           </div>
-                          <span style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.g800 }}>{progress}%</span>
+                          <span style={{ textAlign: 'right', fontSize: 13, fontWeight: 600, color: C.g800 }}>{progress}%</span>
                         </div>
                       </td>
                       <td style={{ padding: '12px 14px', borderTop: `1px solid ${C.g100}`, minWidth: 150 }}>
@@ -870,18 +841,18 @@ export default function DashboardPage() {
                           <div style={{ height: 8, background: C.g100, borderRadius: 999, overflow: 'hidden' }}>
                             <div style={{ width: `${safetyBudgetUsageBarWidth}%`, height: '100%', background: safetyBudgetUsage >= 80 ? '#C9545E' : safetyBudgetUsage >= 50 ? '#F0A22E' : C.primary }} />
                           </div>
-                          <span style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.g800 }}>{safetyBudgetUsage}%</span>
+                          <span style={{ textAlign: 'right', fontSize: 13, fontWeight: 600, color: C.g800 }}>{safetyBudgetUsage}%</span>
                         </div>
                       </td>
-                      <td title={project.period || '-'} style={{ width: 94, maxWidth: 94, padding: '12px 8px', borderTop: `1px solid ${C.g100}`, color: C.g600, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</td>
-                      <td title={project.manager} style={{ width: 76, maxWidth: 76, padding: '12px 12px', borderTop: `1px solid ${C.g100}`, color: C.g800, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</td>
+                      <td title={project.period || '-'} style={{ width: 94, maxWidth: 94, padding: '12px 8px', borderTop: `1px solid ${C.g100}`, color: C.g600, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</td>
+                      <td title={project.manager} style={{ width: 76, maxWidth: 76, padding: '12px 12px', borderTop: `1px solid ${C.g100}`, color: C.g800, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, color: C.g600, fontSize: 12, fontWeight: 700 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, color: C.g600, fontSize: 13, fontWeight: 600 }}>
               <span>진행 중 {activeProjects.length}건</span>
             </div>
           </Card>
@@ -890,13 +861,13 @@ export default function DashboardPage() {
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 20 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>월별 보완 요청 사유</div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: C.g800 }}>월별 보완 요청 사유</div>
                 </div>
                 <select
                   aria-label="프로젝트"
                   value={selectedReasonProjectId || reasonProjectId}
                   onChange={(event) => setSelectedReasonProjectId(event.target.value)}
-                  style={{ width: 190, maxWidth: '100%', minWidth: 0, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 12, fontWeight: 700, padding: '0 10px' }}
+                  style={{ width: 190, maxWidth: '100%', minWidth: 0, height: 30, border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, color: C.g800, fontSize: 13, fontWeight: 600, padding: '0 10px' }}
                 >
                   {projects.length === 0 && <option value="">프로젝트 없음</option>}
                   {projects.length > 0 && <option value={ALL_REASON_PROJECTS}>전체</option>}
@@ -906,7 +877,7 @@ export default function DashboardPage() {
                 </select>
               </div>
               {displayedReasonTrendRows.length === 0 ? (
-                <div style={{ flex: 1, minHeight: 0, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+                <div style={{ flex: 1, minHeight: 0, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
                   표시할 보완 요청 사유가 없습니다.
                 </div>
               ) : (
@@ -921,8 +892,8 @@ export default function DashboardPage() {
                             right: 2,
                             top: `${100 - (tick / reasonTrendAxisMax) * 100}%`,
                             transform: 'translateY(-50%)',
-                            fontSize: 9,
-                            fontWeight: 700,
+                            fontSize: 10,
+                            fontWeight: 600,
                             color: C.g400,
                           }}
                         >
@@ -952,13 +923,13 @@ export default function DashboardPage() {
                                 />
                               ))}
                             </div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: C.g400, textAlign: 'center' }}>{row.label}</div>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: C.g400, textAlign: 'center' }}>{row.label}</div>
                           </div>
                         ))}
                       </div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginTop: 14, fontSize: 10, fontWeight: 700, color: C.g600 }}>
+                  <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginTop: 14, fontSize: 11, fontWeight: 600, color: C.g600 }}>
                     {SUPPLEMENT_REASON_TYPES.map((reason) => (
                       <span key={reason.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                         <span style={{ width: 8, height: 8, borderRadius: 999, background: reason.color }} />
@@ -973,8 +944,8 @@ export default function DashboardPage() {
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 10 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap' }}>AI 사용 금액</div>
-                  <div style={{ color: C.g500, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap', minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: C.g800, whiteSpace: 'nowrap' }}>AI 사용 금액</div>
+                  <div style={{ color: C.g500, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', minWidth: 0 }}>
                     {`${dashboardMonthPeriod.year}년 ${Number(dashboardMonthPeriod.month)}월 기준`}
                   </div>
                 </div>
@@ -990,20 +961,20 @@ export default function DashboardPage() {
                           key={option.key}
                           type="button"
                           onClick={() => setAiUsageView(option.key)}
-                          style={{ height: 24, border: 'none', borderRadius: 999, background: active ? C.white : 'transparent', color: active ? C.primary : C.g600, padding: '0 8px', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, cursor: 'pointer', boxShadow: active ? '0 1px 4px rgba(31,55,43,.08)' : 'none' }}
+                          style={{ height: 24, border: 'none', borderRadius: 999, background: active ? C.white : 'transparent', color: active ? C.primary : C.g600, padding: '0 8px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', boxShadow: active ? '0 1px 4px rgba(31,55,43,.08)' : 'none' }}
                         >
                           {option.label}
                         </button>
                       );
                     })}
                   </div>
-                  <Link href={`/usage-records?year=${aiUsageYear}&month=${aiUsageMonth}`} style={{ color: C.primary, fontSize: 11, fontWeight: 800, textDecoration: 'none', whiteSpace: 'nowrap' }}>전체 보기 〉</Link>
+                  <Link href={`/usage-records?year=${aiUsageYear}&month=${aiUsageMonth}`} style={{ color: C.primary, fontSize: 12, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>전체 보기 〉</Link>
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))', gap: 12, flex: '1 1 auto', minHeight: 0, minWidth: 0 }}>
                 <div style={{ width: 'min(100%, 190px)', aspectRatio: '1 / 1', justifySelf: 'center', alignSelf: 'center', boxSizing: 'border-box', border: `1px solid ${C.g100}`, borderRadius: 10, padding: '12px 14px', background: 'color-mix(in srgb, var(--c-bg) 34%, #fff)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 0 }}>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.g600 }}>전체 사용 금액</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.g600 }}>전체 사용 금액</div>
                     <div style={{ display: 'grid', placeItems: 'center', marginTop: 6 }}>
                       <div style={{ position: 'relative', width: 112, height: 112 }}>
                         <svg width="112" height="112" viewBox="0 0 112 112" aria-hidden="true" style={{ display: 'block', transform: 'rotate(-90deg)' }}>
@@ -1029,7 +1000,7 @@ export default function DashboardPage() {
                         </svg>
                         <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', pointerEvents: 'none' }}>
                           <div>
-                            <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 2, fontSize: 12, fontWeight: 800, color: C.g800, lineHeight: 1 }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 2, fontSize: 13, fontWeight: 700, color: C.g800, lineHeight: 1 }}>
                               <span>{formatUsd(aiUsageTotalCost)}</span>
                             </div>
                           </div>
@@ -1039,23 +1010,23 @@ export default function DashboardPage() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
                     <div>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: C.g400 }}>총 토큰</div>
-                      <div style={{ marginTop: 2, fontSize: 12, fontWeight: 700, color: C.g800 }}>{aiUsageTotalTokens.toLocaleString('ko-KR')}</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: C.g400 }}>총 토큰</div>
+                      <div style={{ marginTop: 2, fontSize: 13, fontWeight: 600, color: C.g800 }}>{aiUsageTotalTokens.toLocaleString('ko-KR')}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: C.g400 }}>호출 수</div>
-                      <div style={{ marginTop: 2, fontSize: 12, fontWeight: 700, color: C.g800 }}>{aiUsageTotalCalls.toLocaleString('ko-KR')}회</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: C.g400 }}>호출 수</div>
+                      <div style={{ marginTop: 2, fontSize: 13, fontWeight: 600, color: C.g800 }}>{aiUsageTotalCalls.toLocaleString('ko-KR')}회</div>
                     </div>
                   </div>
                 </div>
                 <div style={{ display: 'grid', gap: 0, minHeight: 0, overflowY: 'auto', paddingRight: 5, scrollbarGutter: 'stable' }}>
                   {aiUsageLoading && (
-                    <div style={{ minHeight: 120, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 12, fontWeight: 700 }}>
+                    <div style={{ minHeight: 120, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 13, fontWeight: 600 }}>
                       사용량을 불러오는 중입니다.
                     </div>
                   )}
                   {!aiUsageLoading && aiUsageRows.length === 0 && (
-                    <div style={{ minHeight: 120, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 12, fontWeight: 700 }}>
+                    <div style={{ minHeight: 120, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 13, fontWeight: 600 }}>
                       표시할 AI 사용량이 없습니다.
                     </div>
                   )}
@@ -1063,15 +1034,15 @@ export default function DashboardPage() {
                     <div key={row.user} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 10, alignItems: 'center', borderTop: `1px solid ${C.g100}`, padding: '10px 10px' }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.user}</span>
-                          {row.role && <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: C.g500 }}>{row.role}</span>}
+                          <span style={{ fontSize: 13, fontWeight: 600, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.user}</span>
+                          {row.role && <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, color: C.g500 }}>{row.role}</span>}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 3, fontSize: 11, fontWeight: 600, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           <span style={{ whiteSpace: 'nowrap' }}>{row.tokens.toLocaleString('ko-KR')} tokens</span>
                           <span style={{ whiteSpace: 'nowrap' }}>· {row.calls}회</span>
                         </div>
                       </div>
-                      <div style={{ display: 'inline-flex', alignItems: 'baseline', justifyContent: 'flex-end', gap: 2, fontSize: 14, fontWeight: 700, color: C.g800, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'baseline', justifyContent: 'flex-end', gap: 2, fontSize: 15, fontWeight: 600, color: C.g800, textAlign: 'right', whiteSpace: 'nowrap' }}>
                         <span>{formatUsd(row.cost)}</span>
                       </div>
                     </div>
@@ -1082,12 +1053,12 @@ export default function DashboardPage() {
 
             <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', height: dashboardAnalysisCardHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.g800 }}>담당자별 보완 진행 현황</div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.primary }}>{currentMonthKey.replace('-', '년 ')}월</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: C.g800 }}>담당자별 보완 진행 현황</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.primary }}>{currentMonthKey.replace('-', '년 ')}월</div>
             </div>
             <div style={{ display: 'grid', gap: 10, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', paddingRight: 6, scrollbarGutter: 'stable', overscrollBehavior: 'contain' }}>
               {displayedManagerWorkloads.length === 0 && (
-                <div style={{ minHeight: 128, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 12, fontWeight: 700 }}>
+                <div style={{ minHeight: 128, display: 'grid', placeItems: 'center', borderTop: `1px solid ${C.g100}`, color: C.g400, fontSize: 13, fontWeight: 600 }}>
                   진행 중인 보완 요청이 없습니다.
                 </div>
               )}
@@ -1100,10 +1071,10 @@ export default function DashboardPage() {
                     </svg>
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{managerName}</div>
-                    <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g400 }}>보완 요청 진행 중</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{managerName}</div>
+                    <div style={{ marginTop: 3, fontSize: 11, fontWeight: 600, color: C.g400 }}>보완 요청 진행 중</div>
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.g800 }}>{workload.actionRequired}건</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: C.g800 }}>{workload.actionRequired}건</div>
                 </div>
               ))}
             </div>
@@ -1129,8 +1100,8 @@ export default function DashboardPage() {
             color: C.g800,
           }}
         >
-          <div style={{ fontSize: 11, fontWeight: 800, lineHeight: 1.35 }}>{chartTooltip.title}</div>
-          <div style={{ marginTop: 3, fontSize: 10, fontWeight: 700, color: C.g500, lineHeight: 1.35 }}>{chartTooltip.body}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.35 }}>{chartTooltip.title}</div>
+          <div style={{ marginTop: 3, fontSize: 11, fontWeight: 600, color: C.g500, lineHeight: 1.35 }}>{chartTooltip.body}</div>
         </div>
       )}
       <style jsx>{`

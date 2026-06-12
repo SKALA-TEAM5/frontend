@@ -107,8 +107,8 @@ export default function AppFrame({ description, actions, mainClassName, children
   const headerLinkStyle = (active = false): React.CSSProperties => ({
     color: active ? C.primary : C.g600,
     textDecoration: 'none',
-    fontSize: 14,
-    fontWeight: 800,
+    fontSize: 15,
+    fontWeight: 700,
     lineHeight: 1,
     whiteSpace: 'nowrap',
     padding: '8px 2px',
@@ -228,15 +228,15 @@ export default function AppFrame({ description, actions, mainClassName, children
                     </svg>
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 900, color: C.g800, lineHeight: 1.3 }}>{user.name || '사용자'}</div>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: C.g400, marginTop: 3 }}>{ROLE_LABELS[user.role]}</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: C.g800, lineHeight: 1.3 }}>{user.name || '사용자'}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.g400, marginTop: 3 }}>{ROLE_LABELS[user.role]}</div>
                   </div>
                   <button
                     type="button"
                     role="menuitem"
                     onClick={handleLogout}
                     disabled={logoutPending}
-                    style={{ position: 'absolute', top: 7, right: 8, height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 12px', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1 }}
+                    style={{ position: 'absolute', top: 7, right: 8, height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 12px', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1 }}
                   >
                     {logoutPending ? '로그아웃 중' : '로그아웃'}
                   </button>
@@ -246,7 +246,7 @@ export default function AppFrame({ description, actions, mainClassName, children
 
                 <div style={{ padding: '8px 6px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-                    <div style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>테마</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>테마</div>
                     <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 999, background: C.g100, padding: 6 }}>
                       <span aria-hidden="true" style={{ width: 17, height: 17, borderRadius: 999, background: activeThemeGradient, boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.4)' }} />
                     </div>
@@ -282,7 +282,7 @@ export default function AppFrame({ description, actions, mainClassName, children
         {hasHeaderContent && (
           <div data-ui="app-frame.19" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 16 }}>
             <div data-ui="app-frame.20" style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              {description && <div data-ui="app-frame.21" style={{ fontSize: 14, color: C.g400, fontWeight: 700 }}>{description}</div>}
+              {description && <div data-ui="app-frame.21" style={{ fontSize: 15, color: C.g400, fontWeight: 600 }}>{description}</div>}
             </div>
             {actions && <div data-ui="app-frame.22" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions}</div>}
           </div>

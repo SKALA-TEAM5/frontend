@@ -194,8 +194,8 @@ export default function DateRangePicker({
           gap: 8,
           cursor: 'pointer',
           fontFamily: 'inherit',
-          fontSize: 13,
-          fontWeight: 800,
+          fontSize: 14,
+          fontWeight: 700,
           textAlign: 'left',
           ...buttonStyle,
         }}
@@ -221,12 +221,12 @@ export default function DateRangePicker({
                 applyRangeText();
               }}
               placeholder="2026. 6. 4. - 2026. 6. 19."
-              style={{ width: '100%', height: 34, minWidth: 0, border: `1px solid ${C.g100}`, borderRadius: 10, padding: '0 10px', color: C.g800, background: C.white, fontFamily: 'inherit', fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap' }}
+              style={{ width: '100%', height: 34, minWidth: 0, border: `1px solid ${C.g100}`, borderRadius: 10, padding: '0 10px', color: C.g800, background: C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}
             />
-            <button type="button" onClick={() => { onChange('', ''); setRangeText(placeholder); setYearPickerOpen(false); }} style={{ height: 32, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 10, fontWeight: 900, cursor: 'pointer' }}>초기화</button>
+            <button type="button" onClick={() => { onChange('', ''); setRangeText(placeholder); setYearPickerOpen(false); }} style={{ height: 32, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>초기화</button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} aria-label="이전 달" style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: '#1683F2', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>‹</button>
+            <button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} aria-label="이전 달" style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: '#1683F2', cursor: 'pointer', fontSize: 21, lineHeight: 1 }}>‹</button>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
               <button
                 type="button"
@@ -241,17 +241,17 @@ export default function DateRangePicker({
                   color: yearPickerOpen ? C.primary : C.g800,
                   padding: '0 10px',
                   fontFamily: 'inherit',
-                  fontSize: 15,
-                  fontWeight: 900,
+                  fontSize: 16,
+                  fontWeight: 800,
                   cursor: 'pointer',
                   boxShadow: yearPickerOpen ? `0 0 0 3px color-mix(in srgb, ${C.bg} 70%, transparent)` : 'none',
                 }}
               >
                 {month.getFullYear()}년
               </button>
-              <span style={{ fontSize: 15, fontWeight: 900, color: C.g800, lineHeight: 1 }}>{month.getMonth() + 1}월</span>
+              <span style={{ fontSize: 16, fontWeight: 800, color: C.g800, lineHeight: 1 }}>{month.getMonth() + 1}월</span>
             </div>
-            <button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} aria-label="다음 달" style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: '#1683F2', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>›</button>
+            <button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} aria-label="다음 달" style={{ width: 24, height: 24, border: 'none', borderRadius: 999, background: 'transparent', color: '#1683F2', cursor: 'pointer', fontSize: 21, lineHeight: 1 }}>›</button>
           </div>
           {yearPickerOpen ? (
             <div className="date-range-year-grid" style={yearPickerScrollStyle}>
@@ -263,7 +263,7 @@ export default function DateRangePicker({
                     setMonth((current) => new Date(year, current.getMonth(), 1));
                     setYearPickerOpen(false);
                   }}
-                  style={{ height: 30, border: `1px solid ${year === month.getFullYear() ? C.light : C.g100}`, borderRadius: 8, background: year === month.getFullYear() ? C.bg : C.white, color: year === month.getFullYear() ? C.primary : C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 900 }}
+                  style={{ height: 30, border: `1px solid ${year === month.getFullYear() ? C.light : C.g100}`, borderRadius: 8, background: year === month.getFullYear() ? C.bg : C.white, color: year === month.getFullYear() ? C.primary : C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 800 }}
                 >
                   {year}
                 </button>
@@ -272,7 +272,7 @@ export default function DateRangePicker({
           ) : (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 4 }}>
-                {['일', '월', '화', '수', '목', '금', '토'].map((day) => <div key={day} style={{ height: 20, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 10, fontWeight: 900 }}>{day}</div>)}
+                {['일', '월', '화', '수', '목', '금', '토'].map((day) => <div key={day} style={{ height: 20, display: 'grid', placeItems: 'center', color: C.g400, fontSize: 11, fontWeight: 800 }}>{day}</div>)}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
                 {cells.map((cell) => {
@@ -287,7 +287,7 @@ export default function DateRangePicker({
                       key={cell.value}
                       type="button"
                       onClick={() => selectDay(cell.value)}
-                      style={{ height: 27, border: 'none', borderRadius: selectedStart || selectedEnd ? 999 : 8, background: selectedStart || selectedEnd ? '#1683F2' : inRange ? '#DCEBFF' : 'transparent', color: selectedStart || selectedEnd ? C.white : cell.currentMonth ? C.g800 : '#9AA19D', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: selectedStart || selectedEnd ? 900 : 800 }}
+                      style={{ height: 27, border: 'none', borderRadius: selectedStart || selectedEnd ? 999 : 8, background: selectedStart || selectedEnd ? '#1683F2' : inRange ? '#DCEBFF' : 'transparent', color: selectedStart || selectedEnd ? C.white : cell.currentMonth ? C.g800 : '#9AA19D', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: selectedStart || selectedEnd ? 800 : 700 }}
                     >
                       {cell.date.getDate()}
                     </button>

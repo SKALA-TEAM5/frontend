@@ -13,10 +13,10 @@ interface ButtonProps {
 }
 export default function Button({ children, onClick, variant = 'primary', size = 'md', full, disabled, style, type = 'button', }: ButtonProps) {
     const sizes: Record<ButtonSize, React.CSSProperties> = {
-        xs: { fontSize: 12, padding: '6px 11px', minHeight: 30 },
-        sm: { fontSize: 13, padding: '8px 16px', minHeight: 34 },
-        md: { fontSize: 15, padding: '10px 22px', minHeight: 40 },
-        lg: { fontSize: 16, padding: '12px 26px', minHeight: 46 },
+        xs: { fontSize: 13, padding: '6px 11px', minHeight: 30 },
+        sm: { fontSize: 14, padding: '8px 16px', minHeight: 34 },
+        md: { fontSize: 16, padding: '10px 22px', minHeight: 40 },
+        lg: { fontSize: 17, padding: '12px 26px', minHeight: 46 },
     };
     const variants: Record<ButtonVariant, React.CSSProperties> = {
         primary: { background: C.primary, color: '#fff', border: `1px solid ${C.primary}`, boxShadow: '0 6px 14px var(--c-primary-shadow)' },
@@ -30,7 +30,7 @@ export default function Button({ children, onClick, variant = 'primary', size = 
             justifyContent: 'center',
             gap: 6,
             fontFamily: 'inherit',
-            fontWeight: 750,
+            fontWeight: 650,
             cursor: disabled ? 'not-allowed' : 'pointer',
             border: '1px solid transparent',
             borderRadius: 999,

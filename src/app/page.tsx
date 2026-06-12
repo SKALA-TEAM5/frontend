@@ -16,8 +16,8 @@ const inputStyle: React.CSSProperties = {
   background: C.white,
   color: C.g800,
   fontFamily: 'inherit',
-  fontSize: 15,
-  fontWeight: 760,
+  fontSize: 16,
+  fontWeight: 660,
   outline: 'none',
 };
 
@@ -67,8 +67,8 @@ export default function LoginPage() {
                 <img src="/uploads/character.png" alt="veri" style={{ width: 52, height: 52, objectFit: 'contain', flexShrink: 0 }} />
               </div>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 29, fontWeight: 880, color: C.primary, lineHeight: 1.08 }}>i-veri</div>
-                <div style={{ fontSize: 14, fontWeight: 760, color: C.g500, marginTop: 7 }}>로그인</div>
+                <div style={{ fontSize: 30, fontWeight: 780, color: C.primary, lineHeight: 1.08 }}>i-veri</div>
+                <div style={{ fontSize: 15, fontWeight: 660, color: C.g500, marginTop: 7 }}>로그인</div>
               </div>
             </div>
           </div>
@@ -100,8 +100,8 @@ export default function LoginPage() {
                 style={inputStyle}
               />
             </label>
-            {error && <div data-ui="login.4" style={{ border: `1px solid #F2B8B5`, borderRadius: 12, background: C.dangerBg, padding: '10px 12px', fontSize: 13, color: C.danger, fontWeight: 850 }}>{error}</div>}
-            <Button type="submit" full size="lg" style={{ height: 52, marginTop: 8, fontSize: 15, borderRadius: 12 }}>
+            {error && <div data-ui="login.4" style={{ border: `1px solid #F2B8B5`, borderRadius: 12, background: C.dangerBg, padding: '10px 12px', fontSize: 14, color: C.danger, fontWeight: 750 }}>{error}</div>}
+            <Button type="submit" full size="lg" style={{ height: 52, marginTop: 8, fontSize: 16, borderRadius: 12 }}>
               로그인
             </Button>
           </form>

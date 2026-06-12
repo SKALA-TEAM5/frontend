@@ -83,8 +83,8 @@ const chipStyle = (color: string, bg: string, border?: string): CSSProperties =>
   border: border ? `1px solid ${border}` : 'none',
   background: bg,
   color,
-  fontSize: 11,
-  fontWeight: 900,
+  fontSize: 12,
+  fontWeight: 800,
   lineHeight: 1,
   whiteSpace: 'nowrap',
 });
@@ -93,7 +93,7 @@ const compactChipStyle = (color: string, bg: string, border?: string): CSSProper
   ...chipStyle(color, bg, border),
   minHeight: 20,
   padding: '3px 7px',
-  fontSize: 10,
+  fontSize: 11,
 });
 
 const validationGateMeta: Record<ValidationGateState, { label: string; color: string; bg: string; border: string }> = {
@@ -126,17 +126,10 @@ const validationStatTileStyle: CSSProperties = {
 };
 
 const validationSectionTitleStyle: CSSProperties = {
-  fontSize: 16,
-  fontWeight: 850,
+  fontSize: 17,
+  fontWeight: 750,
   color: C.g800,
   letterSpacing: 0,
-};
-
-const validationMutedTextStyle: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  color: C.g500,
-  lineHeight: 1.55,
 };
 
 const getDecisionWeight = (decision: ValidationDecision) => {
@@ -488,8 +481,6 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
     [categories],
   );
   const totalUsage = sumBy(categories, 'usageAmount');
-  const totalRecognized = sumBy(categories, 'recognizedAmount');
-  const recognizedRate = totalUsage > 0 ? Math.round((totalRecognized / totalUsage) * 100) : 0;
   const showAgentFailure = (target: AgentFailureTarget, error?: unknown) => {
     setAgentFailureTarget(target);
     setAgentFailureMessage(getAgentFailureMessage(target, error));
@@ -666,7 +657,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
     if (!validationGateItems.length) return null;
     return (
       <div style={{ display: 'grid', gap: 8, margin: '16px auto 0', width: 'min(100%, 680px)', textAlign: 'left' }}>
-        <div style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>법령 검증 실행 조건</div>
+        <div style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>법령 검증 실행 조건</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-panel)', background: C.white, overflow: 'hidden' }}>
           {validationGateItems.map((item, index) => {
             const meta = validationGateMeta[item.state];
@@ -674,10 +665,10 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
               <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, alignItems: 'center', padding: '11px 12px', borderTop: index === 0 ? 'none' : `1px solid ${C.g100}` }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>{item.label}</span>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: C.g800 }}>{item.label}</span>
                     <span style={compactChipStyle(item.required ? C.primary : C.g500, item.required ? C.bg : C.g100, item.required ? C.light : C.g200)}>{item.required ? '필수' : '선택'}</span>
                   </div>
-                  <div style={{ marginTop: 4, fontSize: 11, fontWeight: 800, color: C.g500, lineHeight: 1.45 }}>{item.detail}</div>
+                  <div style={{ marginTop: 4, fontSize: 12, fontWeight: 700, color: C.g500, lineHeight: 1.45 }}>{item.detail}</div>
                 </div>
                 <span title={item.statusText} style={compactChipStyle(meta.color, meta.bg, meta.border)}>{meta.label}</span>
               </div>
@@ -693,8 +684,8 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       <img src="/uploads/character.png" alt="캐릭터" style={{ width: 88, height: 'auto', flexShrink: 0, objectFit: 'contain' }} />
       <div style={{ flex: 1 }}>
         <div className="speech-bubble">
-          <div style={{ fontSize: 16, fontWeight: 800, color: C.g800, lineHeight: 1.6 }}>사용내역서 항목을 법령 기준으로 검증합니다.</div>
-          <div style={{ fontSize: 13, color: C.g400, marginTop: 4 }}>9개 항목별 판정, 법령 근거, 인정 가능 금액을 확인합니다.</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: C.g800, lineHeight: 1.6 }}>사용내역서 항목을 법령 기준으로 검증합니다.</div>
+          <div style={{ fontSize: 14, color: C.g400, marginTop: 4 }}>9개 항목별 판정, 법령 근거, 인정 가능 금액을 확인합니다.</div>
         </div>
       </div>
       <Button size="lg" onClick={handleVerify} disabled={status === 'loading'} style={{ flexShrink: 0, alignSelf: 'center' }}>{status === 'loading' ? '검증 중...' : status === 'done' ? '재검증하기' : '검증하기'}</Button>
@@ -703,9 +694,9 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
 
   const renderEmpty = () => (
     <div style={{ padding: '48px 32px', borderRadius: 18, border: `2px dashed ${C.g200}`, textAlign: 'center', background: C.white }}>
-      <div style={{ fontSize: 15, fontWeight: 900, color: C.g800, marginBottom: 6 }}>{canStartValidation ? (hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료') : '법령 검증 대기'}</div>
-      <div style={{ fontSize: 13, color: C.g400, marginBottom: 16 }}>{canStartValidation ? '사용내역서 항목을 법령 기준으로 검증합니다.' : validationDisabledReason || '법령 검증 실행 조건을 먼저 충족해야 합니다.'}</div>
-      <button type="button" onClick={handleVerify} disabled={status === 'loading' || !canStartValidation} style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: canStartValidation ? C.primary : C.g200, color: canStartValidation ? C.white : C.g400, fontFamily: 'inherit', fontSize: 13, fontWeight: 900, cursor: status === 'loading' ? 'wait' : canStartValidation ? 'pointer' : 'not-allowed', boxShadow: canStartValidation ? '0 10px 22px rgba(27, 94, 59, .24)' : 'none' }}>{status === 'loading' ? '검증 중...' : '법령 검증'}</button>
+      <div style={{ fontSize: 16, fontWeight: 800, color: C.g800, marginBottom: 6 }}>{canStartValidation ? (hideValidationIntro ? '검증 결과가 아직 없습니다' : '검증 준비 완료') : '법령 검증 대기'}</div>
+      <div style={{ fontSize: 14, color: C.g400, marginBottom: 16 }}>{canStartValidation ? '사용내역서 항목을 법령 기준으로 검증합니다.' : validationDisabledReason || '법령 검증 실행 조건을 먼저 충족해야 합니다.'}</div>
+      <button type="button" onClick={handleVerify} disabled={status === 'loading' || !canStartValidation} style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: canStartValidation ? C.primary : C.g200, color: canStartValidation ? C.white : C.g400, fontFamily: 'inherit', fontSize: 14, fontWeight: 800, cursor: status === 'loading' ? 'wait' : canStartValidation ? 'pointer' : 'not-allowed', boxShadow: canStartValidation ? '0 10px 22px rgba(27, 94, 59, .24)' : 'none' }}>{status === 'loading' ? '검증 중...' : '법령 검증'}</button>
       {renderValidationGate()}
     </div>
   );
@@ -721,7 +712,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       <div style={{ padding: '16px 18px', background: meta.bg, borderBottom: `1px solid ${meta.border}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, lineHeight: 1.3 }}>{item.categoryName}</div>
+            <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, lineHeight: 1.3 }}>{item.categoryName}</div>
           </div>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <span style={chipStyle(meta.color, C.white, meta.border)}>{meta.label}</span>
@@ -732,13 +723,13 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
           <div style={{ display: 'inline-flex', gap: 4, padding: 4, border: `1px solid ${C.g100}`, borderRadius: 999, background: C.white, width: 'fit-content', maxWidth: '100%' }}>
             {decisionGroups.map((group) => {
               const active = group.id === selectedDecisionGroup.id;
-              return <button key={group.id} type="button" disabled={group.items.length === 0} onClick={() => group.items[0] && setSelectedCategoryId(group.items[0].categoryId)} style={{ border: 'none', background: active ? group.color : 'transparent', color: group.items.length === 0 ? C.g400 : active ? C.white : C.g600, borderRadius: 999, padding: '7px 11px', fontSize: 12, fontWeight: 900, fontFamily: 'inherit', cursor: group.items.length === 0 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>{group.label} {group.items.length}</button>;
+              return <button key={group.id} type="button" disabled={group.items.length === 0} onClick={() => group.items[0] && setSelectedCategoryId(group.items[0].categoryId)} style={{ border: 'none', background: active ? group.color : 'transparent', color: group.items.length === 0 ? C.g400 : active ? C.white : C.g600, borderRadius: 999, padding: '7px 11px', fontSize: 13, fontWeight: 800, fontFamily: 'inherit', cursor: group.items.length === 0 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>{group.label} {group.items.length}</button>;
             })}
           </div>
           <div className="thin-x-scroll" style={decisionScrollStyle(selectedDecisionGroup.color)}>
             {selectedDecisionGroup.items.map((category) => {
               const active = category.categoryId === item.categoryId;
-              return <button key={category.categoryId} type="button" onClick={() => setSelectedCategoryId(category.categoryId)} style={{ border: `1px solid ${active ? meta.color : C.g200}`, borderRadius: 999, background: active ? C.white : 'rgba(255,255,255,.7)', color: active ? meta.color : C.g600, padding: '7px 12px', fontFamily: 'inherit', fontSize: 12, fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{category.categoryName}</button>;
+              return <button key={category.categoryId} type="button" onClick={() => setSelectedCategoryId(category.categoryId)} style={{ border: `1px solid ${active ? meta.color : C.g200}`, borderRadius: 999, background: active ? C.white : 'rgba(255,255,255,.7)', color: active ? meta.color : C.g600, padding: '7px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{category.categoryName}</button>;
             })}
           </div>
         </div>
@@ -750,18 +741,18 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
             { label: '인정 가능', value: fmt(item.recognizedAmount), color: item.recognizedAmount === item.usageAmount ? C.ok : C.warn },
             { label: '쟁점 금액', value: item.disputedAmount > 0 ? fmt(item.disputedAmount) : '-', color: item.disputedAmount > 0 ? C.danger : C.g500 },
           ].map((metric) => <div key={metric.label} style={{ border: `1px solid ${C.g100}`, borderRadius: 'var(--ui-radius-panel)', background: '#FBFCFB', padding: '11px 10px' }}>
-            <div style={{ fontSize: 11, fontWeight: 850, color: C.g500, marginBottom: 5 }}>{metric.label}</div>
-            <div style={{ fontSize: 15, fontWeight: 900, color: metric.color, fontVariantNumeric: 'tabular-nums' }}>{metric.value}</div>
+            <div style={{ fontSize: 12, fontWeight: 750, color: C.g500, marginBottom: 5 }}>{metric.label}</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: metric.color, fontVariantNumeric: 'tabular-nums' }}>{metric.value}</div>
           </div>)}
         </div>
 
         <div style={{ position: 'relative', border: `1px solid ${C.g100}`, borderRadius: 'var(--ui-radius-panel)', overflow: 'hidden' }}>
           <div style={{ padding: '11px 12px', background: '#F7F9F8', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 900, color: C.g800 }}>세부 항목</div>
-            <div style={{ fontSize: 11, fontWeight: 850, color: C.g500 }}>{item.items.length}건</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: C.g800 }}>세부 항목</div>
+            <div style={{ fontSize: 12, fontWeight: 750, color: C.g500 }}>{item.items.length}건</div>
           </div>
           <div style={{ padding: 12, display: 'grid', gap: 10 }}>
-            {item.items.length === 0 && <div style={{ fontSize: 12, fontWeight: 800, color: C.g500, lineHeight: 1.5 }}>legal agent가 확인한 세부항목 결과가 없습니다.</div>}
+            {item.items.length === 0 && <div style={{ fontSize: 13, fontWeight: 700, color: C.g500, lineHeight: 1.5 }}>legal agent가 확인한 세부항목 결과가 없습니다.</div>}
             {item.items.map((detail, index) => {
               const detailMeta = decisionMeta[detail.decision];
               const legalText = detail.legalBasis
@@ -773,17 +764,17 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, alignItems: 'start' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
-                      <div style={{ fontSize: 14, fontWeight: 900, color: C.g800, lineHeight: 1.35 }}>{detail.itemName}</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: C.g800, lineHeight: 1.35 }}>{detail.itemName}</div>
                       <span style={compactChipStyle(detailMeta.color, detailMeta.bg, detailMeta.border)}>{detailMeta.label}</span>
                     </div>
-                    {detail.usedOn && <div style={{ fontSize: 11, fontWeight: 800, color: C.g500 }}>{detail.usedOn}</div>}
+                    {detail.usedOn && <div style={{ fontSize: 12, fontWeight: 700, color: C.g500 }}>{detail.usedOn}</div>}
                   </div>
                   <span style={{ display: 'inline-flex' }}>
                     <button
                       type="button"
                       aria-label="법령 원문 보기"
                       onClick={(event) => handleLegalSourceOpen(event, tooltipKey, legalText)}
-                      style={{ border: `1px solid ${legalSourcePopup?.key === tooltipKey ? C.primary : C.light}`, borderRadius: 999, background: legalSourcePopup?.key === tooltipKey ? C.primary : C.bg, color: legalSourcePopup?.key === tooltipKey ? C.white : C.primary, padding: '5px 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      style={{ border: `1px solid ${legalSourcePopup?.key === tooltipKey ? C.primary : C.light}`, borderRadius: 999, background: legalSourcePopup?.key === tooltipKey ? C.primary : C.bg, color: legalSourcePopup?.key === tooltipKey ? C.white : C.primary, padding: '5px 9px', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
                     >
                       법령 원문
                     </button>
@@ -795,13 +786,13 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
                     { label: '인정 가능', value: fmt(detail.recognizedAmount), color: detail.recognizedAmount === detail.amount ? C.ok : C.warn },
                     { label: '쟁점 금액', value: detail.disputedAmount > 0 ? fmt(detail.disputedAmount) : '-', color: detail.disputedAmount > 0 ? C.danger : C.g500 },
                   ].map((metric) => <div key={metric.label} style={{ border: `1px solid ${C.g100}`, borderRadius: 8, background: '#FBFCFB', padding: '8px 9px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 850, color: C.g500, marginBottom: 4 }}>{metric.label}</div>
-                    <div style={{ fontSize: 13, fontWeight: 900, color: metric.color, fontVariantNumeric: 'tabular-nums' }}>{metric.value}</div>
+                    <div style={{ fontSize: 11, fontWeight: 750, color: C.g500, marginBottom: 4 }}>{metric.label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: metric.color, fontVariantNumeric: 'tabular-nums' }}>{metric.value}</div>
                   </div>)}
                 </div>
                 <div style={{ display: 'grid', gap: 5 }}>
-                  <div style={{ fontSize: 11, fontWeight: 900, color: C.g500 }}>검토 사유</div>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: C.g600, lineHeight: 1.6 }}>{detail.reviewReason}</div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: C.g500 }}>검토 사유</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.g600, lineHeight: 1.6 }}>{detail.reviewReason}</div>
                 </div>
               </div>;
             })}
@@ -822,7 +813,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
         <span style={chipStyle(C.danger, C.dangerBg, '#FFCDD2')}>{list.length}건</span>
       </div>
       <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
-        {list.length === 0 && <div style={{ padding: 18, border: `1px solid ${C.g100}`, borderRadius: 'var(--ui-radius-panel)', color: C.g500, fontSize: 13, fontWeight: 800 }}>담당자에게 요청할 보완 항목이 없습니다.</div>}
+        {list.length === 0 && <div style={{ padding: 18, border: `1px solid ${C.g100}`, borderRadius: 'var(--ui-radius-panel)', color: C.g500, fontSize: 14, fontWeight: 700 }}>담당자에게 요청할 보완 항목이 없습니다.</div>}
         {list.map((issue) => {
           const meta = decisionMeta[issue.decision];
           const targetCategory = categories.find((item) => item.categoryName === issue.categoryName);
@@ -830,13 +821,13 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
           return <button key={`${issue.categoryName}-${issue.title}`} type="button" onClick={() => targetCategory && setSelectedCategoryId(targetCategory.categoryId)} style={{ width: '100%', border: `1px solid ${selected ? meta.color : meta.border}`, borderRadius: 'var(--ui-radius-panel)', background: selected ? meta.bg : C.white, padding: 13, textAlign: 'left', fontFamily: 'inherit', cursor: targetCategory ? 'pointer' : 'default', boxShadow: selected ? '0 10px 20px rgba(31,55,43,.10)' : 'none' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start', marginBottom: 9 }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 900, color: meta.color, marginBottom: 4 }}>{issue.categoryName}</div>
-                <div title={issue.title} style={{ fontSize: 14, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{issue.title}</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: meta.color, marginBottom: 4 }}>{issue.categoryName}</div>
+                <div title={issue.title} style={{ fontSize: 15, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{issue.title}</div>
               </div>
               <span style={compactChipStyle(meta.color, meta.bg, meta.border)}>{meta.label}</span>
             </div>
-            <div style={{ fontSize: 12, fontWeight: 750, color: C.g600, lineHeight: 1.55, marginBottom: 8 }}>{issue.requiredAction}</div>
-            <div style={{ fontSize: 12, fontWeight: 800, color: C.g600, lineHeight: 1.55 }}>
+            <div style={{ fontSize: 13, fontWeight: 650, color: C.g600, lineHeight: 1.55, marginBottom: 8 }}>{issue.requiredAction}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.g600, lineHeight: 1.55 }}>
               필요한 증빙 서류: <span style={{ color: C.g800 }}>{issue.recommendedFiles.length > 0 ? issue.recommendedFiles.join(', ') : '별도 지정 없음'}</span>
             </div>
           </button>;
@@ -865,8 +856,8 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       background: completed ? C.g100 : active ? color : C.white,
       color: completed ? C.g400 : active ? C.white : C.g600,
       fontFamily: 'inherit',
-      fontSize: 13,
-      fontWeight: 900,
+      fontSize: 14,
+      fontWeight: 800,
       cursor: disabled ? 'not-allowed' : 'pointer',
       textAlign: 'center',
       opacity: completed ? 0.72 : disabled && !active ? 0.5 : 1,
@@ -879,10 +870,10 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
         <div style={{ display: 'flex', gap: 14, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 7 }}>
-              <div style={{ fontSize: 15, fontWeight: 850, color: C.g800 }}>SHE 최종 판단</div>
+              <div style={{ fontSize: 16, fontWeight: 750, color: C.g800 }}>SHE 최종 판단</div>
               <span style={chipStyle(current.color, current.bg)}>{current.label}</span>
             </div>
-            <div style={{ fontSize: 12, color: C.g600, lineHeight: 1.6 }}>{!validationId ? '검증 내용을 확인한 뒤 승인 또는 보완 요청을 보낼 수 있습니다.' : !canApproveValidation && approveDisabledReason ? approveDisabledReason : current.description}</div>
+            <div style={{ fontSize: 13, color: C.g600, lineHeight: 1.6 }}>{!validationId ? '검증 내용을 확인한 뒤 승인 또는 보완 요청을 보낼 수 있습니다.' : !canApproveValidation && approveDisabledReason ? approveDisabledReason : current.description}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto', alignItems: 'center' }}>
             <span style={compactChipStyle(C.g600, C.white)}>{result.checkedAt}</span>
@@ -913,9 +904,9 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
           ].map((metric) => (
             <div key={metric.label} style={{ ...validationStatTileStyle, minWidth: 0, background: '#FFFFFF' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>{metric.label}</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>{metric.label}</div>
               </div>
-              <div style={{ fontSize: 19, fontWeight: 900, color: metric.color, fontVariantNumeric: 'tabular-nums' }}>{metric.value}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: metric.color, fontVariantNumeric: 'tabular-nums' }}>{metric.value}</div>
             </div>
           ))}
         </div>
@@ -955,10 +946,10 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
         }}
       >
         <div style={{ padding: '13px 14px', borderBottom: `1px solid ${C.g100}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <div style={{ fontSize: 14, fontWeight: 900, color: C.g800 }}>법령 원문</div>
-          <button type="button" onClick={() => setLegalSourcePopup(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, width: 26, height: 26, fontFamily: 'inherit', fontSize: 15, fontWeight: 900, cursor: 'pointer', lineHeight: 1 }}>×</button>
+          <div style={{ fontSize: 15, fontWeight: 800, color: C.g800 }}>법령 원문</div>
+          <button type="button" onClick={() => setLegalSourcePopup(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, width: 26, height: 26, fontFamily: 'inherit', fontSize: 16, fontWeight: 800, cursor: 'pointer', lineHeight: 1 }}>×</button>
         </div>
-        <div className="thin-y-scroll" style={{ maxHeight: 304, overflowY: 'auto', padding: '13px 14px', fontSize: 13, fontWeight: 750, color: C.g600, lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
+        <div className="thin-y-scroll" style={{ maxHeight: 304, overflowY: 'auto', padding: '13px 14px', fontSize: 14, fontWeight: 650, color: C.g600, lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
           {legalSourcePopup.text}
         </div>
       </div>

@@ -25,8 +25,8 @@ const inputStyle: React.CSSProperties = {
   borderRadius: 8,
   border: `1px solid ${C.g200}`,
   fontFamily: 'inherit',
-  fontSize: 13,
-  fontWeight: 800,
+  fontSize: 14,
+  fontWeight: 700,
   lineHeight: '20px',
   color: C.g800,
   background: C.white,
@@ -53,8 +53,8 @@ const legalReviewFilterStyle = (active: boolean): React.CSSProperties => ({
   background: active ? '#F4FBF6' : C.white,
   color: active ? C.primary : C.g800,
   fontFamily: 'inherit',
-  fontSize: 12,
-  fontWeight: 900,
+  fontSize: 13,
+  fontWeight: 800,
   cursor: 'pointer',
   boxShadow: active ? 'inset 0 0 0 1px rgba(24, 111, 67, .06)' : 'none',
   transition: 'background .16s ease, border-color .16s ease, color .16s ease',
@@ -72,8 +72,8 @@ const legalReviewCheckStyle = (active: boolean): React.CSSProperties => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: 13,
-  fontWeight: 900,
+  fontSize: 14,
+  fontWeight: 800,
   lineHeight: 1,
 });
 
@@ -88,8 +88,8 @@ const supplementRequestBadgeStyle: React.CSSProperties = {
   border: `1px solid #EFAEB7`,
   background: '#FFF4F5',
   color: C.danger,
-  fontSize: 11,
-  fontWeight: 900,
+  fontSize: 12,
+  fontWeight: 800,
   lineHeight: 1,
   whiteSpace: 'nowrap',
 };
@@ -163,16 +163,20 @@ const hydrateProjectLegalReviewFilter = async (project: ProjectSummary): Promise
       return {
         ...projectWithDetail,
         usageRate,
-        hasLegalReviewNeededMonth: project.hasActionRequest || isLegalReviewWorkflow(project.latestUsageStatementStatusCode),
+        hasLegalReviewNeededMonth: isLegalReviewWorkflow(project.latestUsageStatementStatusCode),
+        hasActionRequest: false,
+        actionRequestDetails: undefined,
       };
     }
     const workflowStatus = normalizeUsageWorkflowStatus(reviewNeededArchive.workflowStatus);
+    const hasActionRequest = workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
     return {
       ...projectWithDetail,
       usageRate,
       hasLegalReviewNeededMonth: true,
-      hasActionRequest: project.hasActionRequest || workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED,
-      latestUsageStatementStatusCode: project.latestUsageStatementStatusCode || workflowStatus || null,
+      hasActionRequest,
+      actionRequestDetails: hasActionRequest ? project.actionRequestDetails : undefined,
+      latestUsageStatementStatusCode: workflowStatus || project.latestUsageStatementStatusCode || null,
     };
   } catch {
     return project;
@@ -365,15 +369,10 @@ function ProjectsPageContent() {
         : item));
       setSuspendTarget(null);
     } catch (error) {
-      setSuspendError(error instanceof Error ? error.message : shouldResume ? '프로젝트 시작 처리에 실패했습니다.' : '프로젝트 중단 처리에 실패했습니다.');
+      setSuspendError(error instanceof Error ? error.message : shouldResume ? '프로젝트 진행 처리에 실패했습니다.' : '프로젝트 중단 처리에 실패했습니다.');
     } finally {
       setSuspendingProjectId('');
     }
-  };
-
-  const updateCreateField = (key: keyof NewProjectInput, value: string) => {
-    setCreateForm((current) => ({ ...current, [key]: value }));
-    setCreateError('');
   };
 
   const closeCreateModal = () => {
@@ -452,24 +451,24 @@ function ProjectsPageContent() {
       >
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <div title={project.constructionName} style={{ minWidth: 0, fontSize: 16, fontWeight: 900, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.constructionName}</div>
+            <div title={project.constructionName} style={{ minWidth: 0, fontSize: 17, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.constructionName}</div>
             {hasSupplement && <span style={supplementRequestBadgeStyle}>보완 요청</span>}
           </div>
-          <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, color: C.g600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.contractNumber}</div>
+          <div style={{ marginTop: 5, fontSize: 13, fontWeight: 700, color: C.g600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.contractNumber}</div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, minWidth: 0 }}>
           <div style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '9px 10px', background: 'transparent' }}>
-            <div style={{ fontSize: 11, fontWeight: 750, color: C.g600 }}>담당자</div>
-            <div title={project.manager} style={{ marginTop: 4, fontSize: 13, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</div>
+            <div style={{ fontSize: 12, fontWeight: 650, color: C.g600 }}>담당자</div>
+            <div title={project.manager} style={{ marginTop: 4, fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.manager}</div>
           </div>
           <div style={{ minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-control)', padding: '9px 10px', background: 'transparent' }}>
-            <div style={{ fontSize: 11, fontWeight: 750, color: C.g600 }}>공사 기간</div>
-            <div title={project.period || '-'} style={{ marginTop: 4, fontSize: 13, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</div>
+            <div style={{ fontSize: 12, fontWeight: 650, color: C.g600 }}>공사 기간</div>
+            <div title={project.period || '-'} style={{ marginTop: 4, fontSize: 14, fontWeight: 700, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.period || '-'}</div>
           </div>
         </div>
         <div style={{ display: 'grid', gap: 9 }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, fontSize: 12, fontWeight: 900, color: C.g600 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, fontSize: 13, fontWeight: 800, color: C.g600 }}>
               <span>공정률</span>
               <span style={{ color: C.g800 }}>{progress}%</span>
             </div>
@@ -478,7 +477,7 @@ function ProjectsPageContent() {
             </div>
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, fontSize: 12, fontWeight: 900, color: C.g600 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, fontSize: 13, fontWeight: 800, color: C.g600 }}>
               <span>안전관리비 사용률</span>
               <span style={{ color: C.g800 }}>{safetyBudgetUsage}%</span>
             </div>
@@ -507,9 +506,9 @@ function ProjectsPageContent() {
                 setSuspendError('');
                 setSuspendTarget(project);
               }}
-              style={{ border: `1px solid ${projectClosed ? C.g200 : projectSuspended ? C.primary : C.g400}`, borderRadius: 999, background: projectClosed ? C.g100 : projectSuspended ? C.bg : C.white, color: projectClosed ? C.g400 : projectSuspended ? C.primary : C.g600, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: projectClosed || suspendingProjectId === project.id ? 'not-allowed' : 'pointer', boxSizing: 'border-box', opacity: suspendingProjectId === project.id ? .65 : 1 }}
+              style={{ border: `1px solid ${projectClosed ? C.g200 : projectSuspended ? C.primary : C.g400}`, borderRadius: 999, background: projectClosed ? C.g100 : projectSuspended ? C.bg : C.white, color: projectClosed ? C.g400 : projectSuspended ? C.primary : C.g600, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, cursor: projectClosed || suspendingProjectId === project.id ? 'not-allowed' : 'pointer', boxSizing: 'border-box', opacity: suspendingProjectId === project.id ? .65 : 1 }}
             >
-              {suspendingProjectId === project.id ? (projectSuspended ? '시작 처리 중' : '중단 처리 중') : projectSuspended ? '시작' : '중단'}
+              {suspendingProjectId === project.id ? (projectSuspended ? '진행 처리 중' : '중단 처리 중') : projectSuspended ? '진행' : '중단'}
             </span>
             <span
               role="button"
@@ -529,7 +528,7 @@ function ProjectsPageContent() {
                 setCloseError('');
                 setCloseTarget(project);
               }}
-              style={{ border: `1px solid ${projectClosed ? C.g200 : C.ok}`, borderRadius: 999, background: projectClosed ? C.g100 : '#F4FBF6', color: projectClosed ? C.g400 : C.ok, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: projectClosed || closingProjectId === project.id ? 'not-allowed' : 'pointer', boxSizing: 'border-box', opacity: closingProjectId === project.id ? .65 : 1 }}
+              style={{ border: `1px solid ${projectClosed ? C.g200 : C.ok}`, borderRadius: 999, background: projectClosed ? C.g100 : '#F4FBF6', color: projectClosed ? C.g400 : C.ok, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, cursor: projectClosed || closingProjectId === project.id ? 'not-allowed' : 'pointer', boxSizing: 'border-box', opacity: closingProjectId === project.id ? .65 : 1 }}
             >
               {closingProjectId === project.id ? '종료 처리 중' : projectClosed ? '종료됨' : '종료'}
             </span>
@@ -548,7 +547,7 @@ function ProjectsPageContent() {
                 setDeleteError('');
                 setDeleteTarget(project);
               }}
-              style={{ border: `1px solid #FFCDD2`, borderRadius: 999, background: C.dangerBg, color: C.danger, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: 'pointer', boxSizing: 'border-box' }}
+              style={{ border: `1px solid #FFCDD2`, borderRadius: 999, background: C.dangerBg, color: C.danger, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, cursor: 'pointer', boxSizing: 'border-box' }}
             >
               삭제
             </span>
@@ -604,16 +603,16 @@ function ProjectsPageContent() {
     <Modal open={Boolean(closeTarget)} onClose={closeCloseModal} zIndex={975} maxWidth={480}>
       <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(31,55,43,.14)', overflow: 'hidden' }}>
         <div style={{ padding: '20px 22px 12px' }}>
-          <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 종료</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
+          <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 7 }}>프로젝트 종료</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.65 }}>
             {closeTarget?.constructionName || closeTarget?.name} 프로젝트를 종료 상태로 변경합니다. <br/> 종료 후에는 프로젝트 목록에서 완료됨으로 표시됩니다.
           </div>
         </div>
         <div style={{ padding: '16px 22px 18px' }}>
-          {closeError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 900, lineHeight: 1.5, marginBottom: 14 }}>{closeError}</div>}
+          {closeError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 14, fontWeight: 800, lineHeight: 1.5, marginBottom: 14 }}>{closeError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={closeCloseModal} disabled={Boolean(closingProjectId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: closingProjectId ? 'not-allowed' : 'pointer', opacity: closingProjectId ? 0.45 : 1 }}>취소</button>
-            <button type="button" onClick={confirmCloseProject} disabled={Boolean(closingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: closingProjectId ? C.g200 : C.ok, color: closingProjectId ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: closingProjectId ? 'wait' : 'pointer' }}>{closingProjectId ? '종료 처리 중' : '종료 처리'}</button>
+            <button type="button" onClick={closeCloseModal} disabled={Boolean(closingProjectId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: closingProjectId ? 'not-allowed' : 'pointer', opacity: closingProjectId ? 0.45 : 1 }}>취소</button>
+            <button type="button" onClick={confirmCloseProject} disabled={Boolean(closingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: closingProjectId ? C.g200 : C.ok, color: closingProjectId ? C.g400 : C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: closingProjectId ? 'wait' : 'pointer' }}>{closingProjectId ? '종료 처리 중' : '종료 처리'}</button>
           </div>
         </div>
       </div>
@@ -624,18 +623,18 @@ function ProjectsPageContent() {
     <Modal open={Boolean(suspendTarget)} onClose={closeSuspendModal} zIndex={976} maxWidth={480}>
       <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(31,55,43,.14)', overflow: 'hidden' }}>
         <div style={{ padding: '20px 22px 12px' }}>
-          <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>{suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? '프로젝트 시작' : '프로젝트 중단'}</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
+          <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 7 }}>{suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? '프로젝트 진행' : '프로젝트 중단'}</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.65 }}>
             {suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED
               ? `${suspendTarget?.constructionName || suspendTarget?.name} 프로젝트를 다시 진행하시겠습니까?`
               : <>{suspendTarget?.constructionName || suspendTarget?.name} 프로젝트를 중단 상태로 변경합니다. <br/> 중단 후에는 프로젝트 목록에서 중단됨으로 표시됩니다.</>}
           </div>
         </div>
         <div style={{ padding: '16px 22px 18px' }}>
-          {suspendError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 900, lineHeight: 1.5, marginBottom: 14 }}>{suspendError}</div>}
+          {suspendError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 14, fontWeight: 800, lineHeight: 1.5, marginBottom: 14 }}>{suspendError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={closeSuspendModal} disabled={Boolean(suspendingProjectId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: suspendingProjectId ? 'not-allowed' : 'pointer', opacity: suspendingProjectId ? 0.45 : 1 }}>취소</button>
-            <button type="button" onClick={confirmSuspendProject} disabled={Boolean(suspendingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: suspendingProjectId ? C.g200 : suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? C.primary : C.g600, color: suspendingProjectId ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: suspendingProjectId ? 'wait' : 'pointer' }}>{suspendingProjectId ? (suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? '시작 처리 중' : '중단 처리 중') : suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? '시작 처리' : '중단 처리'}</button>
+            <button type="button" onClick={closeSuspendModal} disabled={Boolean(suspendingProjectId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: suspendingProjectId ? 'not-allowed' : 'pointer', opacity: suspendingProjectId ? 0.45 : 1 }}>취소</button>
+            <button type="button" onClick={confirmSuspendProject} disabled={Boolean(suspendingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: suspendingProjectId ? C.g200 : suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? C.primary : C.g600, color: suspendingProjectId ? C.g400 : C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: suspendingProjectId ? 'wait' : 'pointer' }}>{suspendingProjectId ? (suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? '진행 처리 중' : '중단 처리 중') : suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? '진행 처리' : '중단 처리'}</button>
           </div>
         </div>
       </div>
@@ -646,16 +645,16 @@ function ProjectsPageContent() {
     <Modal open={Boolean(deleteTarget)} onClose={closeDeleteModal} zIndex={980} maxWidth={480}>
       <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(31,55,43,.14)', overflow: 'hidden' }}>
         <div style={{ padding: '20px 22px 12px' }}>
-          <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 삭제</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
+          <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 7 }}>프로젝트 삭제</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.65 }}>
             {deleteTarget?.constructionName || deleteTarget?.name} 프로젝트를 완전히 삭제합니다. <br/> 삭제 후에는 프로젝트 목록과 상세 화면에서 더 이상 확인할 수 없습니다.
           </div>
         </div>
         <div style={{ padding: '16px 22px 18px' }}>
-          {deleteError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 900, lineHeight: 1.5, marginBottom: 14 }}>{deleteError}</div>}
+          {deleteError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 14, fontWeight: 800, lineHeight: 1.5, marginBottom: 14 }}>{deleteError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={closeDeleteModal} disabled={deleting} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.45 : 1 }}>취소</button>
-            <button type="button" onClick={confirmDeleteProject} disabled={deleting} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: deleting ? C.g200 : C.danger, color: deleting ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: deleting ? 'wait' : 'pointer' }}>{deleting ? '삭제 중' : '삭제'}</button>
+            <button type="button" onClick={closeDeleteModal} disabled={deleting} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.45 : 1 }}>취소</button>
+            <button type="button" onClick={confirmDeleteProject} disabled={deleting} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: deleting ? C.g200 : C.danger, color: deleting ? C.g400 : C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: deleting ? 'wait' : 'pointer' }}>{deleting ? '삭제 중' : '삭제'}</button>
           </div>
         </div>
       </div>
@@ -670,10 +669,10 @@ function ProjectsPageContent() {
     >
       <Card style={{ padding: '18px 20px', borderRadius: 14, overflow: 'visible' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
-          <div style={{ fontSize: 16, fontWeight: 900, color: C.g800 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: C.g800 }}>
             {user.role === 'project_manager' ? '담당 프로젝트 현황' : '전체 프로젝트 현황'}
           </div>
-          <div style={{ fontSize: 12, fontWeight: 900, color: C.g600 }}>전체 {visibleProjects.length}건</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>전체 {visibleProjects.length}건</div>
         </div>
 
         <div data-ui="projects.1" style={{ display: 'grid', gridTemplateColumns: 'minmax(145px, 1.1fr) minmax(110px, .85fr) minmax(105px, .78fr) minmax(190px, 1.25fr) max-content', gap: 8, marginBottom: 24 }}>
@@ -704,9 +703,9 @@ function ProjectsPageContent() {
         </div>
 
         <div style={{ display: 'grid', gap: 10, alignItems: 'start' }}>
-          {loading && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 13, fontWeight: 900 }}>프로젝트 목록을 불러오는 중입니다.</div>}
-          {!loading && loadError && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.danger, fontSize: 13, fontWeight: 900 }}>{loadError}</div>}
-          {!loading && !loadError && visibleProjects.length === 0 && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 13, fontWeight: 900 }}>조회된 프로젝트가 없습니다.</div>}
+          {loading && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 14, fontWeight: 800 }}>프로젝트 목록을 불러오는 중입니다.</div>}
+          {!loading && loadError && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.danger, fontSize: 14, fontWeight: 800 }}>{loadError}</div>}
+          {!loading && !loadError && visibleProjects.length === 0 && <div style={{ minHeight: 160, display: 'grid', placeItems: 'center', border: `1px solid ${C.g100}`, borderRadius: 12, color: C.g400, fontSize: 14, fontWeight: 800 }}>조회된 프로젝트가 없습니다.</div>}
           {!loading && !loadError && visibleProjects.length > 0 && projectAccordionSections.map((section) => {
             const sectionProjects = groupedVisibleProjects[section];
             const sectionMeta = PROJECT_LIFECYCLE_STATUS_META[section];
@@ -720,11 +719,11 @@ function ProjectsPageContent() {
                   style={{ width: '100%', height: 48, border: 'none', background: open ? 'color-mix(in srgb, var(--c-bg) 72%, #fff)' : C.white, padding: '0 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontFamily: 'inherit', cursor: 'pointer' }}
                 >
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                    <span aria-hidden="true" style={{ color: sectionMeta.color, fontSize: 15, fontWeight: 900, transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .16s ease' }}>›</span>
-                    <span style={{ fontSize: 15, fontWeight: 900, color: open ? C.primary : C.g800 }}>{sectionMeta.label}</span>
-                    <span style={{ height: 22, minWidth: 28, border: `1px solid ${open ? C.light : C.g200}`, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: open ? C.primary : C.g600, background: open ? C.white : 'transparent', fontSize: 12, fontWeight: 900 }}>{sectionProjects.length}건</span>
+                    <span aria-hidden="true" style={{ color: sectionMeta.color, fontSize: 16, fontWeight: 800, transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .16s ease' }}>›</span>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: open ? C.primary : C.g800 }}>{sectionMeta.label}</span>
+                    <span style={{ height: 22, minWidth: 28, border: `1px solid ${open ? C.light : C.g200}`, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: open ? C.primary : C.g600, background: open ? C.white : 'transparent', fontSize: 13, fontWeight: 800 }}>{sectionProjects.length}건</span>
                   </span>
-                  <span style={{ color: open ? C.primary : C.g500, fontSize: 12, fontWeight: 900 }}>{open ? '접기' : '펼치기'}</span>
+                  <span style={{ color: open ? C.primary : C.g500, fontSize: 13, fontWeight: 800 }}>{open ? '접기' : '펼치기'}</span>
                 </button>
                 {open && (
                   <div style={{ borderTop: `1px solid ${C.g100}`, padding: 12 }}>
@@ -733,7 +732,7 @@ function ProjectsPageContent() {
                         {sectionProjects.map(renderProjectCard)}
                       </div>
                     ) : (
-                      <div style={{ minHeight: 92, display: 'grid', placeItems: 'center', border: `1px dashed ${C.g200}`, borderRadius: 10, color: C.g400, fontSize: 13, fontWeight: 900 }}>
+                      <div style={{ minHeight: 92, display: 'grid', placeItems: 'center', border: `1px dashed ${C.g200}`, borderRadius: 10, color: C.g400, fontSize: 14, fontWeight: 800 }}>
                         표시할 프로젝트가 없습니다.
                       </div>
                     )}
@@ -743,7 +742,7 @@ function ProjectsPageContent() {
             );
           })}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, color: C.g600, fontSize: 12, fontWeight: 800 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, color: C.g600, fontSize: 13, fontWeight: 700 }}>
           <span>전체 {projects.length}건</span>
         </div>
       </Card>
