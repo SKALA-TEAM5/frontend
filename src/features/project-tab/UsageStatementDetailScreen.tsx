@@ -9,10 +9,10 @@ import { C } from '../../lib/theme';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
-import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
+import { backendEvidenceTypeToCategory, changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
 import { confirmAgentTodo, getOrchestratorStatus, getVisionValidationResults, listSafeLeeEvidenceRequirements, runEvidenceReviewAgent, safeLeeRequirementsToMap, waitForAgentButtonEnabled, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
-import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
+import type { ArchiveSeed, BackendEvidenceTypeCode, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 type UsageDetailValidationStatus = 'idle' | 'running' | 'done';
 interface UsageStatementDetailScreenProps {
     projectId: string;
@@ -877,6 +877,13 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const uploadFilesToSection = (kind: FolderEvidenceCategory, catId: number, usageItemId: string) => {
         if (!usageItemId)
             return;
+        const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
+        const isWearingPhotoContext = kind === 'site_photo'
+            && (catId === 3 || /보호구|착용|안전모|안전화|안전벨트|장갑|마스크|조끼|개인보호/.test(usageItem?.name || ''));
+        const matchingRequiredEvidenceTypeCodes = (requiredEvidenceByLine[usageItemId]?.[kind] || [])
+            .filter((code) => backendEvidenceTypeToCategory(code) === kind);
+        const requiredEvidenceTypeCode = (matchingRequiredEvidenceTypeCodes.find((code) => code !== kind) || matchingRequiredEvidenceTypeCodes[0]) as BackendEvidenceTypeCode | undefined;
+        const evidenceTypeCode = requiredEvidenceTypeCode || (isWearingPhotoContext ? 'wearing_photo' : undefined);
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = true;
@@ -888,12 +895,13 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setUsageDetailActionError('');
             try {
                 const nextEntries = await Promise.all(pickedFiles.map(async (file) => {
-                    const uploadedEntry = await uploadEvidenceFileToItem(projectId, usageItemId, file, kind);
+                    const uploadedEntry = await uploadEvidenceFileToItem(projectId, usageItemId, file, kind, evidenceTypeCode);
                     if (!uploadedEntry.fileId)
-                        return createEntryFromFile(file, kind, { ...uploadedEntry, categoryIds: [catId], usageItemIds: [usageItemId] });
+                        return createEntryFromFile(file, kind, { ...uploadedEntry, evidenceTypeCode, categoryIds: [catId], usageItemIds: [usageItemId] });
                     return {
                         ...uploadedEntry,
                         kind,
+                        evidenceTypeCode: uploadedEntry.evidenceTypeCode || evidenceTypeCode,
                         previewUrl: uploadedEntry.previewUrl || (file.type.startsWith('image/') ? getProjectFilePreviewUrl(projectId, uploadedEntry.fileId) : ''),
                         categoryIds: [catId],
                         usageItemIds: [usageItemId],
