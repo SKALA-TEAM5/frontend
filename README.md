@@ -138,46 +138,61 @@ npm run start
 
 ## 현재 화면 구조
 
-- `/`로그인 화면입니다. 로그인 후 역할에 따라 대시보드 또는 프로젝트 목록으로 이동합니다.
-- `/dashboard`SHE 담당자용 대시보드입니다. 프로젝트 현황, KPI, 월별 보완 요청 사유, 보완 사유 분석, 담당자별 검증 요청 현황을 보여줍니다.
-- `/projects`전체 프로젝트 목록입니다. 대시보드의 프로젝트 현황과 같은 표형 UI, 검색 필터, 기간 선택, 제목 행 정렬을 사용합니다. 새 프로젝트 등록은 모달로 처리합니다.
-- `/projects/[projectId]`프로젝트 상세 화면입니다. 월별 사용내역서 그리드에서 월을 선택한 뒤 사용내역서, 세부 내역, 유효성 검증, 보고서 탭을 사용합니다.
-- `/admin/users`
-  사용자 관리 화면입니다.
+- `/` 로그인 화면입니다. 로그인 후 역할에 따라 사용자 관리, 대시보드 또는 프로젝트 목록으로 이동합니다.
+- `/dashboard` SHE 담당자용 대시보드입니다. 담당 프로젝트 KPI, 보완 요청 현황, AI 사용량 요약, 프로젝트 목록을 보여줍니다.
+- `/projects` 프로젝트 목록입니다. 프로젝트명, 계약번호, 담당자, 기간, 상태 필터를 제공하고 새 프로젝트 등록을 모달로 처리합니다.
+- `/projects/[projectId]` 프로젝트 상세 화면입니다. 월별 사용내역서를 선택한 뒤 사용내역서, 세부 내역, 유효성 검증, 보고서 탭을 사용합니다.
+- `/usage-records` AI 토큰 사용량/비용 화면입니다. 사용자별, 프로젝트별, 에이전트별, 월별, 일별 집계를 조회합니다.
+- `/admin/users` 시스템 관리자용 사용자 관리 화면입니다.
+- `/api/report-docx` 편집된 보고서 초안을 DOCX로 변환하는 Next.js route handler입니다.
 
 ## 주요 기능
 
 - 상단 헤더 기반 내비게이션
-  - 대시보드, 전체 프로젝트, 사용자 메뉴
-  - 사용자 드롭다운, 로그아웃, 테마 선택
+  - 역할별 메뉴 표시
+    - 시스템 관리자: 사용자 관리, AI 사용 금액
+    - SHE 담당자: 대시보드, 전체 프로젝트
+    - 프로젝트 담당자: 담당 프로젝트
+  - 사용자 드롭다운, 로그아웃, 테마 선택, 챗봇 플로팅 버튼
 - 테마
   - 기본, Sky, Lavender, Mint 4개 테마
   - 테마에 따라 배경, 카드, 강조색, 버튼, 일부 위젯 색상 변경
   - 선택값은 `localStorage`에 저장
+- 챗봇
+  - 전역 AppFrame에서 제공하는 안전관리비 도우미
+  - 플로팅 아이콘 위치 드래그 이동
+  - 위치는 탭 단위 `sessionStorage`에 저장되며 탭을 닫으면 초기화
+  - 아이콘이 화면 상단에 있으면 채팅창은 아이콘 아래에 표시
 - 대시보드
-  - 이미지 히어로 카드와 사용자 카드
-  - KPI 4개 카드
-  - 최근 프로젝트 현황 표
-  - 프로젝트별 월별 보완 요청 사유 막대 그래프
-  - 보완 요청 사유 도넛 그래프
-  - 담당자별 검증 요청 현황 스크롤 카드
+  - 프로젝트 KPI와 AI 사용량 요약
+  - 법령 검증 필요 필터
+  - 프로젝트 현황 표
+  - 보완 요청/담당자별 보완 진행 현황
 - 프로젝트 목록
-  - 프로젝트명, 프로젝트 번호, 관리자, 상태, 공사기간 필터
+  - 프로젝트명, 계약번호, 담당자, 상태, 공사기간 필터
   - 기간 선택 캘린더
   - 제목 행 클릭 정렬
   - 보완 요청 월이 있는 프로젝트는 빨간 점으로 표시
+  - 새 프로젝트 등록 시 프로젝트 담당자 후보는 전체 사용자 목록의 `user` 역할 계정을 기준으로 표시
 - 프로젝트 상세
   - 월별 사용내역서 그리드
   - 월 추가/삭제
   - 월 선택 후 뒤로가기는 월 목록으로 복귀
   - 사용내역서 기본 정보 표시 및 수정
-  - 사용내역서 표는 항목/전회/금회/누계를 표시하고, 금회 금액만 수정
-  - 사용내역서 세부 항목 추가/삭제 및 9개 항목 이동
-  - 파일 업로드, 파일명 수정, 이동, 삭제
-  - 검증 버튼으로 OCR/link agent, safety_doc_agent, vision model 순서의 로딩 UI 표시
-  - 보완 TODO는 세부 내역 파일보기 영역의 증빙 종류별로 표시
-  - 유효성 검증 결과는 화면 이동 후에도 유지
+  - 사용내역서 PDF 업로드, OCR/classi 실행, 실패 시 업로드 파일 롤백
+  - 사용내역서 세부 항목 추가/수정/삭제 및 9개 항목 이동
+  - 세부 항목 수동 추가 후 classi 분류 결과 팝업 표시
+  - classi가 부적절 결과를 내려주는 경우 항목을 화면에 적재하지 않고 미반영 팝업 표시
+  - 증빙 파일 업로드, 파일명 수정, 이동, 삭제
+  - 보호구 착용 사진은 `wearing_photo` 증빙 타입으로 등록
+  - safety-doc, link, vision 결과 기반 보완 TODO 표시
+  - 법령 검증 결과 표시, 승인, 보완 요청
+  - 법령 원문 커스텀 툴팁
   - 보고서 초안 생성, 편집, 저장, DOCX 추출
+- AI 사용량
+  - 로그인 사용자에게 허용된 프로젝트 범위 기준 조회
+  - 시스템 관리자는 전체 프로젝트와 전체 사용자 기준 조회
+  - 사용자별, 프로젝트별, 에이전트별, 월별, 일별 집계
 
 ## 상태 체계
 
@@ -202,76 +217,87 @@ npm run start
 
 ## 역할별 권한
 
-| 기능                       | SHE 담당자 | 프로젝트 담당자 |
-| -------------------------- | ---------: | --------------: |
-| 대시보드 조회              |       가능 |            제한 |
-| 전체 프로젝트 조회         |       가능 |            가능 |
-| 프로젝트 생성/삭제         |       가능 |            불가 |
-| 사용내역서 업로드/수정     |       가능 |            가능 |
-| 증빙 업로드/수정/삭제      |       가능 |            가능 |
-| 매칭/현장사진 검증 UI 실행 |       가능 |            가능 |
-| 유효성 검증 실행           |       가능 |            불가 |
-| 보완 요청                  |       가능 |            불가 |
-| 보고서 생성/편집/DOCX 추출 |       가능 |            불가 |
+| 기능                       | 시스템 관리자 | SHE 담당자 | 프로젝트 담당자 |
+| -------------------------- | ------------: | ---------: | --------------: |
+| 사용자 관리                |          가능 |        불가 |            불가 |
+| 전체 AI 사용 금액 조회     |          가능 |        불가 |            불가 |
+| 대시보드 조회              |          불가 |        가능 |            제한 |
+| 프로젝트 목록 조회         |          제한 |        가능 |            가능 |
+| 프로젝트 생성/삭제         |          불가 |        가능 |            불가 |
+| 사용내역서 업로드/수정     |          불가 |        가능 |            가능 |
+| 증빙 업로드/수정/삭제      |          불가 |        가능 |            가능 |
+| 매칭/현장사진 검증 UI 실행 |          불가 |        가능 |            가능 |
+| 유효성 검증 실행           |          불가 |        가능 |            불가 |
+| 보완 요청                  |          불가 |        가능 |            불가 |
+| 보고서 생성/편집/DOCX 추출 |          불가 |        가능 |            불가 |
 
 ## Agent 연동 전제
 
-현재 agent 호출은 UI 동작 확인을 위한 구조입니다. 실제 API 연결 시 다음 흐름으로 대체하면 됩니다.
+agent 호출은 Spring API를 통해 FastAPI agent/orchestrator와 연동합니다. 프론트는 각 agent API의 실행, 폴링, 결과 조회를 래핑합니다.
 
 1. 사용내역서 업로드
    - OCR로 사용내역서 기본 정보와 세부 항목 추출
    - 금액의 `계`는 OCR 값을 그대로 쓰지 않고 `수량 x 단가`로 계산
-   - classification agent가 세부 항목을 9개 항목 중 하나로 분류
+   - classi agent가 세부 항목을 9개 항목 중 하나로 분류
 2. 세부 내역 검증
-   - OCR/link agent가 사용내역서와 증빙의 날짜, 빈값, 파일 연결 관계 확인
-   - safety_doc_agent가 필수 증빙 규칙과 보완 TODO 반환
+   - link agent가 사용내역서와 증빙의 날짜, 빈값, 파일 연결 관계 확인
+   - safety-doc agent가 필수 증빙 규칙과 보완 TODO 반환
    - vision model이 현장사진 적합성 판단
 3. 유효성 검증
-   - legal_agent가 집행 목적, 법정 계상률, 인건비 중복계상 등 법률 리스크 판정
+   - legal agent가 집행 목적, 법정 계상률, 인건비 중복계상 등 법률 리스크 판정
 4. 보고서
    - report agent가 검증 결과를 기반으로 초안 생성
+   - 저장된 보고서 초안은 리포트 탭 진입 시 다시 조회
    - `/api/report-docx`가 편집된 초안을 DOCX로 변환
+5. AI 사용량
+   - agent log와 usage record 집계를 사용자/프로젝트/agent/기간 단위로 조회
 
 ## 데이터 저장 방식
 
-주요 브라우저 저장 키는 다음과 같습니다.
+업무 데이터는 백엔드 API와 DB/파일 저장소를 기준으로 조회 및 저장합니다. 프론트의 브라우저 저장소는 UI 편의 상태만 보관합니다.
 
-- `sananbee.dev.role`개발용 사용자 역할
-- `sananbee.current.user`현재 사용자 정보
-- `she.app.theme`선택한 테마
-- `iveri-mvp-usage-statement:{projectId}`프로젝트별 월별 사용내역서와 검토 상태
-- `iveri-mvp-archive-todos:{projectId}:{monthKey}`
-  월별 보완 TODO
+- `sananbee.dev.role`: 개발용 사용자 역할
+- `sananbee.current.user`: 현재 사용자 정보
+- `she.app.theme`: 선택한 테마
+- `dashboard-chatbot-position`: 탭 단위 챗봇 플로팅 버튼 위치
+- `i-veri:usage-detail-todos:{projectId}:{usageStatementId}` 또는 `i-veri:usage-detail-todos:{projectId}:{monthKey}`: 세부 내역 화면의 TODO 접힘/완료 편의 상태
 
 ## 주요 디렉터리
 
 ```text
 src/app
-  page.tsx                         로그인
+  page.tsx                         로그인 및 역할별 진입 라우팅
   dashboard/page.tsx               SHE 대시보드
-  projects/page.tsx                전체 프로젝트 목록
-  projects/[projectId]/page.tsx    프로젝트 상세
-  admin/users/page.tsx             사용자 관리
-  api/report-docx/route.ts         DOCX 추출 API
+  projects/page.tsx                프로젝트 목록과 새 프로젝트 등록
+  projects/[projectId]/page.tsx    프로젝트 상세, 월별 사용내역서, 탭 컨테이너
+  usage-records/page.tsx           AI 사용량/비용 조회
+  admin/users/page.tsx             시스템 관리자 사용자 관리
+  api/report-docx/route.ts         DOCX 추출 route handler
 
 src/components
-  common/AppFrame.tsx              공통 헤더, 사용자 메뉴, 테마 선택, footer
+  common/AppFrame.tsx              공통 헤더, 역할별 메뉴, 사용자 메뉴, 테마 선택
+  common/DashboardChatbot.tsx      전역 챗봇 플로팅 UI
   common/DateRangePicker.tsx       기간 선택 캘린더
-  project/ProjectInfoEditorModal.tsx 프로젝트 생성/기본 정보 수정 모달
+  project/ProjectInfoEditorModal.tsx 프로젝트 생성/기본 정보 수정/담당자 선택 모달
   ui                               공통 카드, 버튼, 모달, 로더
 
 src/features/project-tab
-  ArchiveScreen.tsx                사용내역서/세부 내역 화면 컨테이너
   UsageDetailFileView.tsx          9개 항목, 세부 항목, 파일보기
-  VerifyScreen.tsx                 유효성 검증
-  ReportScreen.tsx                 보고서 생성/편집
+  UsageStatementDetailScreen.tsx   세부 내역, 증빙, TODO, safety-doc/link/vision 실행
+  VerifyScreen.tsx                 법령 유효성 검증, 승인, 보완 요청
+  ReportScreen.tsx                 보고서 생성, 저장, 편집, DOCX 추출
 
 src/lib
   api-client.ts                    백엔드 fetch 클라이언트
+  auth-api.ts                      로그인, 로그아웃, 사용자 API
   project-api.ts                   프로젝트 API
   archive-api.ts                   사용내역서/증빙 API 변환
   project-data.ts                  프로젝트/월별 상태 타입과 메타
   project-list.ts                  목록 필터/정렬
+  project-usage-rate.ts            사용률 계산
+  dashboard-api.ts                 대시보드 API
+  usage-records-api.ts             AI 사용량 API
+  chatbot-api.ts                   챗봇 스트리밍 API
   agent-api.ts                     agent 호출 래퍼
   agent-failure.ts                 agent 실패 메시지
   evidence-utils.ts                증빙/사용내역서 유틸
@@ -282,4 +308,4 @@ src/lib
 
 ## 참고
 
-실서비스 전환 시 인증, 권한, 파일 업로드, OCR 결과, agent 결과, 월별 상태 저장, 보고서 저장을 백엔드 API와 영구 저장소로 연결 필요
+인증, 권한, 파일 업로드, OCR 결과, agent 결과, 월별 상태, 보고서 저장은 백엔드 API와 영구 저장소를 기준으로 처리합니다. 프론트는 API 응답을 화면 모델로 정규화하고, 실패 시 사용자 메시지와 필요한 롤백 UI를 담당합니다.
