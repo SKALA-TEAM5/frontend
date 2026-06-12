@@ -1424,7 +1424,7 @@ function ProjectDetailPageContent() {
     ) : null;
     const projectDetailCardShadow = 'var(--ui-shadow-card)';
     const overviewUsageRows = selectedStatementArchive?.overviewRows || EMPTY_OVERVIEW_ROWS;
-    const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '120px minmax(170px, 1fr) 120px minmax(170px, 1fr)', minWidth: 620 } as const;
+    const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '150px minmax(170px, 1fr) 150px minmax(170px, 1fr)', minWidth: 720 } as const;
     const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 150px 130px', minWidth: 670 } as const;
     const usageTableScrollStyle = { width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden' } as const;
     const detailPanelWidth = 'min(1180px, 100%)';
@@ -1460,8 +1460,7 @@ function ProjectDetailPageContent() {
         ['건설업체명', project.constructionCompany, '소재지', project.location],
         ['프로젝트 담당자', getProjectAssigneeLabel(project), 'SHE 담당자', getProjectSheManagerLabel(project)],
         ['공사금액', `${project.constructionAmount}원`, '계상된 안전관리비', `${project.plannedAmount}원`],
-        ['공사기간', project.period, '공정률', project.progressRate],
-        ['사용률', `${safetyUsagePercent}%`],
+        ['공사기간', project.period, '공정률', project.progressRate, '사용률', `${safetyUsagePercent}%`],
         ...(selectedMonth
             ? [
                 ['업로드일', selectedStatement.uploadedAt, '최종수정일', selectedStatement.documentWrittenDate],
@@ -1841,13 +1840,29 @@ function ProjectDetailPageContent() {
             </div>
             <div className="thin-x-scroll" style={usageTableScrollStyle}>
               <div data-ui="project-detail.16" style={{ ...usageInfoGridStyle, border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', fontSize: 14 }}>
-                {usageStatementInfoRows.map(([labelA, valueA, labelB, valueB]) => (
+                {usageStatementInfoRows.map(([labelA, valueA, labelB, valueB, labelC, valueC]) => (
                   <Fragment key={`${labelA}-${labelB}`}>
                     <div data-ui="project-detail.17" style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelA}</div>
                     <div data-ui="project-detail.18" title={valueA} style={{ gridColumn: labelB ? undefined : 'span 3', padding: '9px 11px', color: C.g800, fontWeight: 700, borderRight: labelB ? `1px solid ${C.g200}` : 'none', borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueA}</div>
                     {labelB && <>
-                      <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelB}</div>
-                      <div title={valueB} style={{ padding: '9px 11px', color: C.g800, fontWeight: 700, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueB}</div>
+                      {labelC ? (
+                        <div style={{ gridColumn: 'span 2', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', borderBottom: `1px solid ${C.g200}` }}>
+                          {[
+                            [labelB, valueB],
+                            [labelC, valueC],
+                          ].map(([label, value], index) => (
+                            <div key={label} style={{ display: 'grid', gridTemplateColumns: '90px minmax(0, 1fr)', minWidth: 0, borderRight: index === 0 ? `1px solid ${C.g200}` : 'none' }}>
+                              <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}` }}>{label}</div>
+                              <div title={value} style={{ padding: '9px 11px', color: C.g800, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelB}</div>
+                          <div title={valueB} style={{ padding: '9px 11px', color: C.g800, fontWeight: 700, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueB}</div>
+                        </>
+                      )}
                     </>}
                   </Fragment>
                 ))}
