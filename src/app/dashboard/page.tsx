@@ -496,7 +496,7 @@ export default function DashboardPage() {
   }, [activeProjects, contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, sortBy, sortDirection, status]);
   const [rangeStart = '', rangeEnd = ''] = period.split('~');
 
-  const reviewNeededProjectCount = projects.filter((project) => {
+  const reviewNeededProjectCount = activeProjects.filter((project) => {
     const workflow = getProjectMonthWorkflowStatus(project);
     return workflow === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
   }).length;
@@ -732,7 +732,7 @@ export default function DashboardPage() {
                     </span>
                   </span>
                 </div>
-                <div style={{ marginTop: 5, fontSize: 20, lineHeight: 1, fontWeight: 600, color: C.primary }}>{dashboardSummary?.summary.reviewNeededProjects ?? reviewNeededProjectCount}</div>
+                <div style={{ marginTop: 5, fontSize: 20, lineHeight: 1, fontWeight: 600, color: C.primary }}>{reviewNeededProjectCount}</div>
               </button>
             </div>
 		          </div>
