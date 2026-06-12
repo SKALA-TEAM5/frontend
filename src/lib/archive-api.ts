@@ -570,6 +570,12 @@ export const getUsageStatementArchiveById = async (projectId: string, usageState
   return toArchiveData(projectId, response.data.statement);
 };
 
+export const deleteUsageStatement = async (projectId: string, usageStatementId: number) => {
+  await apiFetch<null>(`/projects/${projectId}/usage-statements/${usageStatementId}`, {
+    method: 'DELETE',
+  });
+};
+
 export const submitUsageStatement = async (projectId: string, usageStatementId: number) => {
   const response = await apiFetch<UsageStatementStatusResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/submit`, {
     method: 'PATCH',
