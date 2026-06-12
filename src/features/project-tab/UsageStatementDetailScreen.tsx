@@ -321,6 +321,7 @@ type ClassificationMoveNotice = {
     itemName: string;
     fromCategoryName: string;
     toCategoryName: string;
+    categoryChanged?: boolean;
     reason?: string;
 };
 const EVIDENCE_KIND_LABELS: Record<FolderEvidenceCategory, string> = {
@@ -1158,15 +1159,27 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 setSelectedHierarchyCatId(addedItem.categoryId || categoryId);
                 setSelectedUsageItemId(addedItem.id);
             }
-            const notices = (classiResult.changes || []).map((change, index) => ({
+            const classiChanges = classiResult.changes || [];
+            const notices = (classiChanges.length > 0 ? classiChanges : [{
+                itemName: name,
+                fromCategoryName: getCategoryDisplayName(selectedHierarchyCatId),
+                toCategoryName: getCategoryDisplayName(addedItem?.categoryId || categoryId),
+            }]).map((change, index) => {
+                const fromCategoryName = change.fromCategoryName || getCategoryDisplayName(selectedHierarchyCatId);
+                const toCategoryName = change.toCategoryName || getCategoryDisplayName(addedItem?.categoryId || categoryId);
+                const categoryChanged = classiResult.categoryChanged || fromCategoryName !== toCategoryName;
+                return {
                 id: `${change.itemName}-${index}`,
                 itemName: change.itemName || name,
-                fromCategoryName: change.fromCategoryName || getCategoryDisplayName(selectedHierarchyCatId),
-                toCategoryName: change.toCategoryName || getCategoryDisplayName(addedItem?.categoryId || categoryId),
-                reason: '입력한 항목명을 기준으로 classi 에이전트가 더 적합한 카테고리를 선택했습니다.',
-            }));
-            if (notices.length)
-                setClassificationMoveNotices(notices);
+                    fromCategoryName,
+                    toCategoryName,
+                    categoryChanged,
+                    reason: categoryChanged
+                        ? '입력한 항목명을 기준으로 classi 에이전트가 더 적합한 카테고리를 선택했습니다.'
+                        : 'classi 에이전트가 입력한 세부항목의 카테고리를 확인하고 현재 분류를 확정했습니다.',
+                };
+            });
+            setClassificationMoveNotices(notices);
             onUsageDetailContentMutated?.('add-item');
         } catch (error) {
             setAddUsageItemError(error instanceof Error ? error.message : '세부항목 추가에 실패했습니다.');
@@ -1661,8 +1674,12 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           <InlineLoader title="classi 에이전트 실행 중" body="세부 항목이 산업안전보건관리비 9개 항목 중 어디에 해당하는지 확인하고 있습니다. 완료될 때까지 다른 작업을 할 수 없습니다." />
         </div>
       </Modal>
-      <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 변경" body={<div>
-        <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>classi 에이전트가 세부항목의 9개 항목 위치를 변경했습니다.</div>
+      <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 결과" body={<div>
+        <div style={{ marginBottom: 10, fontSize: 13, color: C.g600, lineHeight: 1.6 }}>
+          {classificationMoveNotices.some((notice) => notice.categoryChanged)
+            ? 'classi 에이전트가 세부항목의 9개 항목 위치를 확인하고 변경했습니다.'
+            : 'classi 에이전트가 세부항목의 9개 항목 위치를 확인하고 현재 분류를 확정했습니다.'}
+        </div>
         <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
           {classificationMoveNotices.map((notice) => (
             <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
