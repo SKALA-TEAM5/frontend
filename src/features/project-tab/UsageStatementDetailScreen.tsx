@@ -931,7 +931,8 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         try {
             if (targetFile?.linkId) {
                 await deleteEvidenceFileLink(projectId, targetFile.linkId);
-            } else if (targetFile?.fileId) {
+            }
+            if (targetFile?.fileId) {
                 await deleteProjectFile(projectId, targetFile.fileId);
             }
         } catch (error) {
