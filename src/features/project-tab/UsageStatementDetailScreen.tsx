@@ -215,6 +215,13 @@ const getTodoDocumentTitle = (reason: string, kind: FolderEvidenceCategory) => {
         return names.join(', ');
     return kind === 'other_document' ? '보완 서류' : EVIDENCE_KIND_LABELS[kind];
 };
+const getBackendTodoDisplayTitle = (todo: OrchestratorTodo) => {
+    const reason = todo.reason || '보완 사항 확인 필요';
+    if (todo.agentTypeCode !== 'legal')
+        return reason;
+    const legalReason = reason.replace(/^법령\s*검토\s*(?:필요|결과)\s*[:：]?\s*/u, '').trim() || reason;
+    return `법령 검토 결과 ${legalReason}`;
+};
 
 const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]): UsageDetailTodoItem[] => {
     const reason = todo.reason || '보완 사항 확인 필요';
@@ -230,7 +237,7 @@ const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]
             mode: 'add',
             source,
             kind: todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason),
-            title: reason,
+            title: getBackendTodoDisplayTitle(todo),
             context: todo.usageStatementItemName || '',
             categoryId,
             usageItemId: todo.usageStatementItemId == null ? undefined : String(todo.usageStatementItemId),
@@ -427,6 +434,29 @@ const getTodoLocationLabel = (todo: UsageDetailTodoItem, usageItems: UsageLineIt
     const categoryName = categoryId ? getCategoryDisplayName(categoryId) : '';
     const context = usageItem?.name || (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT ? todo.context : '');
     return [categoryName, context].filter(Boolean).join(' ∙ ') || '위치 확인 필요';
+};
+
+const getTodoAgentTypeLabel = (todo: UsageDetailTodoItem) => (
+    todo.backendAgentTypeCode || (todo.source === 'law' ? 'legal' : todo.source === 'vision' ? 'vision' : 'link')
+);
+
+const getTodoGroupLocationMeta = (todo: UsageDetailTodoItem, usageItems: UsageLineItem[]) => {
+    const usageItem = resolveTodoUsageItem(todo, usageItems);
+    const categoryId = usageItem?.categoryId || todo.categoryId;
+    const categoryName = categoryId ? getCategoryDisplayName(categoryId) : todo.backendCategoryName || '';
+    const itemName = usageItem?.name || (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT ? todo.context : '');
+    return {
+        itemName: itemName || GENERIC_USAGE_ITEM_CONTEXT,
+        categoryName: categoryName || '9개 항목',
+    };
+};
+
+const getTodoDisplayTitle = (todo: UsageDetailTodoItem) => {
+    const title = todo.title.trim();
+    const needsActionSuffix = !/(?:업로드|제출|삭제|제거|교체|필요)$/u.test(title);
+    if (!needsActionSuffix)
+        return title;
+    return `${title} ${todo.mode === 'add' ? '업로드 필요' : '삭제 필요'}`;
 };
 
 const classifyUsageLineCategory = (name: string, fallbackCategoryId: number) => {
@@ -1318,7 +1348,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           const cardBorder = done ? C.g200 : toneBorder;
           const cardBg = C.white;
           const textColor = done ? C.g400 : C.g800;
-          const actionText = todo.backendTodoId ? '' : todo.mode === 'add' ? '업로드 필요' : '삭제 필요';
+          const titleText = getTodoDisplayTitle(todo);
           return (
             <button
               key={todo.id}
@@ -1360,7 +1390,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                   {done ? '✓' : ''}
                 </span>
                 <span style={{ minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 12, fontWeight: 900, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{[todo.title, actionText].filter(Boolean).join(' ')}</span>
+                  <span style={{ display: 'block', fontSize: 12, fontWeight: 900, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{titleText}</span>
                 </span>
               </div>
             </button>
@@ -1369,45 +1399,48 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
       </div>
     );
     const getTodoGroupMeta = (todo: UsageDetailTodoItem) => {
+        const location = getTodoGroupLocationMeta(todo, resolvedUsageItems);
+        const agentType = getTodoAgentTypeLabel(todo);
+        const locationLabel = `${location.itemName} ∙ ${location.categoryName}`;
         if (todo.backendTodoId) {
-            const label = todo.context || todo.backendCategoryName || todo.backendAgentTypeCode || 'TODO';
-            const subLabel = [
-                todo.context ? todo.backendCategoryName : '',
-                todo.backendAgentTypeCode,
-            ].filter(Boolean).join(' ∙ ');
+            const backendGroupKey = [
+                agentType,
+                todo.usageItemId || normalizeTodoIdText(location.itemName),
+                todo.categoryId || normalizeTodoIdText(location.categoryName),
+            ].join(':');
             return {
-                id: `backend:${todo.backendTodoId}`,
-                label,
-                subLabel,
-                order: resolvedUsageItems.length + Number(todo.backendTodoId) / 1000000,
+                id: `backend:${backendGroupKey}`,
+                label: locationLabel,
+                agentType,
+                order: resolvedUsageItems.length + (todo.categoryId || 0) / 100,
             };
         }
         const usageItem = resolveTodoUsageItem(todo, resolvedUsageItems);
         if (usageItem)
             return {
-                id: `item:${usageItem.id}`,
-                label: usageItem.name,
-                subLabel: getCategoryDisplayName(usageItem.categoryId),
+                id: `item:${agentType}:${usageItem.id}`,
+                label: `${usageItem.name} ∙ ${getCategoryDisplayName(usageItem.categoryId)}`,
+                agentType,
                 order: resolvedUsageItems.findIndex((item) => String(item.id) === String(usageItem.id)),
             };
         if (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT)
             return {
-                id: `context:${normalizeTodoIdText(todo.context)}`,
-                label: todo.context,
-                subLabel: todo.categoryId ? getCategoryDisplayName(todo.categoryId) : '세부 내역',
+                id: `context:${agentType}:${normalizeTodoIdText(todo.context)}`,
+                label: locationLabel,
+                agentType,
                 order: resolvedUsageItems.length + 1,
             };
         if (todo.categoryId)
             return {
-                id: `category:${todo.categoryId}`,
-                label: getCategoryDisplayName(todo.categoryId),
-                subLabel: '9개 항목 전체',
+                id: `category:${agentType}:${todo.categoryId}`,
+                label: locationLabel,
+                agentType,
                 order: resolvedUsageItems.length + todo.categoryId / 100,
             };
         return {
-            id: 'unassigned',
-            label: '세부 내역 미지정',
-            subLabel: todo.categoryId ? getCategoryDisplayName(todo.categoryId) : '위치를 확인해 주세요',
+            id: `unassigned:${agentType}`,
+            label: locationLabel,
+            agentType,
             order: resolvedUsageItems.length + 2,
         };
     };
@@ -1420,9 +1453,9 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         }
         groupMap.set(meta.id, { ...meta, items: [todo] });
         return groupMap;
-    }, new Map<string, { id: string; label: string; subLabel: string; order: number; items: UsageDetailTodoItem[] }>()).values())
+    }, new Map<string, { id: string; label: string; agentType: string; order: number; items: UsageDetailTodoItem[] }>()).values())
         .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'ko'));
-    const renderTodoGroup = (group: { id: string; label: string; subLabel: string; items: UsageDetailTodoItem[] }) => {
+    const renderTodoGroup = (group: { id: string; label: string; agentType: string; items: UsageDetailTodoItem[] }) => {
         const items = group.items;
         const activeCount = items.filter((todo) => !isTodoDone(todo)).length;
         const collapsed = Boolean(collapsedTodoGroupIds[group.id]);
@@ -1436,7 +1469,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             >
               <span style={{ minWidth: 0 }}>
                 <span title={group.label} style={{ display: 'block', fontSize: 12, fontWeight: 900, color: activeCount ? C.g800 : C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.label}</span>
-                <span title={group.subLabel} style={{ display: 'block', marginTop: 2, fontSize: 10, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.subLabel}</span>
+                <span title={group.agentType} style={{ display: 'block', marginTop: 2, fontSize: 10, fontWeight: 800, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.agentType}</span>
               </span>
               <span style={{ minWidth: 20, height: 18, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 10, fontWeight: 900 }}>{activeCount}</span>
               <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: 999, border: `1px solid ${C.g200}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
