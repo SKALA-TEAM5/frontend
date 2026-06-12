@@ -9,7 +9,8 @@ import ProjectInfoEditorModal from '../../components/project/ProjectInfoEditorMo
 import { AppFrame, DateRangePicker } from '../../components/common';
 import { C } from '../../lib/theme';
 import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, USAGE_WORKFLOW_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getProjectSheManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
-import { createProject, deleteProject, getProject, listProjectManagerCandidates, listProjects, replaceProjectAssignees, updateProject, type ProjectAssigneeCandidate } from '../../lib/project-api';
+import { listUsers } from '../../lib/auth-api';
+import { createProject, deleteProject, getProject, listProjects, replaceProjectAssignees, updateProject, type ProjectAssigneeCandidate } from '../../lib/project-api';
 import { ROLE_LABELS, canAccessProject } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
 import { getVisibleProjects, type PeriodMode } from '../../lib/project-list';
@@ -120,6 +121,9 @@ const createRequiredFields: Array<keyof NewProjectInput> = [
   'endDate',
   'location',
 ];
+
+const managerCandidateLabel = (candidate: ProjectAssigneeCandidate) =>
+  candidate.employeeNo ? `${candidate.realName} (${candidate.employeeNo})` : candidate.realName;
 
 const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActionRequest;
 
@@ -251,8 +255,19 @@ function ProjectsPageContent() {
   }, [loadProjects]);
 
   useEffect(() => {
-    listProjectManagerCandidates()
-      .then(setManagerCandidates)
+    listUsers({ roleCode: 'user' })
+      .then((users) => {
+        const candidates = users
+          .map((candidate): ProjectAssigneeCandidate => ({
+            userId: candidate.id,
+            id: candidate.id,
+            realName: candidate.realName,
+            roleCode: candidate.roleCode,
+            employeeNo: candidate.employeeNo,
+          }))
+          .toSorted((a, b) => managerCandidateLabel(a).localeCompare(managerCandidateLabel(b), 'ko-KR'));
+        setManagerCandidates(candidates);
+      })
       .catch(() => setManagerCandidates([]));
   }, []);
   useEffect(() => {
@@ -372,7 +387,7 @@ function ProjectsPageContent() {
     setCreateError('');
     try {
       const project = await createProject(createForm);
-      const selectedManager = managerCandidates.find((candidate) => candidate.realName === createForm.manager);
+      const selectedManager = managerCandidates.find((candidate) => managerCandidateLabel(candidate) === createForm.manager);
       if (selectedManager) {
         await replaceProjectAssignees(project.id, [selectedManager.id]);
       }
@@ -554,7 +569,7 @@ function ProjectsPageContent() {
       draft={createForm}
       error={createError}
       saving={creating}
-      managerOptions={managerCandidates.map((candidate) => candidate.realName)}
+      managerOptions={managerCandidates.map(managerCandidateLabel)}
       saveLabel="등록"
       onClose={closeCreateModal}
       onSave={submitCreateProject}

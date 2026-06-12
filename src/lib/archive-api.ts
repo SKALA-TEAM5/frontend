@@ -224,6 +224,15 @@ export interface CreateUsageStatementItemResponse {
     toCategoryCode: string;
     toCategoryName: string;
   }>;
+  results?: Array<{
+    itemId?: number | string | null;
+    itemName?: string | null;
+    originalCategoryCode?: string | null;
+    finalCategoryCode?: string | null;
+    status?: string | null;
+    reason?: string | null;
+    isAppropriate?: boolean | null;
+  }>;
 }
 
 export interface UsageStatementArchiveData {

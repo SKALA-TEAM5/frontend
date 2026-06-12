@@ -27,6 +27,7 @@ export const AGENT_TYPE_CODE = {
   LEGAL: 'legal',
   REPORT: 'report',
   ORCHESTRATOR: 'orchestrator',
+  VLM: 'vlm',
 } as const;
 
 export const AGENT_LOG_STATUS = {
