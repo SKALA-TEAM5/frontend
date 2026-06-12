@@ -329,7 +329,7 @@ const evidenceCodeToKind = (code?: string | null): FolderEvidenceCategory => {
   return category === 'usage_statement' ? 'other_document' : category;
 };
 
-const kindToEvidenceCode = (kind: EvidenceCategory, evidenceTypeCode?: BackendEvidenceTypeCode | string): BackendEvidenceTypeCode => {
+export const kindToEvidenceCode = (kind: EvidenceCategory, evidenceTypeCode?: BackendEvidenceTypeCode | string): BackendEvidenceTypeCode => {
   if (isBackendEvidenceTypeCode(evidenceTypeCode) && backendEvidenceTypeToCategory(evidenceTypeCode) === kind) {
     return evidenceTypeCode;
   }

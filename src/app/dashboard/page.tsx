@@ -496,7 +496,7 @@ export default function DashboardPage() {
   }, [activeProjects, contractNumber, filterOptions.managers, filterOptions.statuses, manager, period, periodMode, projectName, sortBy, sortDirection, status]);
   const [rangeStart = '', rangeEnd = ''] = period.split('~');
 
-  const reviewNeededProjectCount = projects.filter((project) => {
+  const reviewNeededProjectCount = activeProjects.filter((project) => {
     const workflow = getProjectMonthWorkflowStatus(project);
     return workflow === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || workflow === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
   }).length;
@@ -732,7 +732,7 @@ export default function DashboardPage() {
                     </span>
                   </span>
                 </div>
-                <div style={{ marginTop: 5, fontSize: 20, lineHeight: 1, fontWeight: 600, color: C.primary }}>{dashboardSummary?.summary.reviewNeededProjects ?? reviewNeededProjectCount}</div>
+                <div style={{ marginTop: 5, fontSize: 20, lineHeight: 1, fontWeight: 600, color: C.primary }}>{reviewNeededProjectCount}</div>
               </button>
             </div>
 		          </div>
@@ -972,7 +972,7 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))', gap: 12, flex: '1 1 auto', minHeight: 0, minWidth: 0 }}>
-                <div style={{ width: 'min(100%, 190px)', aspectRatio: '1 / 1', justifySelf: 'center', alignSelf: 'center', boxSizing: 'border-box', border: `1px solid ${C.g100}`, borderRadius: 10, padding: '12px 14px', background: 'color-mix(in srgb, var(--c-bg) 34%, #fff)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 0 }}>
+                <div style={{ width: 'min(100%, 190px)', aspectRatio: '1 / 1', justifySelf: 'start', alignSelf: 'center', boxSizing: 'border-box', border: `1px solid ${C.g100}`, borderRadius: 10, padding: '12px 14px', background: 'color-mix(in srgb, var(--c-bg) 34%, #fff)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 0 }}>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: C.g600 }}>전체 사용 금액</div>
                     <div style={{ display: 'grid', placeItems: 'center', marginTop: 6 }}>
