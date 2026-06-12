@@ -9,7 +9,7 @@ import { C } from '../../lib/theme';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
-import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
+import { changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
 import { confirmAgentTodo, getOrchestratorStatus, getVisionValidationResults, listSafeLeeEvidenceRequirements, runEvidenceReviewAgent, safeLeeRequirementsToMap, waitForAgentButtonEnabled, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
@@ -1138,7 +1138,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setClassiAgentRunning(true);
         try {
             const categoryId = classifyUsageLineCategory(name, selectedHierarchyCatId);
-            const nextItem = await createUsageStatementItem(projectId, usageStatementId, {
+            const classiResult = await createUsageStatementItem(projectId, usageStatementId, {
                 categoryId,
                 itemName: name,
                 usedOn: addUsageItemDraft.date,
@@ -1148,19 +1148,25 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 totalAmount: amount,
                 pageNo: 1,
             });
-            const nextItems = [...resolvedUsageItems, nextItem];
-            onUsageItemsChange?.(nextItems);
-            setSelectedHierarchyCatId(nextItem.categoryId || categoryId);
-            setSelectedUsageItemId(nextItem.id);
-            if (selectedHierarchyCatId !== (nextItem.categoryId || categoryId)) {
-                setClassificationMoveNotices([{
-                    id: nextItem.id,
-                    itemName: nextItem.name,
-                    fromCategoryName: getCategoryDisplayName(selectedHierarchyCatId),
-                    toCategoryName: getCategoryDisplayName(nextItem.categoryId || categoryId),
-                    reason: '입력한 항목명을 기준으로 classi 에이전트가 더 적합한 카테고리를 선택했습니다.',
-                }]);
+            const refreshedArchive = await getUsageStatementArchiveById(projectId, usageStatementId);
+            const addedItem = refreshedArchive.usageItems
+                .filter((item) => item.name === name && item.date === addUsageItemDraft.date)
+                .at(-1) || refreshedArchive.usageItems.at(-1);
+            onUsageItemsChange?.(refreshedArchive.usageItems);
+            onUsageDetailSeedChange?.(refreshedArchive.archiveSeed);
+            if (addedItem) {
+                setSelectedHierarchyCatId(addedItem.categoryId || categoryId);
+                setSelectedUsageItemId(addedItem.id);
             }
+            const notices = (classiResult.changes || []).map((change, index) => ({
+                id: `${change.itemName}-${index}`,
+                itemName: change.itemName || name,
+                fromCategoryName: change.fromCategoryName || getCategoryDisplayName(selectedHierarchyCatId),
+                toCategoryName: change.toCategoryName || getCategoryDisplayName(addedItem?.categoryId || categoryId),
+                reason: '입력한 항목명을 기준으로 classi 에이전트가 더 적합한 카테고리를 선택했습니다.',
+            }));
+            if (notices.length)
+                setClassificationMoveNotices(notices);
             onUsageDetailContentMutated?.('add-item');
         } catch (error) {
             setAddUsageItemError(error instanceof Error ? error.message : '세부항목 추가에 실패했습니다.');

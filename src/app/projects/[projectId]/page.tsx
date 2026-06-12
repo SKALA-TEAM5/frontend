@@ -1623,6 +1623,20 @@ function ProjectDetailPageContent() {
         </> : null}
         {selectedMonthHasUploadedStatement && <UsageStatementDetailScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} usageDetailSeed={archiveSeed} usageItems={archiveUsageItems} onUsageItemsChange={(items) => {
                 setArchiveUsageItems(items);
+                if (selectedStatement.month) {
+                    setDbUsageStatementsByMonth((current) => {
+                        const currentArchive = current[selectedStatement.month];
+                        if (!currentArchive)
+                            return current;
+                        return {
+                            ...current,
+                            [selectedStatement.month]: {
+                                ...currentArchive,
+                                usageItems: items,
+                            },
+                        };
+                    });
+                }
                 revertReviewedProjectToDraft();
             }} onUsageDetailSeedChange={(seed) => {
                 setArchiveSeed(seed);

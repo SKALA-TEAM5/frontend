@@ -215,6 +215,17 @@ interface UsageStatementStatusResponse {
   statusCode: string;
 }
 
+export interface CreateUsageStatementItemResponse {
+  categoryChanged: boolean;
+  changes: Array<{
+    itemName: string;
+    fromCategoryCode: string;
+    fromCategoryName: string;
+    toCategoryCode: string;
+    toCategoryName: string;
+  }>;
+}
+
 export interface UsageStatementArchiveData {
   usageStatementId?: number;
   archiveSeed: ArchiveSeed;
@@ -598,11 +609,11 @@ export const completeUsageStatementReview = async (projectId: string, usageState
 };
 
 export const createUsageStatementItem = async (projectId: string, usageStatementId: number, input: UsageStatementItemInput) => {
-  const response = await apiFetch<UsageStatementItemResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/items`, {
+  const response = await apiFetch<CreateUsageStatementItemResponse>(`/projects/${projectId}/usage-statements/${usageStatementId}/items`, {
     method: 'POST',
     body: usageStatementItemBody(input),
   });
-  return usageStatementItemToLineItem(response.data);
+  return response.data;
 };
 
 export const updateUsageStatementItem = async (projectId: string, usageStatementId: number, itemId: string | number, input: UsageStatementItemInput) => {
