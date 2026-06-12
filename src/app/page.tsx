@@ -9,15 +9,15 @@ import { login, toAppRole } from '../lib/auth-api';
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
-  height: 46,
+  height: 50,
   border: `1px solid ${C.g200}`,
   borderRadius: 12,
-  padding: '0 14px',
+  padding: '0 15px',
   background: C.white,
   color: C.g800,
   fontFamily: 'inherit',
   fontSize: 15,
-  fontWeight: 800,
+  fontWeight: 760,
   outline: 'none',
 };
 
@@ -57,14 +57,25 @@ export default function LoginPage() {
     <main data-ui="login.1" className="login-page">
       <section className="login-shell" aria-label="로그인">
         <div className="login-card">
-          <div data-ui="login.2" style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 36 }}>
+          <div className="login-topline">
+            <span>i-veri WorkPlace</span>
+          </div>
+
+          <div data-ui="login.2" style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 30 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-              <img src="/uploads/character.png" alt="veri" style={{ width: 52, height: 52, objectFit: 'contain', flexShrink: 0 }} />
+              <div className="login-brand-mark">
+                <img src="/uploads/character.png" alt="veri" style={{ width: 52, height: 52, objectFit: 'contain', flexShrink: 0 }} />
+              </div>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 28, fontWeight: 900, color: C.primary, lineHeight: 1.1 }}>i-veri</div>
-                <div style={{ fontSize: 15, fontWeight: 850, color: C.g500, marginTop: 6 }}>로그인</div>
+                <div style={{ fontSize: 29, fontWeight: 880, color: C.primary, lineHeight: 1.08 }}>i-veri</div>
+                <div style={{ fontSize: 14, fontWeight: 760, color: C.g500, marginTop: 7 }}>로그인</div>
               </div>
             </div>
+          </div>
+
+          <div className="login-copy">
+            <div>산업안전관리비 증빙 검증 시스템</div>
+            <span>사번과 비밀번호를 입력해 프로젝트 검증 업무를 시작하세요.</span>
           </div>
 
           <form data-ui="login.3" onSubmit={submitLogin} onKeyDown={submitLoginOnEnter} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -90,7 +101,7 @@ export default function LoginPage() {
               />
             </label>
             {error && <div data-ui="login.4" style={{ border: `1px solid #F2B8B5`, borderRadius: 12, background: C.dangerBg, padding: '10px 12px', fontSize: 13, color: C.danger, fontWeight: 850 }}>{error}</div>}
-            <Button type="submit" full size="lg" style={{ height: 50, marginTop: 4, fontSize: 15 }}>
+            <Button type="submit" full size="lg" style={{ height: 52, marginTop: 8, fontSize: 15, borderRadius: 12 }}>
               로그인
             </Button>
           </form>
