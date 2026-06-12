@@ -9,7 +9,7 @@ import { C } from '../../lib/theme';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
-import { backendEvidenceTypeToCategory, changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, isBackendEvidenceTypeCode, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
+import { backendEvidenceTypeToCategory, changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, isBackendEvidenceTypeCode, kindToEvidenceCode, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
 import { confirmAgentTodo, getOrchestratorStatus, getVisionValidationResults, runEvidenceReviewAgent, waitForAgentButtonEnabled, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
 import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 type UsageDetailValidationStatus = 'idle' | 'running' | 'done';
@@ -1087,7 +1087,14 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setUsageDetailActionError(error instanceof Error ? error.message : '파일 이동에 실패했습니다.');
             return;
         }
-        const movedFile: EvidenceFile = { ...fileEntry, id: movedLinkId ? `evidence-link-${movedLinkId}` : fileEntry.id, linkId: movedLinkId, kind: nextKind, categoryIds: [toCatId] };
+        const movedFile: EvidenceFile = {
+            ...fileEntry,
+            id: movedLinkId ? `evidence-link-${movedLinkId}` : fileEntry.id,
+            linkId: movedLinkId,
+            kind: nextKind,
+            evidenceTypeCode: kindToEvidenceCode(toKind),
+            categoryIds: [toCatId],
+        };
         commitFileData((prev) => {
             const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
             next.categories[fromCatId] = { ...(next.categories[fromCatId] || {}) };
