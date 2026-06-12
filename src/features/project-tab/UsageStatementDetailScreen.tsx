@@ -48,6 +48,9 @@ type UsageDetailTodoItem = {
     detail?: string;
 };
 const GENERIC_USAGE_ITEM_CONTEXT = '사용내역서 세부 항목';
+const isLinkAgentTodo = (todo: Pick<UsageDetailTodoItem, 'backendAgentTypeCode'>) => (
+    todo.backendAgentTypeCode === 'link'
+);
 
 const getCategoryFromBackendTodo = (todo: OrchestratorTodo) => {
     const codeMatch = String(todo.categoryCode || '').match(/^CAT_(\d+)$/i);
@@ -252,21 +255,52 @@ const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]
     const source = todo.agentTypeCode === 'legal' ? 'law' : todo.agentTypeCode === 'vision' ? 'vision' : 'matching';
     if (todo.todoId) {
         const categoryId = getCategoryIdFromTodoCode(todo.categoryCode);
-        return [{
-            id: `orchestrator:${todo.todoId}`,
-            backendTodoId: todo.todoId,
-            backendConfirmed: Boolean(todo.confirmed),
-            backendAgentTypeCode: todo.agentTypeCode,
-            backendCategoryName: todo.categoryName || null,
-            mode: 'add',
-            source,
-            kind: todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason),
-            title: getBackendTodoDisplayTitle(todo),
-            context: todo.usageStatementItemName || '',
-            categoryId,
-            usageItemId: todo.usageStatementItemId == null ? undefined : String(todo.usageStatementItemId),
-            detail: reason,
-        }];
+        if (todo.agentTypeCode === 'link') {
+            return [{
+                id: `orchestrator:${todo.todoId}:link-review`,
+                backendTodoId: todo.todoId,
+                backendConfirmed: Boolean(todo.confirmed),
+                backendAgentTypeCode: todo.agentTypeCode,
+                backendCategoryName: todo.categoryName || null,
+                mode: 'add',
+                source,
+                kind: 'other_document',
+                title: '증빙 매칭 검토 필요',
+                context: todo.usageStatementItemName || '',
+                categoryId,
+                usageItemId: todo.usageStatementItemId == null ? undefined : String(todo.usageStatementItemId),
+                detail: translateTodoDisplayText(reason, todo.usageStatementItemName),
+            }];
+        }
+        const titleText = todo.title || '';
+        const fallbackKind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(`${titleText} ${reason}`);
+        const evidenceCodeNames = (todo.evidenceTypeCodes || [])
+            .map((code) => translateEvidenceDocumentName(code))
+            .filter(Boolean);
+        const documentNames = todo.agentTypeCode === 'legal'
+            ? [getBackendTodoDisplayTitle(todo)]
+            : evidenceCodeNames.length > 0
+                ? evidenceCodeNames
+                : extractEvidenceDocumentNames(`${titleText} ${reason}`, fallbackKind);
+        const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(`${titleText} ${reason}`, fallbackKind)];
+        return titles.map((title, index) => {
+            const translatedTitle = translateEvidenceDocumentName(title) || title;
+            return {
+                id: `orchestrator:${todo.todoId}:${normalizeTodoIdText(translatedTitle)}:${index}`,
+                backendTodoId: todo.todoId,
+                backendConfirmed: Boolean(todo.confirmed),
+                backendAgentTypeCode: todo.agentTypeCode,
+                backendCategoryName: todo.categoryName || null,
+                mode: 'add',
+                source,
+                kind: todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(translatedTitle || reason),
+                title: translatedTitle,
+                context: todo.usageStatementItemName || '',
+                categoryId,
+                usageItemId: todo.usageStatementItemId == null ? undefined : String(todo.usageStatementItemId),
+                detail: reason,
+            };
+        });
     }
     const usageItemById = todo.usageStatementItemId == null
         ? undefined
@@ -490,6 +524,8 @@ const getTodoGroupLocationMeta = (todo: UsageDetailTodoItem, usageItems: UsageLi
 
 const getTodoDisplayTitle = (todo: UsageDetailTodoItem) => {
     const title = translateTodoDisplayText(todo.title.trim(), todo.context);
+    if (todo.backendTodoId && isLinkAgentTodo(todo))
+        return title;
     if (todo.backendTodoId && todo.source === 'law')
         return title;
     if (todo.backendTodoId)

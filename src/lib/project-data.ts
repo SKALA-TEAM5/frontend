@@ -116,6 +116,8 @@ export interface NewProjectInput {
   constructionAmount: string;
   appropriatedAmount: string;
   manager: string;
+  assigneeUserIds?: number[];
+  sheAssigneeUserIds?: number[];
   startDate: string;
   endDate: string;
   location: string;

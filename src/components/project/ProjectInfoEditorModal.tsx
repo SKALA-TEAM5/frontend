@@ -39,7 +39,6 @@ interface ProjectInfoEditorModalProps {
   draft: ProjectInfoEditorDraft;
   error?: string;
   saving?: boolean;
-  managerOptions?: string[];
   assigneeOptions?: ProjectAssigneeOption[];
   sheAssigneeOptions?: ProjectAssigneeOption[];
   saveLabel?: string;
@@ -87,7 +86,6 @@ export default function ProjectInfoEditorModal({
   draft,
   error,
   saving,
-  managerOptions = [],
   assigneeOptions = [],
   sheAssigneeOptions = [],
   saveLabel,
@@ -211,13 +209,7 @@ export default function ProjectInfoEditorModal({
               <input value={draft.constructionCompany || ''} onChange={(event) => onChange({ constructionCompany: event.target.value })} style={fieldStyle} />
             </div>
             {isCreate ? (
-              <div>
-                <div style={labelStyle}>프로젝트 담당자</div>
-                <select value={draft.manager || ''} onChange={(event) => onChange({ manager: event.target.value })} style={fieldStyle}>
-                  <option value="">담당자를 선택해 주세요</option>
-                  {managerOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
-              </div>
+              assigneeField('프로젝트 담당자', assigneeOptions, selectedAssigneeUserIds, 'assigneeUserIds')
             ) : (
               <div>
                 <div style={labelStyle}>공사금액</div>
@@ -262,6 +254,7 @@ export default function ProjectInfoEditorModal({
                 {amountInput('appropriatedAmount')}
               </div>
             )}
+            {isCreate && assigneeField('SHE 담당자', sheAssigneeOptions, selectedSheAssigneeUserIds, 'sheAssigneeUserIds')}
             {!isCreate && (
               <>
                 {assigneeField('프로젝트 담당자', assigneeOptions, selectedAssigneeUserIds, 'assigneeUserIds')}

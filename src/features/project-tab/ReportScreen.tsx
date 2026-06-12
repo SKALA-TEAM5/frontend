@@ -469,6 +469,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     boxShadow: `0 6px 14px ${C.primaryShadow}`,
   };
   const renderReportGate = () => {
+    if (reportStatus === 'done' && reportDraft) return null;
     if (canGenerateReport) return null;
     const missingProjectInfo = !projectId || !usageStatementId;
     const statusMeta = missingProjectInfo

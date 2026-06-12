@@ -9,19 +9,13 @@ interface CenterModalProps {
     onAction: () => void;
 }
 
-const parseStatusMessage = (body: React.ReactNode) => {
-    if (typeof body !== 'string') return null;
-    const match = body.match(/^(\d{3})(?:\s+([^\n]+))?\n([\s\S]+)$/);
-    if (!match) return null;
-    return {
-        code: match[1],
-        name: match[2] || '',
-        message: match[3],
-    };
+const normalizeModalBody = (body: React.ReactNode) => {
+    if (typeof body !== 'string') return body;
+    return body.replace(/^\d{3}(?:\s+[^\n]+)?\n/, '');
 };
 
 export default function CenterModal({ open, title, body, actionLabel, onAction, }: CenterModalProps) {
-    const statusMessage = parseStatusMessage(body);
+    const modalBody = normalizeModalBody(body);
     return (<Modal open={open} zIndex={920} maxWidth={460}>
       <div data-ui="center-modal.1" style={{
             background: C.white,
@@ -35,14 +29,7 @@ export default function CenterModal({ open, title, body, actionLabel, onAction, 
           <div style={{ minWidth: 0 }}>
             <div data-ui="center-modal.3" style={{ fontSize: 18, fontWeight: 900, color: C.g800, lineHeight: 1.35, marginBottom: 6 }}>{title}</div>
             <div data-ui="center-modal.4" style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
-              {statusMessage ? (
-                <div style={{ display: 'grid', gap: 9 }}>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', minHeight: 22, borderRadius: 999, border: `1px solid ${C.danger}`, background: C.dangerBg, color: C.danger, padding: '3px 8px', fontSize: 11, fontWeight: 900, lineHeight: 1 }}>{[statusMessage.code, statusMessage.name].filter(Boolean).join(' ')}</span>
-                  </div>
-                  <div style={{ whiteSpace: 'pre-line' }}>{statusMessage.message}</div>
-                </div>
-              ) : body}
+              {typeof modalBody === 'string' ? <div style={{ whiteSpace: 'pre-line' }}>{modalBody}</div> : modalBody}
             </div>
           </div>
         </div>
