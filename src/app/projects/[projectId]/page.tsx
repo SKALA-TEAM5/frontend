@@ -10,9 +10,10 @@ import ProjectInfoEditorModal from '../../../components/project/ProjectInfoEdito
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { ApiClientError } from '../../../lib/api-client';
+import { listUsers, type BackendUserProfile } from '../../../lib/auth-api';
 import { C } from '../../../lib/theme';
 import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getProjectSheManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
-import { getProject, isProjectManagerRole, isSheManagerRole, listAssigneeCandidates, replaceProjectAssignees, updateProject, type ProjectAssigneeCandidate, type UpdateProjectInput } from '../../../lib/project-api';
+import { getProject, isProjectManagerRole, isSheManagerRole, replaceProjectAssignees, updateProject, type ProjectAssigneeCandidate, type UpdateProjectInput } from '../../../lib/project-api';
 import { completeUsageStatementReview, deleteProjectFile, deleteUsageStatement, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, requestUsageStatementSupplement, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
 import { getAgentButtonStates, getOrchestratorStatus, isAgentStageRunning, parseUsageStatementWithOcr, waitForAgentButtonEnabled, type AgentButtonStage, type OrchestratorTodo } from '../../../lib/agent-api';
@@ -25,6 +26,17 @@ import { CATS, type UsageLineItem } from '../../../lib/evidence-utils';
 import type { ArchiveSeed } from '../../../types/domain';
 type DetailTab = 'overview' | 'details' | 'validation' | 'report';
 const FALLBACK_ACTION_ASSIGNEE = '프로젝트 담당자';
+
+const toAssigneeCandidate = (candidate: BackendUserProfile): ProjectAssigneeCandidate => ({
+    userId: candidate.id,
+    id: candidate.id,
+    realName: candidate.realName,
+    roleCode: candidate.roleCode,
+    employeeNo: candidate.employeeNo,
+});
+
+const sortAssigneeCandidates = (candidates: ProjectAssigneeCandidate[]) =>
+    candidates.toSorted((a, b) => `${a.realName} ${a.employeeNo || ''}`.localeCompare(`${b.realName} ${b.employeeNo || ''}`, 'ko-KR'));
 
 const getProjectAssigneeNames = (project: ProjectSummary) => {
     const names = project.participants.length > 0 ? project.participants : getProjectManagers(project);
@@ -948,9 +960,12 @@ function ProjectDetailPageContent() {
     const loadAssigneeCandidates = async () => {
         if (managerCandidates.length > 0 && sheManagerCandidates.length > 0)
             return;
-        const candidates = await listAssigneeCandidates();
-        setManagerCandidates(candidates.filter((candidate) => isProjectManagerRole(candidate.roleCode)));
-        setSheManagerCandidates(candidates.filter((candidate) => isSheManagerRole(candidate.roleCode)));
+        const [projectManagers, sheManagers] = await Promise.all([
+            listUsers({ roleCode: 'user' }),
+            listUsers({ roleCode: 'admin' }),
+        ]);
+        setManagerCandidates(sortAssigneeCandidates(projectManagers.map(toAssigneeCandidate)));
+        setSheManagerCandidates(sortAssigneeCandidates(sheManagers.map(toAssigneeCandidate)));
     };
     const openProjectInfoModal = () => {
         void loadAssigneeCandidates().catch((error) => {

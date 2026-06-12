@@ -9,7 +9,7 @@ import ProjectInfoEditorModal from '../../components/project/ProjectInfoEditorMo
 import { AppFrame, DateRangePicker } from '../../components/common';
 import { C } from '../../lib/theme';
 import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, USAGE_WORKFLOW_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getProjectSheManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
-import { listUsers } from '../../lib/auth-api';
+import { listUsers, type BackendUserProfile } from '../../lib/auth-api';
 import { createProject, deleteProject, getProject, listProjects, replaceProjectAssignees, updateProject, type ProjectAssigneeCandidate } from '../../lib/project-api';
 import { ROLE_LABELS, canAccessProject } from '../../lib/permissions';
 import { useCurrentUser } from '../../lib/dev-user';
@@ -106,6 +106,8 @@ const initialCreateForm: NewProjectInput = {
   startDate: '',
   endDate: '',
   location: '',
+  assigneeUserIds: [],
+  sheAssigneeUserIds: [],
 };
 
 const createRequiredFields: Array<keyof NewProjectInput> = [
@@ -116,14 +118,21 @@ const createRequiredFields: Array<keyof NewProjectInput> = [
   'client',
   'constructionAmount',
   'appropriatedAmount',
-  'manager',
   'startDate',
   'endDate',
   'location',
 ];
 
-const managerCandidateLabel = (candidate: ProjectAssigneeCandidate) =>
-  candidate.employeeNo ? `${candidate.realName} (${candidate.employeeNo})` : candidate.realName;
+const toAssigneeCandidate = (candidate: BackendUserProfile): ProjectAssigneeCandidate => ({
+  userId: candidate.id,
+  id: candidate.id,
+  realName: candidate.realName,
+  roleCode: candidate.roleCode,
+  employeeNo: candidate.employeeNo,
+});
+
+const sortAssigneeCandidates = (candidates: ProjectAssigneeCandidate[]) =>
+  candidates.toSorted((a, b) => `${a.realName} ${a.employeeNo || ''}`.localeCompare(`${b.realName} ${b.employeeNo || ''}`, 'ko-KR'));
 
 const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActionRequest;
 
@@ -197,6 +206,7 @@ function ProjectsPageContent() {
   const [suspendError, setSuspendError] = useState('');
   const [suspendingProjectId, setSuspendingProjectId] = useState('');
   const [managerCandidates, setManagerCandidates] = useState<ProjectAssigneeCandidate[]>([]);
+  const [sheManagerCandidates, setSheManagerCandidates] = useState<ProjectAssigneeCandidate[]>([]);
   const filterOptions = useMemo(() => getSheFilterOptionsFromProjects(projects), [projects]);
   const [projectName, setProjectName] = useState('');
   const [contractNumber, setContractNumber] = useState('');
@@ -255,20 +265,18 @@ function ProjectsPageContent() {
   }, [loadProjects]);
 
   useEffect(() => {
-    listUsers({ roleCode: 'user' })
-      .then((users) => {
-        const candidates = users
-          .map((candidate): ProjectAssigneeCandidate => ({
-            userId: candidate.id,
-            id: candidate.id,
-            realName: candidate.realName,
-            roleCode: candidate.roleCode,
-            employeeNo: candidate.employeeNo,
-          }))
-          .toSorted((a, b) => managerCandidateLabel(a).localeCompare(managerCandidateLabel(b), 'ko-KR'));
-        setManagerCandidates(candidates);
+    Promise.all([
+      listUsers({ roleCode: 'user' }),
+      listUsers({ roleCode: 'admin' }),
+    ])
+      .then(([projectManagers, sheManagers]) => {
+        setManagerCandidates(sortAssigneeCandidates(projectManagers.map(toAssigneeCandidate)));
+        setSheManagerCandidates(sortAssigneeCandidates(sheManagers.map(toAssigneeCandidate)));
       })
-      .catch(() => setManagerCandidates([]));
+      .catch(() => {
+        setManagerCandidates([]);
+        setSheManagerCandidates([]);
+      });
   }, []);
   useEffect(() => {
     if (!requestedStatus)
@@ -341,20 +349,23 @@ function ProjectsPageContent() {
 
   const confirmSuspendProject = async () => {
     if (!suspendTarget || suspendingProjectId) return;
+    const shouldResume = suspendTarget.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED;
+    const nextProjectStatusCode = shouldResume ? PROJECT_STATUS_CODE.ACTIVE : PROJECT_STATUS_CODE.SUSPENDED;
     setSuspendingProjectId(suspendTarget.id);
     setSuspendError('');
     try {
-      const savedProject = await updateProject(suspendTarget.id, { projectStatusCode: PROJECT_STATUS_CODE.SUSPENDED });
+      const savedProject = await updateProject(suspendTarget.id, { projectStatusCode: nextProjectStatusCode });
       setProjects((current) => current.map((item) => item.id === suspendTarget.id
         ? {
             ...item,
-            projectStatusCode: PROJECT_STATUS_CODE.SUSPENDED,
+            ...savedProject,
+            projectStatusCode: nextProjectStatusCode,
             status: savedProject.status,
           }
         : item));
       setSuspendTarget(null);
     } catch (error) {
-      setSuspendError(error instanceof Error ? error.message : '프로젝트 중단 처리에 실패했습니다.');
+      setSuspendError(error instanceof Error ? error.message : shouldResume ? '프로젝트 시작 처리에 실패했습니다.' : '프로젝트 중단 처리에 실패했습니다.');
     } finally {
       setSuspendingProjectId('');
     }
@@ -373,7 +384,7 @@ function ProjectsPageContent() {
   };
 
   const submitCreateProject = async () => {
-    const missing = createRequiredFields.find((key) => !createForm[key].trim());
+    const missing = createRequiredFields.find((key) => !String(createForm[key] || '').trim());
     if (missing) {
       setCreateError('필수 정보를 모두 입력해 주세요.');
       return;
@@ -382,15 +393,23 @@ function ProjectsPageContent() {
       setCreateError('공사 시작일은 마감일보다 늦을 수 없습니다.');
       return;
     }
+    if (!(createForm.assigneeUserIds || []).length) {
+      setCreateError('프로젝트 담당자를 1명 이상 선택해 주세요.');
+      return;
+    }
+    if (!(createForm.sheAssigneeUserIds || []).length) {
+      setCreateError('SHE 담당자를 1명 이상 선택해 주세요.');
+      return;
+    }
 
     setCreating(true);
     setCreateError('');
     try {
       const project = await createProject(createForm);
-      const selectedManager = managerCandidates.find((candidate) => managerCandidateLabel(candidate) === createForm.manager);
-      if (selectedManager) {
-        await replaceProjectAssignees(project.id, [selectedManager.id]);
-      }
+      await replaceProjectAssignees(project.id, [
+        ...(createForm.assigneeUserIds || []),
+        ...(createForm.sheAssigneeUserIds || []),
+      ]);
       setCreateModalOpen(false);
       setCreateForm(initialCreateForm);
       loadProjects();
@@ -472,11 +491,11 @@ function ProjectsPageContent() {
           <div style={{ alignSelf: 'flex-end', marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span
               role="button"
-              tabIndex={projectSuspended || projectClosed ? -1 : 0}
-              aria-disabled={projectSuspended || projectClosed || suspendingProjectId === project.id}
+              tabIndex={projectClosed ? -1 : 0}
+              aria-disabled={projectClosed || suspendingProjectId === project.id}
               onClick={(event) => {
                 event.stopPropagation();
-                if (projectSuspended || projectClosed || suspendingProjectId === project.id) return;
+                if (projectClosed || suspendingProjectId === project.id) return;
                 setSuspendError('');
                 setSuspendTarget(project);
               }}
@@ -484,13 +503,13 @@ function ProjectsPageContent() {
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
                 event.stopPropagation();
-                if (projectSuspended || projectClosed || suspendingProjectId === project.id) return;
+                if (projectClosed || suspendingProjectId === project.id) return;
                 setSuspendError('');
                 setSuspendTarget(project);
               }}
-              style={{ border: `1px solid ${projectSuspended || projectClosed ? C.g200 : C.g400}`, borderRadius: 999, background: projectSuspended || projectClosed ? C.g100 : C.white, color: projectSuspended || projectClosed ? C.g400 : C.g600, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: projectSuspended || projectClosed || suspendingProjectId === project.id ? 'not-allowed' : 'pointer', boxSizing: 'border-box', opacity: suspendingProjectId === project.id ? .65 : 1 }}
+              style={{ border: `1px solid ${projectClosed ? C.g200 : projectSuspended ? C.primary : C.g400}`, borderRadius: 999, background: projectClosed ? C.g100 : projectSuspended ? C.bg : C.white, color: projectClosed ? C.g400 : projectSuspended ? C.primary : C.g600, height: 28, padding: '0 11px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, cursor: projectClosed || suspendingProjectId === project.id ? 'not-allowed' : 'pointer', boxSizing: 'border-box', opacity: suspendingProjectId === project.id ? .65 : 1 }}
             >
-              {suspendingProjectId === project.id ? '중단 처리 중' : projectSuspended ? '중단됨' : '중단'}
+              {suspendingProjectId === project.id ? (projectSuspended ? '시작 처리 중' : '중단 처리 중') : projectSuspended ? '시작' : '중단'}
             </span>
             <span
               role="button"
@@ -569,14 +588,14 @@ function ProjectsPageContent() {
       draft={createForm}
       error={createError}
       saving={creating}
-      managerOptions={managerCandidates.map(managerCandidateLabel)}
+      assigneeOptions={managerCandidates.map((candidate) => ({ userId: candidate.id, realName: candidate.realName, employeeNo: candidate.employeeNo }))}
+      sheAssigneeOptions={sheManagerCandidates.map((candidate) => ({ userId: candidate.id, realName: candidate.realName, employeeNo: candidate.employeeNo }))}
       saveLabel="등록"
       onClose={closeCreateModal}
       onSave={submitCreateProject}
       onChange={(patch) => {
-        Object.entries(patch).forEach(([key, value]) => {
-          updateCreateField(key as keyof NewProjectInput, String(value || ''));
-        });
+        setCreateForm((current) => ({ ...current, ...patch }));
+        setCreateError('');
       }}
     />
   );
@@ -605,16 +624,18 @@ function ProjectsPageContent() {
     <Modal open={Boolean(suspendTarget)} onClose={closeSuspendModal} zIndex={976} maxWidth={480}>
       <div style={{ background: C.white, borderRadius: 6, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(31,55,43,.14)', overflow: 'hidden' }}>
         <div style={{ padding: '20px 22px 12px' }}>
-          <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>프로젝트 중단</div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: C.g800, marginBottom: 7 }}>{suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? '프로젝트 시작' : '프로젝트 중단'}</div>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g600, lineHeight: 1.65 }}>
-            {suspendTarget?.constructionName || suspendTarget?.name} 프로젝트를 중단 상태로 변경합니다. <br/> 중단 후에는 프로젝트 목록에서 중단됨으로 표시됩니다.
+            {suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED
+              ? `${suspendTarget?.constructionName || suspendTarget?.name} 프로젝트를 다시 진행하시겠습니까?`
+              : <>{suspendTarget?.constructionName || suspendTarget?.name} 프로젝트를 중단 상태로 변경합니다. <br/> 중단 후에는 프로젝트 목록에서 중단됨으로 표시됩니다.</>}
           </div>
         </div>
         <div style={{ padding: '16px 22px 18px' }}>
           {suspendError && <div style={{ border: `1px solid #FFCDD2`, borderRadius: 6, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 900, lineHeight: 1.5, marginBottom: 14 }}>{suspendError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" onClick={closeSuspendModal} disabled={Boolean(suspendingProjectId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: suspendingProjectId ? 'not-allowed' : 'pointer', opacity: suspendingProjectId ? 0.45 : 1 }}>취소</button>
-            <button type="button" onClick={confirmSuspendProject} disabled={Boolean(suspendingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: suspendingProjectId ? C.g200 : C.g600, color: suspendingProjectId ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: suspendingProjectId ? 'wait' : 'pointer' }}>{suspendingProjectId ? '중단 처리 중' : '중단 처리'}</button>
+            <button type="button" onClick={confirmSuspendProject} disabled={Boolean(suspendingProjectId)} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: suspendingProjectId ? C.g200 : suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? C.primary : C.g600, color: suspendingProjectId ? C.g400 : C.white, fontSize: 13, fontWeight: 900, fontFamily: 'inherit', cursor: suspendingProjectId ? 'wait' : 'pointer' }}>{suspendingProjectId ? (suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? '시작 처리 중' : '중단 처리 중') : suspendTarget?.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED ? '시작 처리' : '중단 처리'}</button>
           </div>
         </div>
       </div>
