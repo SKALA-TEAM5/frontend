@@ -11,7 +11,7 @@ import { C } from '../../lib/theme';
 import { LEGAL_REVIEW_STATUS_FILTER, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type ProjectSummary, type UsageWorkflowStatus } from '../../lib/project-data';
 import { listUsageStatementArchives } from '../../lib/archive-api';
 import { getVisibleProjects, type PeriodMode, type ProjectSortField, type SortDirection } from '../../lib/project-list';
-import { ROLE_LABELS } from '../../lib/permissions';
+import { ROLE_LABELS, canAccessProject } from '../../lib/permissions';
 import { getDashboardAiUsage, getDashboardSummary, type DashboardAiUsageResponse, type DashboardSummaryResponse } from '../../lib/dashboard-api';
 import { getProject, listProjects } from '../../lib/project-api';
 import { calculateProjectUsageRate } from '../../lib/project-usage-rate';
@@ -124,13 +124,22 @@ const getProjectAssigneeLabel = (project: ProjectSummary) => {
 };
 
 const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<ProjectSummary> => {
-  const assigneeLabel = getProjectAssigneeLabel(project);
   try {
     const [archives, detail] = await Promise.all([
       listUsageStatementArchives(project.id),
       getProject(project.id).catch(() => null),
     ]);
-    const projectWithDetail = detail ? { ...project, plannedAmount: detail.plannedAmount } : project;
+    const projectWithDetail = detail ? {
+      ...project,
+      plannedAmount: detail.plannedAmount || project.plannedAmount,
+      manager: detail.manager,
+      participants: detail.participants,
+      assigneeUserIds: detail.assigneeUserIds,
+      sheManager: detail.sheManager,
+      sheManagers: detail.sheManagers,
+      sheManagerUserIds: detail.sheManagerUserIds,
+    } : project;
+    const assigneeLabel = getProjectAssigneeLabel(projectWithDetail);
     const usageRate = calculateProjectUsageRate(projectWithDetail, archives);
     const hasReviewNeededArchive = archives.some((archive) => isLegalReviewWorkflow(archive.workflowStatus));
     for (const archive of archives) {
@@ -138,7 +147,7 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
       const archiveWorkflowStatus = normalizeUsageWorkflowStatus(archive.workflowStatus);
       if (archiveWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED) {
         return {
-          ...project,
+          ...projectWithDetail,
           usageRate,
           hasLegalReviewNeededMonth: true,
           hasActionRequest: true,
@@ -160,7 +169,7 @@ const hydrateProjectWorkflowStatus = async (project: ProjectSummary): Promise<Pr
       }
     }
     return {
-      ...project,
+      ...projectWithDetail,
       usageRate,
       hasLegalReviewNeededMonth: hasReviewNeededArchive || isLegalReviewWorkflow(project.latestUsageStatementStatusCode),
       hasActionRequest: false,
@@ -233,6 +242,8 @@ const hiddenCheckboxStyle: CSSProperties = {
 
 const legalReviewFilterStyle = (active: boolean): CSSProperties => ({
   height: 30,
+  width: 'max-content',
+  justifySelf: 'start',
   boxSizing: 'border-box',
   display: 'inline-flex',
   alignItems: 'center',
@@ -393,6 +404,11 @@ export default function DashboardPage() {
     setChartTooltip((tooltip) => tooltip ? { ...tooltip, x: event.clientX + 14, y: event.clientY + 14 } : tooltip);
   };
   const hideChartTooltip = () => setChartTooltip(null);
+  const accessUser = useMemo(() => ({
+    id: user.id,
+    name: user.name,
+    role: user.role,
+  }), [user.id, user.name, user.role]);
 
   useEffect(() => {
     if (user.role === 'project_manager') {
@@ -408,14 +424,15 @@ export default function DashboardPage() {
         getDashboardSummary().catch(() => null),
       ]);
       setDashboardSummary(summary);
-      setProjects(await Promise.all(items.map(hydrateProjectWorkflowStatus)));
+      const hydrated = await Promise.all(items.map(hydrateProjectWorkflowStatus));
+      setProjects(hydrated.filter((project) => canAccessProject(accessUser, project)));
     } catch {
       setProjects([]);
       setDashboardSummary(null);
     } finally {
       setDashboardRefreshing(false);
     }
-  }, []);
+  }, [accessUser]);
 
   useEffect(() => {
     let alive = true;
@@ -424,7 +441,7 @@ export default function DashboardPage() {
       listProjects({ page: 1, size: 10 }),
       getDashboardSummary().catch(() => null),
     ])
-      .then(([items, summary]) => Promise.all(items.map(hydrateProjectWorkflowStatus)).then((hydrated) => ({ hydrated, summary })))
+      .then(([items, summary]) => Promise.all(items.map(hydrateProjectWorkflowStatus)).then((hydrated) => ({ hydrated: hydrated.filter((project) => canAccessProject(accessUser, project)), summary })))
       .then(({ hydrated, summary }) => {
         if (!alive) return;
         setProjects(hydrated);
@@ -441,7 +458,7 @@ export default function DashboardPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [accessUser]);
 
   useEffect(() => {
     let alive = true;
@@ -768,11 +785,11 @@ export default function DashboardPage() {
               <div style={{ fontSize: 15, fontWeight: 700, color: C.g800 }}>진행 중인 프로젝트 현황</div>
               <Link href="/projects" style={{ fontSize: 12, fontWeight: 700, color: C.primary, textDecoration: 'none' }}>전체 프로젝트 보기 〉</Link>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(136px, 1fr))', gap: 8, marginBottom: 12, minWidth: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(170px, 1fr) max-content', gap: 8, marginBottom: 12, minWidth: 0 }}>
               <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
               <input aria-label="프로젝트 번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="프로젝트 번호" style={compactFieldStyle} />
               <select aria-label="담당자" value={manager} onChange={(event) => setManager(event.target.value)} style={compactFieldStyle}>
-                {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '담당자' : item}</option>)}
+                {filterOptions.managers.map((item) => <option key={item} value={item}>{item === filterOptions.managers[0] ? '프로젝트 담당자' : item}</option>)}
               </select>
               <DateRangePicker
                 start={rangeStart}
