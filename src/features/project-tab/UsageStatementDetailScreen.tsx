@@ -9,7 +9,7 @@ import { C } from '../../lib/theme';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
-import { backendEvidenceTypeToCategory, changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
+import { backendEvidenceTypeToCategory, changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, isBackendEvidenceTypeCode, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
 import { confirmAgentTodo, getOrchestratorStatus, getVisionValidationResults, listSafeLeeEvidenceRequirements, runEvidenceReviewAgent, safeLeeRequirementsToMap, waitForAgentButtonEnabled, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import type { ArchiveSeed, BackendEvidenceTypeCode, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
@@ -215,10 +215,34 @@ const getTodoDocumentTitle = (reason: string, kind: FolderEvidenceCategory) => {
         return names.join(', ');
     return kind === 'other_document' ? '보완 서류' : EVIDENCE_KIND_LABELS[kind];
 };
+const stripTodoContextPrefix = (value: string, context?: string | null) => {
+    const text = value.trim();
+    const prefix = (context || '').trim();
+    if (!prefix || !text.startsWith(prefix))
+        return text;
+    return text.slice(prefix.length).replace(/^[\s:：·∙-]+/u, '').trim() || text;
+};
+const translateTodoDisplayText = (value: string, context?: string | null) => {
+    const withoutContext = stripTodoContextPrefix(value, context);
+    return translateEvidenceText(withoutContext)
+        .replace(/\b[a-z][a-z0-9_-]*\b/gi, (match) => translateEvidenceDocumentName(match) || match)
+        .replace(/\s*,\s*/g, ', ')
+        .replace(/\s+/g, ' ')
+        .trim();
+};
+const getUploadTodoTitle = (value: string, context?: string | null) => {
+    const translated = translateTodoDisplayText(value, context)
+        .replace(/^.+?필수\s*증빙\s*누락\s*[:：]?\s*/u, '')
+        .replace(/^(?:필수\s*)?증빙\s*누락\s*[:：]?\s*/u, '')
+        .replace(/^필수\s*증빙\s*[:：]?\s*/u, '')
+        .replace(/\s*(?:업로드|제출)?\s*필요$/u, '')
+        .trim();
+    return `${translated || '보완 서류'} 업로드 필요`;
+};
 const getBackendTodoDisplayTitle = (todo: OrchestratorTodo) => {
-    const reason = todo.reason || '보완 사항 확인 필요';
+    const reason = translateTodoDisplayText(todo.reason || '보완 사항 확인 필요', todo.usageStatementItemName);
     if (todo.agentTypeCode !== 'legal')
-        return reason;
+        return getUploadTodoTitle(reason, todo.usageStatementItemName);
     const legalReason = reason.replace(/^법령\s*검토\s*(?:필요|결과)\s*[:：]?\s*/u, '').trim() || reason;
     return `법령 검토 결과 ${legalReason}`;
 };
@@ -453,7 +477,11 @@ const getTodoGroupLocationMeta = (todo: UsageDetailTodoItem, usageItems: UsageLi
 };
 
 const getTodoDisplayTitle = (todo: UsageDetailTodoItem) => {
-    const title = todo.title.trim();
+    const title = translateTodoDisplayText(todo.title.trim(), todo.context);
+    if (todo.backendTodoId && todo.source === 'law')
+        return title;
+    if (todo.backendTodoId)
+        return getUploadTodoTitle(title, todo.context);
     const needsActionSuffix = !/(?:업로드|제출|삭제|제거|교체|필요)$/u.test(title);
     if (!needsActionSuffix)
         return title;
@@ -881,13 +909,15 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         const isWearingPhotoContext = kind === 'site_photo'
             && (catId === 3 || /보호구|착용|안전모|안전화|안전벨트|장갑|마스크|조끼|개인보호/.test(usageItem?.name || ''));
         const matchingRequiredEvidenceTypeCodes = (requiredEvidenceByLine[usageItemId]?.[kind] || [])
-            .filter((code) => backendEvidenceTypeToCategory(code) === kind);
-        const requiredEvidenceTypeCode = (matchingRequiredEvidenceTypeCodes.find((code) => code !== kind) || matchingRequiredEvidenceTypeCodes[0]) as BackendEvidenceTypeCode | undefined;
+            .filter((code) => isBackendEvidenceTypeCode(code) && backendEvidenceTypeToCategory(code) === kind);
+        const requiredEvidenceTypeCode = matchingRequiredEvidenceTypeCodes.find((code) => code !== kind) || matchingRequiredEvidenceTypeCodes[0];
         const evidenceTypeCode = requiredEvidenceTypeCode || (isWearingPhotoContext ? 'wearing_photo' : undefined);
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = true;
-        input.accept = kind === 'site_photo' ? 'image/*' : 'image/*,.pdf,.xlsx';
+        if (kind !== 'other_document') {
+            input.accept = kind === 'site_photo' ? 'image/*' : 'image/*,.pdf,.xlsx';
+        }
         input.onchange = async (event) => {
             const pickedFiles = Array.from((event.target as HTMLInputElement).files || []);
             if (!pickedFiles.length)
