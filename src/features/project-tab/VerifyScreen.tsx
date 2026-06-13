@@ -3,16 +3,28 @@ import type { CSSProperties, MouseEvent } from 'react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
-import InlineLoader from '../../components/ui/InlineLoader';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
 import { getLatestValidation, getLegalDetail, getValidationStatus, isAgentRunningError, runLegalAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
-import { AGENT_LOG_STATUS } from '../../lib/project-data';
 import { C } from '../../lib/theme';
-import { CATS, fmt } from '../../lib/evidence-utils';
-import type { CategoryValidationResult, ValidationDashboardResult, ValidationDecision, ValidationIssue, ValidationItemResult, ValidationLegalBasis, ValidationRiskLevel } from '../../types/domain';
+import { fmt } from '../../lib/evidence-utils';
+import type { CategoryValidationResult, ValidationDashboardResult, ValidationDecision, ValidationIssue, ValidationRiskLevel } from '../../types/domain';
+import {
+  EMPTY_VALIDATION_RESULT,
+  buildLegalRunFallbackResult,
+  extractValidationId,
+  extractValidationRunState,
+  flattenIssues,
+  flattenReviewItems,
+  formatLegalSourceText,
+  getDecisionWeight,
+  hasLegalRunSummary,
+  isLegalSourceTitleLine,
+  normalizeValidationResult,
+  sumBy,
+} from './verify/verify-utils';
 
 export type ValidationGateState = 'passed' | 'waiting' | 'failed';
 
@@ -50,16 +62,8 @@ type LegalSourcePopup = {
 
 type VerifyStatus = 'idle' | 'loading' | 'done';
 type SheReviewDecision = 'pending' | 'review_completed' | 'supplement_requested';
-type ValidationRunState = 'unknown' | 'running' | 'done' | 'failed';
 const LEGAL_VALIDATION_POLL_INTERVAL_MS = 4000;
-
-const EMPTY_VALIDATION_RESULT: ValidationDashboardResult = {
-  id: '',
-  checkedAt: '',
-  usageStatementFile: '',
-  lawAgent: { name: '', version: '', basis: '' },
-  categories: [],
-};
+const LEGAL_VALIDATION_STEPS = ['검증 요청', '법령 기준 대조', '검토 사유 계산', '결과 불러오기'];
 
 const decisionMeta: Record<ValidationDecision, { label: string; color: string; bg: string; border: string }> = {
   appropriate: { label: '적정', color: C.ok, bg: '#F4FBF6', border: C.light },
@@ -132,291 +136,6 @@ const validationSectionTitleStyle: CSSProperties = {
   letterSpacing: 0,
 };
 
-const getDecisionWeight = (decision: ValidationDecision) => {
-  if (decision === 'inappropriate') return 3;
-  if (decision === 'conditional') return 2;
-  return 1;
-};
-
-const sumBy = (items: CategoryValidationResult[], key: 'usageAmount' | 'recognizedAmount' | 'disputedAmount') =>
-  items.reduce((total, item) => total + item[key], 0);
-
-const flattenIssues = (items: CategoryValidationResult[]) =>
-  items.flatMap((item) => item.decision === 'appropriate' ? [] : item.issues.map((issue) => ({ ...issue, categoryName: item.categoryName, decision: item.decision, riskLevel: item.riskLevel })));
-
-const flattenReviewItems = (items: CategoryValidationResult[]) =>
-  items.flatMap((category) => category.items
-    .filter((item) => item.decision !== 'appropriate')
-    .map((item) => ({ ...item, categoryName: category.categoryName, categoryId: category.categoryId, riskLevel: category.riskLevel })));
-
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-
-const parseJsonRecord = (value: unknown): Record<string, unknown> | null => {
-  if (typeof value !== 'string') return asRecord(value);
-  try {
-    return asRecord(JSON.parse(value));
-  } catch {
-    return null;
-  }
-};
-
-const readStringField = (source: unknown, keys: string[]) => {
-  const record = asRecord(source);
-  if (!record) return '';
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  }
-  return '';
-};
-
-const readNestedStringField = (source: unknown, keys: string[]) => {
-  const direct = readStringField(source, keys);
-  if (direct) return direct;
-  const record = asRecord(source);
-  return readStringField(record?.result, keys) || readStringField(record?.data, keys);
-};
-
-const readNumberField = (source: unknown, keys: string[]) => {
-  const record = asRecord(source);
-  if (!record) return 0;
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') {
-      const parsed = Number(value.replace(/[^\d.-]/g, ''));
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return 0;
-};
-
-const readArrayField = (source: unknown, keys: string[]): unknown[] => {
-  const record = asRecord(source);
-  if (!record) return [];
-  for (const key of keys) {
-    const value = record[key];
-    if (Array.isArray(value)) return value;
-  }
-  return [];
-};
-
-const unwrapValidationPayload = (source: unknown): unknown => {
-  const record = asRecord(source);
-  if (!record) return source;
-  const result = record.result;
-  const data = record.data;
-  const details = parseJsonRecord(record.details);
-  const payload = asRecord(record.payload);
-  if (details) return unwrapValidationPayload(details);
-  if (payload) return unwrapValidationPayload(payload);
-  if (asRecord(result)) return unwrapValidationPayload(result);
-  if (asRecord(data)) return unwrapValidationPayload(data);
-  return source;
-};
-
-const extractValidationId = (source: unknown) =>
-  readNestedStringField(source, ['validationId', 'validation_id', 'id', 'runId', 'run_id']);
-
-const hasLegalRunSummary = (source: unknown) => {
-  const payload = unwrapValidationPayload(source);
-  return Boolean(
-    readNestedStringField(payload, ['resultCode', 'result_code'])
-    || readNestedStringField(payload, ['statusCode', 'status_code', 'status'])
-    || readNestedStringField(payload, ['reason', 'message']),
-  );
-};
-
-const extractValidationRunState = (source: unknown): ValidationRunState => {
-  const rawStatus = readNestedStringField(source, ['status', 'statusCode', 'status_code', 'state', 'resultCode', 'result_code']).toLowerCase();
-  if (!rawStatus) return 'unknown';
-  if ([AGENT_LOG_STATUS.SUCCESS, 'completed', 'complete', 'done', 'succeeded', 'passed', 'confirmed', 'approved'].includes(rawStatus)) return 'done';
-  if ([AGENT_LOG_STATUS.RUNNING, AGENT_LOG_STATUS.PENDING, 'processing', 'queued', 'started', 'in_progress'].includes(rawStatus)) return 'running';
-  if ([AGENT_LOG_STATUS.FAIL, AGENT_LOG_STATUS.CANCELED, 'failed', 'failure', 'error', 'errored', 'cancelled'].includes(rawStatus)) return 'failed';
-  return 'unknown';
-};
-
-const normalizeDecision = (value: string): ValidationDecision => {
-  const normalized = value.toLowerCase();
-  if (['inappropriate', 'invalid', 'rejected', 'fail', 'failed', 'ng', '부적정', '부적절'].includes(normalized)) return 'inappropriate';
-  if (['conditional', 'partial', 'warning', 'warn', '조건부', '검토필요', '검토 필요'].includes(normalized)) return 'conditional';
-  return 'appropriate';
-};
-
-const categoryCodeToId = (value: string) => {
-  const parsed = Number(value.replace(/[^\d]/g, ''));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-};
-
-const normalizeRiskLevel = (value: string): ValidationRiskLevel => {
-  const normalized = value.toLowerCase();
-  if (['high', '높음'].includes(normalized)) return 'high';
-  if (['medium', 'middle', '중간'].includes(normalized)) return 'medium';
-  return 'low';
-};
-
-const normalizeValidationIssues = (items: unknown[]): ValidationIssue[] =>
-  items.map((item) => ({
-    title: readStringField(item, ['title', 'issueTitle', 'issue_title', 'name']) || '보완 필요',
-    description: readStringField(item, ['description', 'reason', 'message']) || '',
-    problemFileNames: [],
-    requiredAction: readStringField(item, ['requiredAction', 'required_action', 'action', 'request']) || '관련 증빙을 보완해 주세요.',
-    recommendedFiles: readArrayField(item, ['recommendedFiles', 'recommended_files', 'requiredFiles', 'required_files']).map((file) => String(file)),
-  }));
-
-const normalizeLegalBasis = (items: unknown[]): ValidationLegalBasis[] =>
-  items.map((item) => ({
-    lawName: readStringField(item, ['lawName', 'law_name', 'name']) || '산업안전보건관리비 계상 및 사용기준',
-    article: readStringField(item, ['article', 'articleNo', 'article_no']),
-    clause: readStringField(item, ['clause', 'clauseNo', 'clause_no']),
-    summary: readStringField(item, ['summary', 'description', 'text']) || '',
-    agentReasoning: readStringField(item, ['agentReasoning', 'agent_reasoning', 'reasoning', 'reason']) || '',
-    originalText: readStringField(item, ['originalText', 'original_text', 'lawText', 'law_text', 'sourceText', 'source_text', 'text']),
-  }));
-
-const normalizeValidationItems = (items: unknown[], category: {
-  categoryName: string;
-  categoryDecision: ValidationDecision;
-  categoryLegalBasis: ValidationLegalBasis[];
-  categoryIssues: ValidationIssue[];
-}): ValidationItemResult[] => {
-  const normalized = items.map((item, index): ValidationItemResult => {
-    const amount = readNumberField(item, ['amount', 'usageAmount', 'usage_amount', 'totalAmount', 'total_amount']);
-    const recognizedAmount = readNumberField(item, ['recognizedAmount', 'recognized_amount', 'approvedAmount', 'approved_amount', 'validAmount', 'valid_amount']);
-    const disputedAmount = readNumberField(item, ['disputedAmount', 'disputed_amount', 'issueAmount', 'issue_amount', 'invalidAmount', 'invalid_amount']);
-    const decision = normalizeDecision(readStringField(item, ['decision', 'result', 'resultCode', 'result_code', 'status']));
-    const legalBasis = normalizeLegalBasis(readArrayField(item, ['legalBasis', 'legal_basis', 'basis', 'laws']));
-    return {
-      usageStatementItemId: readNumberField(item, ['usageStatementItemId', 'usage_statement_item_id', 'itemId', 'item_id', 'id']) || undefined,
-      itemName: readStringField(item, ['itemName', 'item_name', 'name', 'title']) || `${category.categoryName} 세부항목 ${index + 1}`,
-      usedOn: readStringField(item, ['usedOn', 'used_on', 'useDate', 'use_date', 'date']) || undefined,
-      amount,
-      recognizedAmount: recognizedAmount || (decision === 'appropriate' ? amount : 0),
-      disputedAmount: disputedAmount || (decision === 'appropriate' ? 0 : amount),
-      decision,
-      reviewReason: readStringField(item, ['reviewReason', 'review_reason', 'reason', 'description', 'requiredAction', 'required_action']) || 'legal agent가 확인한 검토 사유가 없습니다.',
-      problemFiles: [],
-      legalBasis: legalBasis.length > 0 ? legalBasis : category.categoryLegalBasis,
-    };
-  });
-  if (normalized.length > 0) return normalized;
-  return category.categoryIssues.map((issue, index) => ({
-    itemName: issue.title || `${category.categoryName} 검토 항목 ${index + 1}`,
-    amount: 0,
-    recognizedAmount: category.categoryDecision === 'appropriate' ? 0 : 0,
-    disputedAmount: 0,
-    decision: category.categoryDecision,
-    reviewReason: issue.requiredAction || issue.description || 'legal agent가 확인한 검토 사유가 없습니다.',
-    problemFiles: [],
-    legalBasis: category.categoryLegalBasis,
-  }));
-};
-
-const normalizeValidationResult = (source: unknown): ValidationDashboardResult => {
-  const payload = unwrapValidationPayload(source);
-  const categorySources = readArrayField(payload, ['categories', 'categoryResults', 'category_results', 'items', 'results', 'validations']);
-  const categories = categorySources.map((item, index): CategoryValidationResult => {
-    const categoryCode = readStringField(item, ['categoryCode', 'category_code', 'code']);
-    const categoryId = readNumberField(item, ['categoryId', 'category_id', 'categoryTypeId', 'category_type_id']) || categoryCodeToId(categoryCode) || index + 1;
-    const categoryName = readStringField(item, ['categoryName', 'category_name', 'name', 'title']) || CATS.find((cat) => cat.id === categoryId)?.label || `항목 ${index + 1}`;
-    const decision = normalizeDecision(readStringField(item, ['decision', 'result', 'resultCode', 'result_code', 'status']));
-    const legalBasis = normalizeLegalBasis(readArrayField(item, ['legalBasis', 'legal_basis', 'basis', 'laws']));
-    const rawIssues = normalizeValidationIssues(readArrayField(item, ['issues', 'validationIssues', 'validation_issues', 'problems']));
-    const issues = decision === 'appropriate' ? [] : rawIssues;
-    const validationItems = normalizeValidationItems(readArrayField(item, ['items', 'itemResults', 'item_results', 'details']), {
-      categoryName,
-      categoryDecision: decision,
-      categoryLegalBasis: legalBasis,
-      categoryIssues: issues,
-    });
-    const usageAmount = readNumberField(item, ['usageAmount', 'usage_amount', 'amount', 'usedAmount', 'used_amount'])
-      || validationItems.reduce((total, detail) => total + detail.amount, 0);
-    const recognizedAmount = readNumberField(item, ['recognizedAmount', 'recognized_amount', 'approvedAmount', 'approved_amount', 'validAmount', 'valid_amount'])
-      || validationItems.reduce((total, detail) => total + detail.recognizedAmount, 0);
-    const disputedAmount = readNumberField(item, ['disputedAmount', 'disputed_amount', 'issueAmount', 'issue_amount', 'invalidAmount', 'invalid_amount'])
-      || validationItems.reduce((total, detail) => total + detail.disputedAmount, 0);
-    return {
-      categoryId,
-      categoryName,
-      usageAmount,
-      recognizedAmount,
-      disputedAmount,
-      decision,
-      riskLevel: normalizeRiskLevel(readStringField(item, ['riskLevel', 'risk_level', 'risk'])),
-      legalBasis,
-      issues,
-      items: validationItems,
-    };
-  });
-  return {
-    id: extractValidationId(payload),
-    checkedAt: readStringField(payload, ['checkedAt', 'checked_at', 'createdAt', 'created_at', 'validatedAt', 'validated_at']) || new Date().toLocaleString('ko-KR'),
-    usageStatementFile: readStringField(payload, ['usageStatementFile', 'usage_statement_file', 'fileName', 'file_name']),
-    lawAgent: {
-      name: readStringField(payload, ['agentName', 'agent_name']) || 'legal_agent',
-      version: readStringField(payload, ['agentVersion', 'agent_version', 'version']),
-      basis: readStringField(payload, ['basis', 'legalBasisName', 'legal_basis_name']) || '산업안전보건관리비 계상 및 사용기준',
-    },
-    categories,
-  };
-};
-
-const buildLegalRunFallbackResult = (source: unknown, usageStatementId?: number): ValidationDashboardResult => {
-  const resultCode = readNestedStringField(source, ['resultCode', 'result_code']).toLowerCase();
-  const statusCode = readNestedStringField(source, ['statusCode', 'status_code', 'status']).toLowerCase();
-  const reason = readNestedStringField(source, ['reason', 'message']) || '법령 검증 실행 결과를 확인했습니다.';
-  const failed = ['fail', 'failed', 'error'].includes(resultCode) || ['fail', 'failed', 'error'].includes(statusCode);
-  const needsReview = resultCode === 'hil' || resultCode === 'warning' || resultCode === 'conditional';
-  const decision: ValidationDecision = failed ? 'inappropriate' : needsReview ? 'conditional' : 'appropriate';
-  return {
-    id: extractValidationId(source) || (usageStatementId ? `legal-${usageStatementId}` : ''),
-    checkedAt: new Date().toLocaleString('ko-KR'),
-    usageStatementFile: '',
-    lawAgent: {
-      name: 'legal_agent',
-      version: '',
-      basis: '산업안전보건관리비 계상 및 사용기준',
-    },
-    categories: [{
-      categoryId: 0,
-      categoryName: '법령 검증 결과',
-      usageAmount: 0,
-      recognizedAmount: 0,
-      disputedAmount: 0,
-      decision,
-      riskLevel: failed ? 'high' : needsReview ? 'medium' : 'low',
-      legalBasis: [{
-        lawName: '산업안전보건관리비 계상 및 사용기준',
-        summary: '',
-        agentReasoning: reason,
-      }],
-      issues: decision === 'appropriate' ? [] : [{
-        title: decision === 'inappropriate' ? '법령 검증 실패' : 'SHE 검토 필요',
-        description: reason,
-        problemFileNames: [],
-        requiredAction: reason,
-        recommendedFiles: [],
-      }],
-      items: decision === 'appropriate' ? [] : [{
-        itemName: '법령 검증 결과',
-        amount: 0,
-        recognizedAmount: 0,
-        disputedAmount: 0,
-        decision,
-        reviewReason: reason,
-        problemFiles: [],
-        legalBasis: [{
-          lawName: '산업안전보건관리비 계상 및 사용기준',
-          summary: '',
-          agentReasoning: reason,
-        }],
-      }],
-    }],
-  };
-};
-
 const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', initialSheReviewDecision = 'pending', hideValidationIntro = false, canStartValidation = true, validationGateItems = [], validationDisabledReason, canApproveValidation = true, approveDisabledReason, onValidationComplete, onValidationApproved, onActionRequested }: VerifyScreenProps) => {
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
@@ -427,6 +146,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
   const [validationId, setValidationId] = useState('');
   const [validationConfirming, setValidationConfirming] = useState(false);
   const [validationStatusText, setValidationStatusText] = useState('');
+  const [validationProgress, setValidationProgress] = useState(0);
   const [result, setResult] = useState<ValidationDashboardResult>(EMPTY_VALIDATION_RESULT);
   const [legalSourcePopup, setLegalSourcePopup] = useState<LegalSourcePopup | null>(null);
   const categories = result.categories ?? [];
@@ -551,8 +271,12 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       await waitForAgentButtonEnabled(projectId, usageStatementId, 'legal', {
         intervalMs: LEGAL_VALIDATION_POLL_INTERVAL_MS,
         tolerateDisabledReason: true,
-        onPoll: () => setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.'),
+        onPoll: () => {
+          setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
+          setValidationProgress((current) => Math.min(current + 8, 88));
+        },
       });
+      setValidationProgress(92);
       setValidationStatusText('법령 검증이 완료되어 결과를 불러오는 중입니다.');
       for (let attempt = 0; attempt < 8; attempt += 1) {
         const latestResult = await loadDetailedResult(nextValidationId);
@@ -563,6 +287,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
     };
     try {
       setStatus('loading');
+      setValidationProgress(25);
       setSelectedCategoryId(4);
       setSheReviewDecision('pending');
       setValidationStatusText('법령 검토를 시작했습니다.');
@@ -574,6 +299,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
         if (!isAgentRunningError(error)) throw error;
         setValidationStatusText('이미 실행 중인 법령 검증이 완료될 때까지 기다립니다.');
       }
+      setValidationProgress(55);
       const nextValidationId = extractValidationId(validationRun);
       const runState = extractValidationRunState(validationRun);
       setValidationId(nextValidationId || `legal-${usageStatementId}`);
@@ -581,6 +307,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
         throw new Error('법령 검토 실행에 실패했습니다.');
       }
       const resultToShow = await waitForCompletedLegalResult(nextValidationId);
+      setValidationProgress(100);
       setResult(resultToShow);
       setValidationId(resultToShow.id || nextValidationId || `legal-${usageStatementId}`);
       setStatus('done');
@@ -590,6 +317,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       setValidationId('');
       setResult(EMPTY_VALIDATION_RESULT);
       setStatus('idle');
+      setValidationProgress(0);
       setValidationStatusText('');
       showAgentFailure('legal-validation', error);
     }
@@ -650,7 +378,24 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
   };
 
   const renderProgress = () => (
-    <InlineLoader title="법령 검증을 진행하고 있어요" body={validationStatusText || '사용내역서 항목을 법령 기준과 대조하고, 인정 가능 금액과 검토 사유를 계산하고 있습니다.'} />
+    <div style={{ padding: '48px 32px', borderRadius: 18, border: `1px solid ${C.g200}`, textAlign: 'center', background: C.white }}>
+      <div style={{ fontSize: 17, fontWeight: 800, color: C.g800, marginBottom: 6 }}>법령 검증을 진행하고 있어요</div>
+      <div style={{ fontSize: 14, fontWeight: 650, color: C.g500, lineHeight: 1.55 }}>
+        {validationStatusText || '사용내역서 항목을 법령 기준과 대조하고, 인정 가능 금액과 검토 사유를 계산하고 있습니다.'}
+      </div>
+      <div style={{ margin: '18px auto 0', width: 'min(100%, 680px)' }}>
+        <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}>
+          <div style={{ height: '100%', width: `${validationProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} />
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
+          {LEGAL_VALIDATION_STEPS.map((step, index) => (
+            <span key={step} style={{ fontSize: 12, fontWeight: 700, color: validationProgress >= ((index + 1) * 100) / LEGAL_VALIDATION_STEPS.length ? C.primary : C.g400, background: C.g100, borderRadius: 999, padding: '5px 9px' }}>
+              {step}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 
   const renderValidationGate = () => {
@@ -756,7 +501,11 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
             {item.items.map((detail, index) => {
               const detailMeta = decisionMeta[detail.decision];
               const legalText = detail.legalBasis
-                .map((basis) => [basis.lawName, basis.article, basis.clause, basis.originalText || basis.summary || basis.agentReasoning].filter(Boolean).join(' '))
+                .map((basis) => {
+                  const title = [basis.lawName, basis.article, basis.clause].filter(Boolean).join(' ');
+                  const body = basis.originalText || basis.summary || basis.agentReasoning;
+                  return [title, body].filter(Boolean).join('\n\n');
+                })
                 .filter(Boolean)
                 .join('\n\n') || '법령 원문이 제공되지 않았습니다.';
               const tooltipKey = `${detail.usageStatementItemId || index}-${detail.itemName}`;
@@ -949,8 +698,19 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
           <div style={{ fontSize: 15, fontWeight: 800, color: C.g800 }}>법령 원문</div>
           <button type="button" onClick={() => setLegalSourcePopup(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, width: 26, height: 26, fontFamily: 'inherit', fontSize: 16, fontWeight: 800, cursor: 'pointer', lineHeight: 1 }}>×</button>
         </div>
-        <div className="thin-y-scroll" style={{ maxHeight: 304, overflowY: 'auto', padding: '13px 14px', fontSize: 14, fontWeight: 650, color: C.g600, lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
-          {legalSourcePopup.text}
+        <div className="thin-y-scroll" style={{ maxHeight: 304, overflowY: 'auto', scrollbarGutter: 'stable', padding: '13px 14px', fontSize: 14, fontWeight: 650, color: C.g600, lineHeight: 1.75, whiteSpace: 'pre-line' }}>
+          {formatLegalSourceText(legalSourcePopup.text).split('\n').map((line, index) => (
+            <div
+              key={`${index}-${line}`}
+              style={{
+                minHeight: line ? undefined : '1em',
+                fontWeight: isLegalSourceTitleLine(line) ? 850 : 650,
+                color: isLegalSourceTitleLine(line) ? C.g800 : C.g600,
+              }}
+            >
+              {line}
+            </div>
+          ))}
         </div>
       </div>
     )}

@@ -577,7 +577,7 @@ export const getOrchestratorStatus = async (projectId: string, usageStatementId:
   const agents = logsToDashboardAgents(logs, usageStatementId);
   const legalAgent = getAgentsByType(agents, 'legal')[0];
   const validationAgentsReady = hasRequiredValidateAgentReady(agents);
-  const legalReady = Boolean(buttonStates.legal?.enabled || buttonStates.validate?.enabled) || validationAgentsReady;
+  const legalReady = Boolean(buttonStates.legal?.enabled) || (!buttonStates.legal && validationAgentsReady);
   return {
     projectId: Number(projectId),
     usageStatementId,
