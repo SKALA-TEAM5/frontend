@@ -7,6 +7,9 @@ import CenterModal from '../../../components/ui/CenterModal';
 import InlineLoader from '../../../components/ui/InlineLoader';
 import Modal from '../../../components/ui/Modal';
 import ProjectInfoEditorModal from '../../../components/project/ProjectInfoEditorModal';
+import UsageStatementEmptyState from '../../../components/project/UsageStatementEmptyState';
+import UsageStatementInfoTable from '../../../components/project/UsageStatementInfoTable';
+import UsageStatementMonthGrid from '../../../components/project/UsageStatementMonthGrid';
 import { ChevronIcon } from '../../../components/ui';
 import { AppFrame } from '../../../components/common';
 import { ApiClientError } from '../../../lib/api-client';
@@ -1148,7 +1151,7 @@ function ProjectDetailPageContent() {
                         const month = savedArchive?.statementSummary.month || selectedMonth || uploadedAt.slice(0, 7);
                         writePendingUsageMonths(project.id, readPendingUsageMonths(project.id).filter((pendingMonth) => pendingMonth !== month));
                         if (savedArchive && existingUploadedMonths.has(month)) {
-                            setDuplicateUsageMonthWarning(`${formatMonthLabel(month)} 사용내역서가 이미 존재합니다. 파일의 세부항목 사용일자를 확인한 뒤 다시 업로드해주세요.`);
+                            setDuplicateUsageMonthWarning(`${formatMonthLabel(month)} 사용내역서가 이미 존재합니다.<br/>파일의 세부항목 사용일자를 확인한 뒤 다시 업로드해주세요.`);
                             setUsageUploadStage('idle');
                             return;
                         }
@@ -1555,99 +1558,22 @@ function ProjectDetailPageContent() {
       </button>
     ) : null;
     const monthGridContent = (
-      <div style={{ display: 'grid', gap: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: 21, fontWeight: 800, color: C.g800 }}>월별 사용내역서</div>
-            <div style={{ marginTop: 5, fontSize: 14, fontWeight: 700, color: C.g400 }}>확인할 월을 선택하거나 새 월을 추가해 주세요.</div>
-          </div>
-          <div style={{ height: 32, padding: '0 12px', borderRadius: 999, border: `1px solid ${C.g200}`, background: C.bg, color: C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>
-            {monthlyStatements.length}개월
-          </div>
-        </div>
-        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: 18, boxShadow: projectDetailCardShadow }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
-          {monthlyStatements.map((statement) => {
-            const uploaded = Boolean(statement.sourceFileName && statement.sourceFileName !== '-');
-            const archiveData = dbUsageStatementsByMonth[statement.month];
-            const hasSupplementRequest = archiveData?.workflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
-            const workflowStatus = archiveData?.workflowStatus || (uploaded ? USAGE_WORKFLOW_STATUS.DRAFT : undefined);
-            const workflowMeta = workflowStatus ? STATUS_META[workflowStatus] : undefined;
-            const totalAmount = archiveData?.overviewRows?.find(([label]) => label === '계')?.[3] || statement.cumulativeAmount || '0';
-            return (
-              <button
-                key={statement.month}
-                type="button"
-                onClick={() => selectUsageMonth(statement.month)}
-                className={`interactive-card${hasSupplementRequest ? ' interactive-card--supplement' : ''}`}
-                style={{ position: 'relative', border: `1px solid ${hasSupplementRequest ? '#FFB7BC' : uploaded ? C.light : C.g200}`, borderRadius: 'var(--ui-radius-card)', background: hasSupplementRequest ? '#FFF6F7' : uploaded ? 'color-mix(in srgb, var(--c-bg) 42%, #fff)' : C.white, padding: '17px 16px', minHeight: 142, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14, boxShadow: hasSupplementRequest ? '0 10px 22px rgba(229, 57, 53, .10)' : 'var(--ui-shadow-card)' }}
-              >
-                <span
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${statement.label} 삭제`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setMonthDeleteError('');
-                    setMonthDeleteTarget(statement);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter' && event.key !== ' ')
-                      return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setMonthDeleteError('');
-                    setMonthDeleteTarget(statement);
-                  }}
-                  style={{ position: 'absolute', top: 12, right: 12, width: 24, height: 24, borderRadius: 999, border: `1px solid ${hasSupplementRequest ? '#FFCDD2' : C.g200}`, background: C.white, color: hasSupplementRequest ? C.danger : C.g400, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 800, lineHeight: 1, cursor: 'pointer' }}
-                >
-                  ×
-                </span>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 28 }}>
-                    <div style={{ fontSize: 19, fontWeight: 800, color: hasSupplementRequest ? C.danger : C.g800 }}>{statement.label}</div>
-                  </div>
-                  <div style={{ marginTop: 9, minHeight: 19, display: 'flex', alignItems: 'center' }}>
-                    {workflowMeta && (
-                      <span style={{ color: workflowMeta.color, fontSize: 13, fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-                        {workflowMeta.label}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div style={{ borderTop: `1px solid ${hasSupplementRequest ? '#FFE1E4' : C.g100}`, paddingTop: 12, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'end', gap: 10 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: C.g400 }}>누계</div>
-                    <div title={`${totalAmount}원`} style={{ marginTop: 4, fontSize: 16, fontWeight: 800, color: hasSupplementRequest ? C.danger : uploaded ? C.primary : C.g600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{totalAmount}원</div>
-                  </div>
-                  <div style={{ height: 28, padding: '0 10px', borderRadius: 999, border: `1px solid ${hasSupplementRequest ? '#FFCDD2' : C.light}`, background: C.white, color: hasSupplementRequest ? C.danger : C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>보기</div>
-                </div>
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={openMonthCreateModal}
-            className="interactive-card"
-            style={{ border: `1px dashed ${C.light}`, borderRadius: 'var(--ui-radius-card)', background: 'color-mix(in srgb, var(--c-bg) 28%, #fff)', minHeight: 142, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', color: C.primary, boxShadow: 'var(--ui-shadow-card)' }}
-          >
-            <span aria-hidden="true" style={{ position: 'relative', width: 40, height: 40, borderRadius: 999, border: `1px solid ${C.primary}`, background: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ position: 'absolute', width: 16, height: 2, borderRadius: 999, background: C.primary }} />
-              <span style={{ position: 'absolute', width: 2, height: 16, borderRadius: 999, background: C.primary }} />
-            </span>
-          </button>
-        </div>
-        </div>
-      </div>
+      <UsageStatementMonthGrid
+        monthlyStatements={monthlyStatements}
+        usageStatementsByMonth={dbUsageStatementsByMonth}
+        cardShadow={projectDetailCardShadow}
+        onSelectMonth={selectUsageMonth}
+        onCreateMonth={openMonthCreateModal}
+        onRequestDelete={(statement) => {
+          setMonthDeleteError('');
+          setMonthDeleteTarget(statement);
+        }}
+      />
     );
     const tabContent = {
         overview: (<div style={{ minWidth: 0 }}>
         {!selectedMonth ? monthGridContent : !hasUsageStatement ? (
-          <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
-              <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 9 }}>사용내역서가 없습니다</div>
-            </div>
-          </div>
+          <UsageStatementEmptyState title="사용내역서가 없습니다" />
         ) : <>
         <div data-ui="project-detail.15" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', alignItems: 'center', gap: 10, marginBottom: 16, minWidth: 0 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -1721,19 +1647,12 @@ function ProjectDetailPageContent() {
       </div>),
         details: (<div style={{ minWidth: 0 }}>
         {!hasUsageStatement ? (
-          <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
-              <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 9 }}>사용내역서가 없습니다</div>
-            </div>
-          </div>
+          <UsageStatementEmptyState title="사용내역서가 없습니다" />
         ) : <>
         {!selectedMonthHasUploadedStatement ? <>
-        <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ width: 'min(100%, 440px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
-            <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 22 }}>{selectedStatement.label} 사용내역서가 업로드되지 않았습니다</div>
-            {usageUploadButton}
-          </div>
-        </div>
+        <UsageStatementEmptyState title={`${selectedStatement.label} 사용내역서가 업로드되지 않았습니다`} minHeight={320} cardWidth={440} titleMarginBottom={22}>
+          {usageUploadButton}
+        </UsageStatementEmptyState>
         </> : null}
         {selectedMonthHasUploadedStatement && <UsageStatementDetailScreen projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} usageDetailSeed={archiveSeed} usageItems={archiveUsageItems} onUsageItemsChange={(items) => {
                 setArchiveUsageItems(items);
@@ -1883,36 +1802,7 @@ function ProjectDetailPageContent() {
                 </span>
               ))}
             </div>
-            <div className="thin-x-scroll" style={usageTableScrollStyle}>
-              <div data-ui="project-detail.16" style={{ ...usageInfoGridStyle, border: `1px solid ${C.g200}`, borderRadius: 12, overflow: 'hidden', fontSize: 14 }}>
-                {usageStatementInfoRows.map(([labelA, valueA, labelB, valueB, labelC, valueC]) => (
-                  <Fragment key={`${labelA}-${labelB}`}>
-                    <div data-ui="project-detail.17" style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelA}</div>
-                    <div data-ui="project-detail.18" title={valueA} style={{ gridColumn: labelB ? undefined : 'span 3', padding: '9px 11px', color: C.g800, fontWeight: 700, borderRight: labelB ? `1px solid ${C.g200}` : 'none', borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueA}</div>
-                    {labelB && <>
-                      {labelC ? (
-                        <div style={{ gridColumn: 'span 2', display: 'grid', gridTemplateColumns: '125px minmax(0, 1fr) 125px minmax(0, 1fr)', borderBottom: `1px solid ${C.g200}` }}>
-                          {[
-                            [labelB, valueB],
-                            [labelC, valueC],
-                          ].map(([label, value], index) => (
-                            <Fragment key={label}>
-                              <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}` }}>{label}</div>
-                              <div title={value} style={{ padding: '9px 11px', color: C.g800, fontWeight: 700, borderRight: index === 0 ? `1px solid ${C.g200}` : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
-                            </Fragment>
-                          ))}
-                        </div>
-                      ) : (
-                        <>
-                          <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}`, borderBottom: `1px solid ${C.g200}` }}>{labelB}</div>
-                          <div title={valueB} style={{ padding: '9px 11px', color: C.g800, fontWeight: 700, borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueB}</div>
-                        </>
-                      )}
-                    </>}
-                  </Fragment>
-                ))}
-              </div>
-            </div>
+            <UsageStatementInfoTable rows={usageStatementInfoRows} scrollStyle={usageTableScrollStyle} gridStyle={usageInfoGridStyle} />
           </div>}
         </div>
       </Card>
@@ -1932,7 +1822,7 @@ function ProjectDetailPageContent() {
         <div style={{ marginBottom: 8 }}>파일 업로드 후 OCR/classi 처리 단계에서 문제가 발생했습니다.</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800, lineHeight: 1.6 }}>{usageUploadFailureMessage}</div>
       </div>} actionLabel="확인" onAction={() => setUsageUploadFailureMessage('')} />
-      <Modal open={usageUploadStage === 'classifying'} onClose={() => {}} zIndex={1200} maxWidth={440}>
+      <Modal open={usageUploadStage === 'classifying'} onClose={() => {}} zIndex={1200} maxWidth={520}>
         <div style={{ background: C.white, borderRadius: 14, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 20 }}>
           <style>{'.usage-upload-loader [data-ui="card.1"]{margin-top:0!important;}.usage-upload-loader [data-ui="inline-loader.4"]{white-space:nowrap;}'}</style>
           <div className="usage-upload-loader">
@@ -1946,9 +1836,9 @@ function ProjectDetailPageContent() {
             <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
               <div title={notice.itemName} style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 6, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
+                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
                 <span style={{ color: C.primary, fontWeight: 800 }}>→</span>
-                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 6, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
+                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 8, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
               </div>
             </div>
           ))}
@@ -1959,7 +1849,7 @@ function ProjectDetailPageContent() {
           <div style={{ padding: '20px 22px 17px', borderBottom: `1px solid ${C.g100}` }}>
             <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, lineHeight: 1.35, marginBottom: 8 }}>미완료 보완 TODO가 있습니다</div>
             <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.65 }}>
-              미완료 보완 TODO {activeSupplementTodoCount}건이 남아 있습니다. 그래도 업로드 완료 처리할까요?
+              미완료 보완 TODO {activeSupplementTodoCount}건이 남아 있습니다.<br/>그래도 업로드 완료 처리할까요?
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px 18px', background: '#FAFBFA' }}>

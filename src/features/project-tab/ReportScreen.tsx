@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { ChangeEventHandler, CSSProperties } from 'react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
@@ -90,7 +90,7 @@ const normalizeReportDraftEvidenceLabels = (draft: ReportDraft): ReportDraft => 
     .map((section) => ({
       ...section,
       title:
-        section.section_id === 'item_reviews' ? '4. 항목별 적정성 검토 결과'
+        section.section_id === 'item_reviews' ? '4. 법령 적정성 검토 결과'
         : section.section_id === 'issue_details' ? '5. 부적정 및 검토 필요 상세 내역'
         : section.section_id === 'overall_opinion' ? '6. 종합 의견'
         : section.title,
@@ -198,6 +198,34 @@ const getReportCellHeight = (sectionId: string, cellIndex: number, value: string
     return Math.max(42, wrappedLineCount * 23 + 16);
   }
   return getTextareaHeight(value, 38);
+};
+
+interface AutoHeightTextareaProps {
+  className?: string;
+  value: string;
+  onChange: ChangeEventHandler<HTMLTextAreaElement>;
+  style: CSSProperties;
+}
+
+const AutoHeightTextarea = ({ className, value, onChange, style }: AutoHeightTextareaProps) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = '0px';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      className={className}
+      value={value}
+      onChange={onChange}
+      style={{ ...style, resize: 'none', overflow: 'hidden' }}
+    />
+  );
 };
 
 const ReportScreen = ({ projectId, usageStatementId, validationComplete = false, reportGenerationEnabled = validationComplete, reportDisabledReason = '법령 검증 결과가 success 또는 HIL 상태일 때만 보고서를 생성할 수 있습니다.' }: ReportScreenProps) => {
@@ -445,9 +473,22 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
             {section.section_id !== 'cover' && (
               <input className="report-edit-field" value={section.title} onChange={(event) => updateReportSectionTitle(sectionIndex, event.target.value)} style={{ ...reportInputStyle, border: 'none', borderBottom: `1px solid ${C.g200}`, borderRadius: 0, padding: '8px 0 9px', fontSize: 18, fontWeight: 700, background: 'transparent' }} />
             )}
-            {section.paragraphs.map((paragraph, paragraphIndex) => (
-              <textarea className="report-edit-field" key={paragraphIndex} value={paragraph} onChange={(event) => updateReportParagraph(sectionIndex, paragraphIndex, event.target.value)} style={{ ...reportInputStyle, minHeight: paragraph.length > 90 ? 86 : 46, resize: 'vertical', border: section.kind === 'opinion' ? `1px solid ${C.g200}` : '1px solid transparent', background: section.kind === 'opinion' ? C.white : 'transparent' }} />
-            ))}
+            {section.paragraphs.map((paragraph, paragraphIndex) => {
+              return (
+                <AutoHeightTextarea
+                  className="report-edit-field"
+                  key={paragraphIndex}
+                  value={paragraph}
+                  onChange={(event) => updateReportParagraph(sectionIndex, paragraphIndex, event.target.value)}
+                  style={{
+                    ...reportInputStyle,
+                    minHeight: section.kind === 'opinion' ? 96 : paragraph.length > 90 ? 86 : 46,
+                    border: section.kind === 'opinion' ? `1px solid ${C.g200}` : '1px solid transparent',
+                    background: section.kind === 'opinion' ? C.white : 'transparent',
+                  }}
+                />
+              );
+            })}
             {section.tables.map((_, tableIndex) => renderTemplateTable(sectionIndex, tableIndex))}
           </section>
         ))}

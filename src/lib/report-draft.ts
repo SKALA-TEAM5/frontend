@@ -178,7 +178,7 @@ export const buildReportDraftJson = (project: ProjectSummary | null, result: Val
       },
       {
         section_id: 'item_reviews',
-        title: '4. 항목별 적정성 검토 결과',
+        title: '4. 법령 적정성 검토 결과',
         kind: 'table',
         paragraphs: [],
         tables: [{ title: null, headers: ['No.', '집행 항목', '집행액', '판정', '요약 사유'], rows: result.categories.length ? result.categories.map((category, index) => [String(index + 1), category.categoryName, fmt(category.usageAmount), decisionLabel[category.decision], category.issues[0]?.title || '특이사항 없음']) : [['-', '검토 대상 없음', '-', '-', '-']] }],

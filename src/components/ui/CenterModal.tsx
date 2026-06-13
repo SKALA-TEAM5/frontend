@@ -7,6 +7,7 @@ interface CenterModalProps {
     body: React.ReactNode;
     actionLabel: string;
     onAction: () => void;
+    maxWidth?: number | string;
 }
 
 const normalizeModalBody = (body: React.ReactNode) => {
@@ -14,9 +15,9 @@ const normalizeModalBody = (body: React.ReactNode) => {
     return body.replace(/^\d{3}(?:\s+[^\n]+)?\n/, '');
 };
 
-export default function CenterModal({ open, title, body, actionLabel, onAction, }: CenterModalProps) {
+export default function CenterModal({ open, title, body, actionLabel, onAction, maxWidth = 460, }: CenterModalProps) {
     const modalBody = normalizeModalBody(body);
-    return (<Modal open={open} zIndex={920} maxWidth={460}>
+    return (<Modal open={open} zIndex={920} maxWidth={maxWidth}>
       <div data-ui="center-modal.1" style={{
             background: C.white,
             borderRadius: 12,

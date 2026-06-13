@@ -74,7 +74,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
   const [moveTargetKind, setMoveTargetKind] = useState<FolderEvidenceCategory>('receipt');
   const filteredItems = usageItems.filter((item) => item.categoryId === selectedCatId);
   const activeItem = filteredItems.find((item) => item.id === selectedUsageItemId) || filteredItems[0];
-  const layoutColumns = '190px 600px 340px';
+  const layoutColumns = '220px 600px 310px';
   const usageItemGridColumns = '72px minmax(140px, .78fr) 32px 32px 80px 86px';
   const usageItemRowColumns = `${usageItemGridColumns} 66px`;
   const actionRequestText = `${actionRequest?.title || ''} ${actionRequest?.message || ''}`;
@@ -305,7 +305,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
         <div style={{ display: 'grid', gridTemplateColumns: layoutColumns, borderBottom: `1px solid ${C.g200}`, background: C.bg, minWidth: 0 }}>
           <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 15, color: C.g800, fontWeight: 800, display: 'flex', alignItems: 'center' }}>9개 항목</div>
           <div style={{ padding: '12px 14px', borderRight: `1px solid ${C.g200}`, fontSize: 15, color: C.g800, fontWeight: 800, display: 'flex', alignItems: 'center' }}>사용내역서 세부 항목</div>
-          <div style={{ padding: '8px 14px', fontSize: 15, color: C.g800, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ padding: '12px 12px', fontSize: 15, color: C.g800, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <span>파일보기</span>
             {fileHeaderAction && <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0 }}>{fileHeaderAction}</span>}
           </div>
@@ -412,8 +412,8 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
             </div>
           </div>
 
-          <div style={{ padding: 14, overflow: 'hidden', minWidth: 0, background: '#FBFDFC' }}>
-            <div className="usage-detail-y-scroll" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, maxHeight: 532, overflowY: 'auto', paddingRight: 4 }}>
+          <div style={{ padding: 12, overflow: 'hidden', minWidth: 0, background: '#FBFDFC' }}>
+            <div className="usage-detail-y-scroll" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, maxHeight: 532, overflowY: 'auto', paddingRight: 0 }}>
               {EVIDENCE_SECTIONS.map((section) => {
                 const files = getFiles(section.id, selectedCatId, activeItem?.id);
                 const uploadButton = (compact = false) => (

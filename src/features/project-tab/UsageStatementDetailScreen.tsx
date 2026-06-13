@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
-import ChevronIcon from '../../components/ui/ChevronIcon';
-import InlineLoader from '../../components/ui/InlineLoader';
-import Modal from '../../components/ui/Modal';
 import { C } from '../../lib/theme';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { CATS, USAGE_LINE_ITEMS, calculateUsageLineAmount, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
+import { CATS, USAGE_LINE_ITEMS, createDefaultArchiveData, createEntryFromFile, normalizeArchiveData, type UsageLineItem } from '../../lib/evidence-utils';
 import UsageDetailFileView, { type HierarchyEvidenceKind } from './UsageDetailFileView';
-import { backendEvidenceTypeToCategory, changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, isBackendEvidenceTypeCode, kindToEvidenceCode, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem, type SafetyDocAgentRequiredEvidenceMap } from '../../lib/archive-api';
-import { confirmAgentTodo, getOrchestratorStatus, getVisionValidationResults, runEvidenceReviewAgent, waitForAgentButtonEnabled, type OrchestratorTodo, type VisionValidationResult } from '../../lib/agent-api';
-import type { ArchiveSeed, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
-type UsageDetailValidationStatus = 'idle' | 'running' | 'done';
+import UsageDetailTodoSidebar from './usage-detail/UsageDetailTodoSidebar';
+import { UsageDetailNotices, UsageDetailVerificationOverlay } from './usage-detail/UsageDetailFeedback';
+import { UsageStatementAddItemModal, UsageStatementClassiModals, UsageStatementDeleteModals } from './usage-detail/UsageDetailModals';
+import type { AddUsageItemDraft, ClassiRejectedNotice, ClassificationMoveNotice, UsageDetailTodoItem } from './usage-detail/usage-statement-detail-types';
+import { classifyUsageLineCategory } from './usage-detail/usage-detail-todo-utils';
+import { applyVisionValidationToArchive, findUsageDetailFile, getUsageDetailFiles, moveUsageDetailFileInArchive, moveUsageItemFilesToCategory, removeUsageDetailFileFromArchive, removeUsageItemFilesFromArchive, renameUsageDetailFileInArchive } from './usage-detail/usage-detail-file-utils';
+import { buildClassiRejectedNotice, buildClassificationMoveNotices, findRejectedClassiResult, validateAddUsageItemDraft } from './usage-detail/usage-detail-item-utils';
+import useUsageDetailVerification from './usage-detail/useUsageDetailVerification';
+import useUsageDetailTodos from './usage-detail/useUsageDetailTodos';
+import { backendEvidenceTypeToCategory, changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, isBackendEvidenceTypeCode, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem } from '../../lib/archive-api';
+import type { VisionValidationResult } from '../../lib/agent-api';
+import type { ArchiveSeed, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 interface UsageStatementDetailScreenProps {
     projectId: string;
     usageStatementId?: number;
@@ -30,544 +34,10 @@ interface UsageStatementDetailScreenProps {
     onVerificationComplete?: () => void | Promise<void>;
     uploadCompleteAction?: ReactNode;
 }
-type UsageDetailTodoSource = 'matching' | 'vision' | 'law';
-type UsageDetailTodoItem = {
-    id: string;
-    backendTodoId?: number | null;
-    backendConfirmed?: boolean;
-    backendAgentTypeCode?: string | null;
-    backendCategoryName?: string | null;
-    mode: 'add' | 'remove';
-    source: UsageDetailTodoSource;
-    kind: FolderEvidenceCategory;
-    title: string;
-    context: string;
-    categoryId?: number;
-    usageItemId?: string;
-    detail?: string;
-};
-const GENERIC_USAGE_ITEM_CONTEXT = '사용내역서 세부 항목';
-const isLinkAgentTodo = (todo: Pick<UsageDetailTodoItem, 'backendAgentTypeCode'>) => (
-    todo.backendAgentTypeCode === 'link'
-);
-
-const getCategoryFromBackendTodo = (todo: OrchestratorTodo) => {
-    const codeMatch = String(todo.categoryCode || '').match(/^CAT_(\d+)$/i);
-    if (codeMatch) {
-        const categoryId = Number(codeMatch[1]);
-        const category = CATS.find((cat) => cat.id === categoryId);
-        if (category)
-            return category;
-    }
-    const normalizedCategoryName = normalizeTodoLookupText(todo.categoryName || '');
-    if (!normalizedCategoryName)
-        return undefined;
-    return CATS.find((cat) => [cat.label, cat.short]
-        .map(normalizeTodoLookupText)
-        .filter(Boolean)
-        .some((label) => label === normalizedCategoryName || normalizedCategoryName.includes(label)));
-};
-const getCategoryIdFromTodoCode = (value?: string | null) => {
-    const match = String(value || '').match(/\d+/);
-    if (!match)
-        return undefined;
-    const categoryId = Number(match[0]);
-    return Number.isFinite(categoryId) ? categoryId : undefined;
-};
-
-const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
-    receipt: '영수증',
-    receipts: '영수증',
-    payment_receipt: '결제 영수증',
-    card_receipt: '카드 영수증',
-    cash_receipt: '현금영수증',
-    transaction_statement: '거래명세서',
-    statement_of_transaction: '거래명세서',
-    purchase_detail: '구매내역서',
-    purchase_details: '구매내역서',
-    bank_transfer_confirmation: '계좌이체 확인증',
-    account_transfer_confirmation: '계좌이체 확인증',
-    transfer_confirmation: '이체확인증',
-    transfer_confirm: '이체확인증',
-    deposit_confirmation: '입금확인증',
-    invoice: '계산서',
-    tax_invoice: '세금계산서',
-    electronic_tax_invoice: '전자세금계산서',
-    third_party_lookup: '제3자발급사실조회서',
-    third_party_issue_lookup: '제3자발급사실조회서',
-    site_photo: '현장사진',
-    site_photos: '현장사진',
-    field_photo: '현장사진',
-    item_photo: '물품 사진',
-    item_photos: '물품 사진',
-    work_photo: '작업사진',
-    installation_photo: '설치 사진',
-    before_after_photo: '설치 전후 비교 사진',
-    wearing_photo: '착용 확인 사진',
-    safety_equipment_photo: '보호구 착용 사진',
-    safety_facility_photo: '안전시설 설치 사진',
-    attendance_list: '참석자 명단',
-    attendee_list: '참석자 명단',
-    edu_attendance: '교육 참석자 명단',
-    education_attendance: '교육 참석자 명단',
-    training_completion_certificate: '교육 이수증',
-    education_completion_certificate: '교육 이수증',
-    training_material: '교육자료',
-    education_material: '교육자료',
-    appointment_report: '선임 신고서',
-    certificate: '확인서',
-    confirmation_document: '확인서',
-    contract: '계약서',
-    quotation: '견적서',
-    estimate: '견적서',
-    delivery_note: '납품서',
-    delivery_statement: '납품서',
-    purchase_order: '발주서',
-    work_log: '업무일지',
-    daily_report: '작업일지',
-    inspection_report: '점검표',
-    checklist: '점검표',
-    supply_ledger: '지급대장',
-    inventory_ledger: '재고대장',
-    payroll: '임금대장',
-    pay_stub: '급여명세서',
-    wage_statement: '임금명세서',
-    salary_statement: '급여명세서',
-    employment_contract: '근로계약서',
-    worker_roster: '근로자 명부',
-    consultant_report: '컨설팅 보고서',
-    tech_guidance_contract: '기술지도 계약서',
-    technical_guidance_report: '기술지도 보고서',
-    tech_guidance_report: '기술지도 보고서',
-    tech_guidance_photo: '기술지도 사진',
-    tech_guidance_계약서: '기술지도 계약서',
-    risk_assessment_report: '위험성평가 보고서',
-    measurement_report: '측정 결과서',
-    test_report: '검사 성적서',
-    other_document: '보완 서류',
-    other_documents: '보완 서류',
-    misc_document: '보완 서류',
-};
-
-const normalizeEvidenceNameKey = (value: string) => value
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/[^\p{L}\p{N}]+/gu, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase();
-
-const EVIDENCE_DOCUMENT_MATCHERS = Object.entries(EVIDENCE_DOCUMENT_NAME_LABELS)
-    .sort(([left], [right]) => right.length - left.length)
-    .map(([key, label]) => ({
-        key,
-        label,
-        pattern: new RegExp(`(^|[^A-Za-z0-9])${key.split('_').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[_\\s-]*')}([^A-Za-z0-9]|$)`, 'gi'),
-    }));
-
-const translateEvidenceDocumentName = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed)
-        return '';
-    const key = normalizeEvidenceNameKey(trimmed);
-    if (EVIDENCE_DOCUMENT_NAME_LABELS[key])
-        return EVIDENCE_DOCUMENT_NAME_LABELS[key];
-    const translated = EVIDENCE_DOCUMENT_MATCHERS.reduce((next, matcher) => next.replace(matcher.pattern, (_match, prefix, suffix) => `${prefix}${matcher.label}${suffix}`), trimmed);
-    return translated
-        .replace(/\b(?:missing|required|requirement|evidence|document|documents|file|files|upload|needed|need|proof)\b/gi, '')
-        .replace(/[_-]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-};
-
-const translateEvidenceText = (value?: string) => {
-    const text = (value || '').trim();
-    if (!text)
-        return '';
-    return EVIDENCE_DOCUMENT_MATCHERS.reduce((next, matcher) => next.replace(matcher.pattern, (_match, prefix, suffix) => `${prefix}${matcher.label}${suffix}`), text)
-        .replace(/\bmissing\s*(?:evidence|documents?|files?)?\b/gi, '누락 증빙')
-        .replace(/\brequired\s*(?:evidence|documents?|files?)?\b/gi, '필수 증빙')
-        .replace(/\b(?:evidence|document|documents|file|files)\b/gi, '증빙')
-        .replace(/\b(?:upload|needed|need)\b/gi, '필요')
-        .replace(/[_-]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-};
-
-const extractEvidenceDocumentNames = (value: string, fallbackKind?: FolderEvidenceCategory) => {
-    const source = value || '';
-    const normalizedSource = normalizeEvidenceNameKey(source);
-    const names = EVIDENCE_DOCUMENT_MATCHERS
-        .filter((matcher) => normalizedSource.includes(matcher.key))
-        .map((matcher) => matcher.label)
-        .filter((label) => label !== '보완 서류');
-    const translatedCleaned = cleanEvidenceTodoText(translateEvidenceText(source));
-    const splitNames = translatedCleaned
-        .split(/\s*(?:,|\/|·| 및 |와 |과 |\n)\s*/)
-        .map((name) => cleanEvidenceTodoText(name)
-            .replace(/^(?:누락|필수|필요|증빙)\s*/u, '')
-            .replace(/\s*(?:업로드|제출|필요|누락|미흡|확인|보완|있음)$/u, '')
-            .trim())
-        .filter((name) => name && /[가-힣]/.test(name) && name.length <= 24 && !/문제|사유|항목|세부|사용내역|보완 사항|증빙\s*누락|매칭\s*검토|위치\s*확인/.test(name));
-    const fallbackName = fallbackKind && fallbackKind !== 'other_document' ? EVIDENCE_KIND_LABELS[fallbackKind] : '';
-    return Array.from(new Set([...names, ...splitNames, fallbackName].filter(Boolean)));
-};
-
-const getTodoDocumentTitle = (reason: string, kind: FolderEvidenceCategory) => {
-    const names = extractEvidenceDocumentNames(reason, kind);
-    if (names.length)
-        return names.join(', ');
-    return kind === 'other_document' ? '보완 서류' : EVIDENCE_KIND_LABELS[kind];
-};
-const stripTodoContextPrefix = (value: string, context?: string | null) => {
-    const text = value.trim();
-    const prefix = (context || '').trim();
-    if (!prefix || !text.startsWith(prefix))
-        return text;
-    return text.slice(prefix.length).replace(/^[\s:：·∙-]+/u, '').trim() || text;
-};
-const translateTodoDisplayText = (value: string, context?: string | null) => {
-    const withoutContext = stripTodoContextPrefix(value, context);
-    return translateEvidenceText(withoutContext)
-        .replace(/\b[a-z][a-z0-9_-]*\b/gi, (match) => translateEvidenceDocumentName(match) || match)
-        .replace(/\s*,\s*/g, ', ')
-        .replace(/\s+/g, ' ')
-        .trim();
-};
-const getUploadTodoTitle = (value: string, context?: string | null) => {
-    const translated = translateTodoDisplayText(value, context)
-        .replace(/^.+?필수\s*증빙\s*누락\s*[:：]?\s*/u, '')
-        .replace(/^(?:필수\s*)?증빙\s*누락\s*[:：]?\s*/u, '')
-        .replace(/^필수\s*증빙\s*[:：]?\s*/u, '')
-        .replace(/\s*(?:업로드|제출)?\s*필요$/u, '')
-        .trim();
-    return `${translated || '보완 서류'} 업로드 필요`;
-};
-const getBackendTodoDisplayTitle = (todo: OrchestratorTodo) => {
-    const reason = translateTodoDisplayText(todo.reason || '보완 사항 확인 필요', todo.usageStatementItemName);
-    if (todo.agentTypeCode !== 'legal')
-        return getUploadTodoTitle(reason, todo.usageStatementItemName);
-    const legalReason = reason.replace(/^법령\s*검토\s*(?:필요|결과)\s*[:：]?\s*/u, '').trim() || reason;
-    return `법령 검토 결과 ${legalReason}`;
-};
-
-const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLineItem[]): UsageDetailTodoItem[] => {
-    const reason = todo.reason || '보완 사항 확인 필요';
-    const source = todo.agentTypeCode === 'legal' ? 'law' : todo.agentTypeCode === 'vision' ? 'vision' : 'matching';
-    if (todo.todoId) {
-        const categoryId = getCategoryIdFromTodoCode(todo.categoryCode);
-        if (todo.agentTypeCode === 'link') {
-            return [{
-                id: `orchestrator:${todo.todoId}:link-review`,
-                backendTodoId: todo.todoId,
-                backendConfirmed: Boolean(todo.confirmed),
-                backendAgentTypeCode: todo.agentTypeCode,
-                backendCategoryName: todo.categoryName || null,
-                mode: 'add',
-                source,
-                kind: 'other_document',
-                title: '증빙 매칭 검토 필요',
-                context: todo.usageStatementItemName || '',
-                categoryId,
-                usageItemId: todo.usageStatementItemId == null ? undefined : String(todo.usageStatementItemId),
-                detail: translateTodoDisplayText(reason, todo.usageStatementItemName),
-            }];
-        }
-        const titleText = todo.title || '';
-        const fallbackKind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(`${titleText} ${reason}`);
-        const evidenceCodeNames = (todo.evidenceTypeCodes || [])
-            .map((code) => translateEvidenceDocumentName(code))
-            .filter(Boolean);
-        const documentNames = todo.agentTypeCode === 'legal'
-            ? [getBackendTodoDisplayTitle(todo)]
-            : evidenceCodeNames.length > 0
-                ? evidenceCodeNames
-                : extractEvidenceDocumentNames(`${titleText} ${reason}`, fallbackKind);
-        const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(`${titleText} ${reason}`, fallbackKind)];
-        return titles.map((title, index) => {
-            const translatedTitle = translateEvidenceDocumentName(title) || title;
-            return {
-                id: `orchestrator:${todo.todoId}:${normalizeTodoIdText(translatedTitle)}:${index}`,
-                backendTodoId: todo.todoId,
-                backendConfirmed: Boolean(todo.confirmed),
-                backendAgentTypeCode: todo.agentTypeCode,
-                backendCategoryName: todo.categoryName || null,
-                mode: 'add',
-                source,
-                kind: todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(translatedTitle || reason),
-                title: translatedTitle,
-                context: todo.usageStatementItemName || '',
-                categoryId,
-                usageItemId: todo.usageStatementItemId == null ? undefined : String(todo.usageStatementItemId),
-                detail: reason,
-            };
-        });
-    }
-    const usageItemById = todo.usageStatementItemId == null
-        ? undefined
-        : usageItems.find((item) => String(item.id) === String(todo.usageStatementItemId));
-    const usageItemByName = todo.usageStatementItemName
-        ? usageItems.find((item) => normalizeTodoLookupText(item.name) === normalizeTodoLookupText(todo.usageStatementItemName || ''))
-        : undefined;
-    const usageItem = usageItemById || usageItemByName;
-    const backendCategory = getCategoryFromBackendTodo(todo);
-    const titleText = todo.title || '';
-    const fallbackKind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason);
-    const evidenceCodeNames = (todo.evidenceTypeCodes || [])
-        .map((code) => translateEvidenceDocumentName(code))
-        .filter(Boolean);
-    const documentNames = evidenceCodeNames.length > 0
-        ? evidenceCodeNames
-        : extractEvidenceDocumentNames(`${titleText} ${reason}`, fallbackKind);
-    const linkedFileKey = todo.fileId || (todo.fileIds && todo.fileIds.length ? todo.fileIds.join('-') : 'none');
-    const baseId = `orchestrator:${todo.agentTypeCode}:${todo.usageStatementItemId || 'all'}:${linkedFileKey}`;
-    const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(`${titleText} ${reason}`, fallbackKind)];
-
-    return titles.map((title, index) => {
-        const lookupText = `${titleText} ${reason} ${title}`;
-        const inferredUsageItem = usageItem || findUsageItemFromTodoText(lookupText, usageItems);
-        const inferredCategory = inferredUsageItem ? undefined : (backendCategory || findCategoryFromTodoText(lookupText));
-        const kind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(title || reason);
-        const translatedTitle = translateEvidenceDocumentName(title) || title;
-        return {
-            id: `${baseId}:${normalizeTodoIdText(title)}:${index}`,
-            backendTodoId: todo.todoId ?? null,
-            backendConfirmed: Boolean(todo.confirmed),
-            backendAgentTypeCode: todo.agentTypeCode,
-            backendCategoryName: todo.categoryName || null,
-            mode: 'add',
-            source,
-            kind,
-            title: translatedTitle,
-            context: inferredUsageItem?.name || todo.usageStatementItemName || '',
-            categoryId: inferredUsageItem?.categoryId || backendCategory?.id || inferredCategory?.id,
-            usageItemId: inferredUsageItem?.id,
-            detail: toNounPhraseDetail(translateEvidenceText(reason)),
-        };
-    });
-};
-const buildVisionValidation = (file: EvidenceFile, usageItem: UsageLineItem | undefined, reason?: string, storedResult?: VisionValidationResult): NonNullable<EvidenceFile['visionValidation']> => {
-    if (storedResult) {
-        return {
-            ...storedResult,
-            itemName: usageItem?.name || storedResult.itemName,
-        };
-    }
-    const normalizedReason = toNounPhraseDetail(reason || '');
-    if (file.visionValidation && !normalizedReason)
-        return {
-            ...file.visionValidation,
-            itemName: usageItem?.name || file.visionValidation.itemName,
-        };
-    const hasProblem = Boolean(normalizedReason) || /미착용|부적합|불명확|부족|fail|위험|미확인/i.test(`${file.name} ${usageItem?.name || ''}`);
-    return {
-        status: hasProblem ? 'unsuitable' : file.visionValidation?.status || 'suitable',
-        checkedAt: file.visionValidation?.checkedAt || new Date().toISOString(),
-        itemName: usageItem?.name || '현장사진',
-        summary: hasProblem ? (normalizedReason || '현장사진 검증 결과 보완 필요') : file.visionValidation?.summary || '현장사진 검증 결과 적합',
-        detections: file.visionValidation?.detections || [],
-    };
-};
-type AddUsageItemDraft = {
-    name: string;
-    date: string;
-    unit: string;
-    quantity: string;
-    unitPrice: string;
-};
-type ClassificationMoveNotice = {
-    id: string;
-    itemName: string;
-    fromCategoryName: string;
-    toCategoryName: string;
-    categoryChanged?: boolean;
-    reason?: string;
-};
-type ClassiRejectedNotice = {
-    itemName: string;
-    fromCategoryName: string;
-    toCategoryName: string;
-    reason: string;
-};
-const EVIDENCE_KIND_LABELS: Record<FolderEvidenceCategory, string> = {
-    receipt: '영수증',
-    site_photo: '현장사진',
-    tax_invoice: '세금계산서',
-    other_document: '기타 자료',
-};
-
-const addUsageItemInputStyle = {
-    height: 42,
-    minWidth: 0,
-    width: '100%',
-    boxSizing: 'border-box',
-    border: `1px solid ${C.g200}`,
-    borderRadius: 6,
-    background: C.white,
-    color: C.g800,
-    fontFamily: 'inherit',
-    fontSize: 15,
-    fontWeight: 700,
-    padding: '0 12px',
-    outline: 'none',
-} as const;
-const isRejectedClassiStatus = (status?: string | null) =>
-    ['inappropriate', 'invalid', 'rejected', 'fail', 'failed', '부적절', '부적정'].includes(String(status || '').trim().toLowerCase());
-const cleanEvidenceTodoText = (value: string) => value
-    .replace(/^(?:필수\s*)?증빙\s*누락\s*[:：]\s*/u, '')
-    .replace(/^증빙\s*매칭\s*검토\s*필요\s*[:：]\s*/u, '')
-    .replace(/^매칭\s*검토\s*필요\s*\d+\s*건\s*$/u, '')
-    .replace(/^필수\s*증빙\s*누락\s*항목\s*\d+\s*건\s*$/u, '')
-    .replace(/^현장사진\s*\d+\s*건\s*중\s*\d+\s*건\s*보완\s*필요\s*$/u, '')
-    .replace(/^위치\s*확인\s*필요$/u, '')
-    .replace(/^.*?문제가\s*있습니다[.,]?\s*/u, '')
-    .replace(/^.*?부족\s*문제가\s*있습니다[.,]?\s*/u, '')
-    .replace(/^.*?부족\s*문제.*?[.,]?\s*/u, '')
-    .replace(/(?:자료|서류|증빙)?(?:를|을)?\s*(?:추가\s*)?제출(?:해)?\s*주세요\.?$/u, '')
-    .replace(/\s*추가$/u, '')
-    .replace(/(?:자료|서류|증빙)\s*$/u, '')
-    .trim();
-const extractActionRequestEvidenceNames = (message?: string) => {
-    if (!message)
-        return [];
-    const sentences = message
-        .split(/[.。]\s*/)
-        .map((sentence) => sentence.trim())
-        .filter(Boolean);
-    const requestSentence = [...sentences].reverse().find((sentence) => /제출|추가/.test(sentence)) || sentences.find((sentence) => /자료|서류/.test(sentence)) || message;
-    const cleaned = cleanEvidenceTodoText(requestSentence);
-    if (!cleaned || cleaned === message.trim())
-        return [];
-    return Array.from(new Set(cleaned.split(/\s*(?:,|\/|·| 및 |와 |과 )\s*/).map((name) => cleanEvidenceTodoText(name)).filter(Boolean)));
-};
-const normalizeTodoIdText = (value: string) => value.replace(/\s+/g, '').toLowerCase();
-const normalizeTodoLookupText = (value: string) => normalizeTodoIdText(value)
-    .replace(/[·.,:;()[\]{}'"“”‘’~\-_/]/g, '');
-const inferEvidenceKindFromText = (value: string): FolderEvidenceCategory => {
-    const normalized = normalizeEvidenceNameKey(value);
-    if (/영수증|결제|거래명세|카드|입금|계좌|송금/.test(value) || /(receipt|transaction_statement|bank_transfer|account_transfer|deposit_confirmation|payment)/.test(normalized))
-        return 'receipt';
-    if (/사진|현장|착용|설치\s*전후|설치\s*상세/.test(value) || /(photo|site_photo|field_photo|wearing_photo|installation_photo|safety_equipment)/.test(normalized))
-        return 'site_photo';
-    if (/세금|계산서|전자세금/.test(value) || /(tax_invoice|electronic_tax_invoice|invoice)/.test(normalized))
-        return 'tax_invoice';
-    return 'other_document';
-};
-const getCategoryDisplayName = (categoryId: number) => CATS.find((cat) => cat.id === categoryId)?.short || `${categoryId}번 항목`;
-const getCategoryCodeDisplayName = (categoryCode?: string | null, fallbackCategoryId?: number) => {
-    const categoryId = getCategoryIdFromTodoCode(categoryCode);
-    return categoryId ? getCategoryDisplayName(categoryId) : fallbackCategoryId ? getCategoryDisplayName(fallbackCategoryId) : '';
-};
-
-const findUsageItemFromTodoText = (value: string, usageItems: UsageLineItem[]) => {
-    const normalized = normalizeTodoLookupText(value);
-    if (!normalized)
-        return undefined;
-    return usageItems.find((item) => {
-        const itemName = normalizeTodoLookupText(item.name);
-        return Boolean(itemName && normalized.includes(itemName));
-    });
-};
-
-const findCategoryFromTodoText = (value: string) => {
-    const normalized = normalizeTodoLookupText(value);
-    if (!normalized)
-        return undefined;
-    return CATS.find((cat) => [cat.label, cat.short]
-        .map(normalizeTodoLookupText)
-        .filter(Boolean)
-        .some((label) => normalized.includes(label)));
-};
-
-const resolveTodoUsageItem = (todo: UsageDetailTodoItem, usageItems: UsageLineItem[]) => {
-    if (todo.usageItemId) {
-        const byId = usageItems.find((item) => String(item.id) === String(todo.usageItemId));
-        if (byId)
-            return byId;
-    }
-    if (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT) {
-        const byContext = usageItems.find((item) => item.name === todo.context);
-        if (byContext)
-            return byContext;
-    }
-    return findUsageItemFromTodoText(`${todo.title} ${todo.detail || ''} ${todo.context || ''}`, usageItems);
-};
-
-const getTodoAgentTypeLabel = (todo: UsageDetailTodoItem) => (
-    todo.backendAgentTypeCode || (todo.source === 'law' ? 'legal' : todo.source === 'vision' ? 'vision' : 'link')
-);
-
-const getTodoGroupLocationMeta = (todo: UsageDetailTodoItem, usageItems: UsageLineItem[]) => {
-    const usageItem = resolveTodoUsageItem(todo, usageItems);
-    const categoryId = usageItem?.categoryId || todo.categoryId;
-    const categoryName = categoryId ? getCategoryDisplayName(categoryId) : todo.backendCategoryName || '';
-    const itemName = usageItem?.name || (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT ? todo.context : '');
-    return {
-        itemName: itemName || GENERIC_USAGE_ITEM_CONTEXT,
-        categoryName: categoryName || '9개 항목',
-    };
-};
-
-const getTodoDisplayTitle = (todo: UsageDetailTodoItem) => {
-    const title = translateTodoDisplayText(todo.title.trim(), todo.context);
-    if (todo.backendTodoId && isLinkAgentTodo(todo))
-        return title;
-    if (todo.backendTodoId && todo.source === 'law')
-        return title;
-    if (todo.backendTodoId)
-        return getUploadTodoTitle(title, todo.context);
-    const needsActionSuffix = !/(?:업로드|제출|삭제|제거|교체|필요)$/u.test(title);
-    if (!needsActionSuffix)
-        return title;
-    return `${title} ${todo.mode === 'add' ? '업로드 필요' : '삭제 필요'}`;
-};
-
-const classifyUsageLineCategory = (name: string, fallbackCategoryId: number) => {
-    const text = name.replace(/\s+/g, '').toLowerCase();
-    const rules: Array<[number, RegExp]> = [
-        [8, /본사|전담조직/],
-        [7, /기술지도|재해예방전문지도|지도기관/],
-        [6, /건강|검진|작업환경|측정|방진|질병|장해예방/],
-        [5, /교육|강의|이수|훈련|교재/],
-        [4, /진단|컨설팅|위험진단|안전보건진단/],
-        [3, /보호구|안전모|안전화|안전벨트|장갑|마스크|조끼|개인보호/],
-        [2, /안전시설|난간|비계|안전망|표지|방호|펜스|발판|가설/],
-        [1, /관리자|임금|급여|인건비|보건관리|안전관리자/],
-        [9, /위험성평가|평가|소요비용/],
-    ];
-    return rules.find(([, pattern]) => pattern.test(text))?.[0] || fallbackCategoryId;
-};
-const toNounPhraseDetail = (value?: string) => {
-    const text = (value || '').trim();
-    if (!text)
-        return '';
-    return text
-        .replace(/\s*(?:자료|서류|증빙)?(?:를|을)?\s*(?:추가\s*)?제출(?:해)?\s*주세요\.?$/u, ' 제출 필요')
-        .replace(/\s*(?:삭제|제거|교체)(?:해)?\s*주세요\.?$/u, ' 삭제 필요')
-        .replace(/\s*부적합합니다\.?$/u, ' 부적합')
-        .replace(/\s*적합합니다\.?$/u, ' 적합')
-        .replace(/\s*있습니다\.?$/u, ' 있음')
-        .replace(/\s*없습니다\.?$/u, ' 없음')
-        .replace(/\s*어렵습니다\.?$/u, ' 어려움')
-        .replace(/\s*필요합니다\.?$/u, ' 필요')
-        .replace(/\s*바랍니다\.?$/u, ' 필요')
-        .replace(/[.。]$/u, '')
-        .trim();
-};
 export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onVerificationComplete, uploadCompleteAction }: UsageStatementDetailScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(usageDetailSeed || createDefaultArchiveData()));
-    const [matchingStatus, setMatchingStatus] = useState<'idle' | 'running' | 'done'>('idle');
-    const [requiredEvidenceByLine, setRequiredEvidenceByLine] = useState<SafetyDocAgentRequiredEvidenceMap>({});
-    const [matchingError, setMatchingError] = useState('');
-    const [matchingNotice, setMatchingNotice] = useState('');
     const [usageDetailActionError, setUsageDetailActionError] = useState('');
-    const [photoValidationStatus, setPhotoValidationStatus] = useState<UsageDetailValidationStatus>('idle');
-    const [usageDetailVerificationStep, setUsageDetailVerificationStep] = useState<'ocr' | 'safety' | 'vision' | null>(null);
-    const [photoValidationNotice, setPhotoValidationNotice] = useState<{ type: 'ok' | 'bad'; message: string } | null>(null);
-    const [completedTodoIds, setCompletedTodoIds] = useState<Record<string, boolean>>({});
-    const [dismissedTodoIds, setDismissedTodoIds] = useState<Record<string, boolean>>({});
-    const [orchestratorTodoItems, setOrchestratorTodoItems] = useState<UsageDetailTodoItem[]>([]);
-    const [todoConfirmingIds, setTodoConfirmingIds] = useState<Record<string, boolean>>({});
-    const [visionValidationByFileId, setVisionValidationByFileId] = useState<Record<string, VisionValidationResult>>({});
     const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
     const [agentFailureMessage, setAgentFailureMessage] = useState('');
     const [deleteTarget, setDeleteTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; fileId: string; usageItemId?: string } | null>(null);
@@ -586,20 +56,12 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const [todoSidebarPinned, setTodoSidebarPinned] = useState(false);
     const [todoHoverBlocked, setTodoHoverBlocked] = useState(false);
     const [collapsedTodoGroupIds, setCollapsedTodoGroupIds] = useState<Record<string, boolean>>({});
-    const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(resolvedUsageItems[0]?.categoryId || 1);
-    const [selectedUsageItemId, setSelectedUsageItemId] = useState(resolvedUsageItems[0]?.id || '');
+    const [selectedHierarchyCatId, setSelectedHierarchyCatId] = useState(1);
+    const [selectedUsageItemId, setSelectedUsageItemId] = useState('');
     const pendingUsageDetailSeedRef = useRef<ArchiveSeed | null>(null);
     const syncingUsageDetailSeedRef = useRef(false);
     const usageDetailSeedSnapshotRef = useRef('');
     const clearTodoSignalRef = useRef(clearTodoSignal);
-    const skipTodoPersistenceRef = useRef(false);
-    const todoPersistenceKey = useMemo(() => {
-        if (usageStatementId)
-            return `i-veri:usage-detail-todos:${projectId}:${usageStatementId}`;
-        if (todoStorageKey)
-            return `i-veri:usage-detail-todos:${projectId}:${todoStorageKey}`;
-        return '';
-    }, [projectId, todoStorageKey, usageStatementId]);
     useEffect(() => {
         if (!usageDetailSeed)
             return;
@@ -612,43 +74,17 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setFileData(normalizedSeed);
     }, [usageDetailSeed]);
     useEffect(() => {
-        setRequiredEvidenceByLine({});
-        if (!todoPersistenceKey || typeof window === 'undefined') {
-            setCompletedTodoIds({});
-            setDismissedTodoIds({});
+        if (!resolvedUsageItems.length) {
+            setSelectedUsageItemId('');
             return;
         }
-        skipTodoPersistenceRef.current = true;
-        try {
-            const stored = JSON.parse(window.localStorage.getItem(todoPersistenceKey) || '{}') as {
-                completedTodoIds?: Record<string, boolean>;
-                dismissedTodoIds?: Record<string, boolean>;
-            };
-            setCompletedTodoIds(stored.completedTodoIds || {});
-            setDismissedTodoIds(stored.dismissedTodoIds || {});
-        } catch {
-            setCompletedTodoIds({});
-            setDismissedTodoIds({});
-        }
-    }, [todoPersistenceKey]);
-    useEffect(() => {
-        if (!todoPersistenceKey || typeof window === 'undefined')
-            return;
-        if (skipTodoPersistenceRef.current) {
-            skipTodoPersistenceRef.current = false;
-            return;
-        }
-        window.localStorage.setItem(todoPersistenceKey, JSON.stringify({
-            completedTodoIds,
-            dismissedTodoIds,
-        }));
-    }, [completedTodoIds, dismissedTodoIds, todoPersistenceKey]);
-    useEffect(() => {
-        if (!resolvedUsageItems.length)
-            return;
         const categoryItems = resolvedUsageItems.filter((item) => item.categoryId === selectedHierarchyCatId);
-        if (!categoryItems.length)
+        if (!categoryItems.length) {
+            const fallbackItem = resolvedUsageItems[0];
+            setSelectedHierarchyCatId(fallbackItem.categoryId);
+            setSelectedUsageItemId(fallbackItem.id);
             return;
+        }
         const hasSelectedItem = categoryItems.some((item) => item.id === selectedUsageItemId);
         if (hasSelectedItem)
             return;
@@ -674,10 +110,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         });
     };
     const getFilesForCategory = (kind: FolderEvidenceCategory, catId: number, usageItemId?: string) => {
-        const lineMap = fileData.categories?.[catId] || {};
-        if (usageItemId)
-            return lineMap[usageItemId]?.[kind] || [];
-        return Object.values(lineMap).flatMap((kindMap) => kindMap[kind] || []);
+        return getUsageDetailFiles(fileData, kind, catId, usageItemId);
     };
     const getHierarchyFilesForCategory = (kind: HierarchyEvidenceKind, catId: number, usageItemId?: string) => {
         if (kind === 'misc')
@@ -687,260 +120,53 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             return files;
         return files;
     };
-    const refreshOrchestratorStatusTodos = async () => {
-        if (!usageStatementId)
-            return [] as UsageDetailTodoItem[];
-        try {
-            const status = await getOrchestratorStatus(projectId, usageStatementId);
-            const nextTodos = (status.todos || []).flatMap((todo) => toOrchestratorTodos(todo, resolvedUsageItems));
-            setOrchestratorTodoItems(nextTodos);
-            return nextTodos;
-        } catch {
-            setOrchestratorTodoItems([]);
-            return [] as UsageDetailTodoItem[];
-        }
+    const todos = useUsageDetailTodos({
+        projectId,
+        usageStatementId,
+        todoStorageKey,
+        actionRequest,
+        fileCategories: fileData.categories,
+        usageItems: resolvedUsageItems,
+        onTodoCountChange,
+        onActionError: setUsageDetailActionError,
+    });
+    const applyVisionValidationResults = (nextTodos: UsageDetailTodoItem[] = todos.orchestratorTodoItems, validationByFileId: Record<string, VisionValidationResult> = todos.visionValidationByFileId) => {
+        commitFileData((prev) => applyVisionValidationToArchive(prev, {
+            usageItems: resolvedUsageItems,
+            todos: nextTodos,
+            validationByFileId,
+        }));
     };
-    const refreshVisionValidationResults = async () => {
-        if (!usageStatementId) {
-            setVisionValidationByFileId({});
-            return {} as Record<string, VisionValidationResult>;
-        }
-        try {
-            const results = await getVisionValidationResults(projectId, usageStatementId);
-            setVisionValidationByFileId(results);
-            return results;
-        } catch {
-            setVisionValidationByFileId({});
-            return {} as Record<string, VisionValidationResult>;
-        }
-    };
+    const verification = useUsageDetailVerification({
+        projectId,
+        usageStatementId,
+        refreshOrchestratorStatusTodos: todos.refreshOrchestratorStatusTodos,
+        refreshVisionValidationResults: todos.refreshVisionValidationResults,
+        applyVisionValidationResults,
+        onVerificationComplete,
+        onMissingUsageStatement: () => showAgentFailure('evidence-matching'),
+    });
     useEffect(() => {
-        void refreshOrchestratorStatusTodos();
-        void refreshVisionValidationResults();
-    }, [projectId, usageStatementId, resolvedUsageItems]);
-    const usageDetailTodoItems = useMemo<UsageDetailTodoItem[]>(() => {
-        const hasVisionValidatedPhotos = Object.values(fileData.categories || {}).some((lineMap) =>
-            Object.values(lineMap).some((kindMap) => (kindMap.site_photo || []).some((file) => file.visionValidation?.status === 'unsuitable'))
-        );
-        const todos: UsageDetailTodoItem[] = hasVisionValidatedPhotos
-            ? orchestratorTodoItems.filter((todo) => todo.source !== 'vision')
-            : [...orchestratorTodoItems];
-        const actionRequestRawText = `${actionRequest?.title || ''} ${actionRequest?.message || ''}`;
-        const actionRequestText = normalizeTodoIdText(actionRequestRawText);
-        const actionRequestUsageItem = actionRequestText ? findUsageItemFromTodoText(actionRequestRawText, resolvedUsageItems) : undefined;
-        const actionRequestCategory = actionRequestUsageItem
-            ? CATS.find((cat) => cat.id === actionRequestUsageItem.categoryId)
-            : findCategoryFromTodoText(actionRequestRawText);
-        Object.entries(requiredEvidenceByLine).forEach(([usageItemId, evidenceMap]) => {
-            const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
-            Object.entries(evidenceMap).forEach(([rawKind, names]) => {
-                const kind = rawKind as FolderEvidenceCategory;
-                (names || []).forEach((name, index) => {
-                    const evidenceName = translateEvidenceDocumentName(name || EVIDENCE_KIND_LABELS[kind]) || EVIDENCE_KIND_LABELS[kind];
-                    const categoryName = usageItem ? CATS.find((cat) => cat.id === usageItem.categoryId)?.short : '';
-                    todos.push({
-                        id: `matching:add:${usageItemId}:${kind}:${normalizeTodoIdText(evidenceName)}:${index}`,
-                        mode: 'add',
-                        source: 'matching',
-                        kind,
-                        title: `${evidenceName}`,
-                        context: usageItem?.name || '',
-                        categoryId: usageItem?.categoryId,
-                        usageItemId,
-                        detail: usageItem
-                            ? `${usageItem.name}은/는 ${categoryName || '해당 9개 항목'} 기준의 지출로 분류되어 ${evidenceName} 증빙이 필요합니다.`
-                            : `${evidenceName} 증빙이 필요합니다.`,
-                    });
-                });
-            });
-        });
-        const legalEvidenceNames = extractActionRequestEvidenceNames(actionRequest?.message);
-        if (legalEvidenceNames.length > 0) {
-            legalEvidenceNames.map((name) => translateEvidenceDocumentName(name) || name).forEach((name, index) => {
-                const kind = inferEvidenceKindFromText(name);
-                todos.push({
-                    id: `law:add:${normalizeTodoIdText(actionRequest?.title || '보완요청')}:${normalizeTodoIdText(name)}:${index}`,
-                    mode: 'add',
-                    source: 'law',
-                    kind,
-                    title: `${name}`,
-                    context: actionRequestUsageItem?.name || '',
-                    categoryId: actionRequestUsageItem?.categoryId || actionRequestCategory?.id,
-                    usageItemId: actionRequestUsageItem?.id,
-                    detail: toNounPhraseDetail(translateEvidenceText(actionRequest?.message)),
-                });
-            });
-        } else if (actionRequest?.message) {
-            todos.push({
-                id: `law:add:${normalizeTodoIdText(actionRequest.title || actionRequest.message)}`,
-                mode: 'add',
-                source: 'law',
-                kind: inferEvidenceKindFromText(actionRequest.message),
-                title: '보완 요청 내용 확인',
-                context: actionRequestUsageItem?.name || '',
-                categoryId: actionRequestUsageItem?.categoryId || actionRequestCategory?.id,
-                usageItemId: actionRequestUsageItem?.id,
-                detail: toNounPhraseDetail(translateEvidenceText(actionRequest.message)),
-            });
-        }
-        Object.entries(fileData.categories || {}).forEach(([catId, lineMap]) => {
-            Object.entries(lineMap).forEach(([usageItemId, kindMap]) => {
-                const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
-                const categoryName = CATS.find((cat) => String(cat.id) === catId)?.short;
-                (kindMap.site_photo || []).forEach((file) => {
-                    if (file.visionValidation?.status !== 'unsuitable')
-                        return;
-                    todos.push({
-                        id: `vision:remove:${usageItemId}:${file.id}`,
-                        mode: 'remove',
-                        source: 'vision',
-                        kind: 'site_photo',
-                        title: file.name,
-                        context: usageItem?.name || categoryName || '현장사진',
-                        categoryId: Number(catId),
-                        usageItemId,
-                        detail: toNounPhraseDetail(file.visionValidation.summary || '현장사진 검증 결과 부적합'),
-                    });
-                });
-            });
-        });
-        const seen = new Set<string>();
-        return todos.filter((todo) => {
-            if (seen.has(todo.id))
-                return false;
-            if (!todo.backendTodoId && dismissedTodoIds[todo.id])
-                return false;
-            seen.add(todo.id);
-            return true;
-        });
-    }, [actionRequest?.message, actionRequest?.title, dismissedTodoIds, fileData.categories, orchestratorTodoItems, requiredEvidenceByLine, resolvedUsageItems]);
-    const isTodoDone = (todo: UsageDetailTodoItem) => (
-        todo.backendTodoId ? Boolean(todo.backendConfirmed) : Boolean(completedTodoIds[todo.id])
-    );
-    const getTodoConfirmingKey = (todo: UsageDetailTodoItem) => (
-        todo.backendTodoId ? `backend:${todo.backendTodoId}` : todo.id
-    );
-    const activeTodoCount = usageDetailTodoItems.filter((todo) => !isTodoDone(todo)).length;
+        const hasStoredVisionResults = Object.keys(todos.visionValidationByFileId).length > 0;
+        const hasVisionTodos = todos.orchestratorTodoItems.some((todo) => todo.source === 'vision');
+        if (!hasStoredVisionResults && !hasVisionTodos)
+            return;
+        applyVisionValidationResults(todos.orchestratorTodoItems, todos.visionValidationByFileId);
+    }, [todos.visionValidationByFileId, todos.orchestratorTodoItems]);
     useEffect(() => {
         if (clearTodoSignalRef.current === clearTodoSignal)
             return;
         clearTodoSignalRef.current = clearTodoSignal;
-        setDismissedTodoIds((current) => {
-            const next = { ...current };
-            usageDetailTodoItems.forEach((todo) => {
-                if (!todo.backendTodoId && isTodoDone(todo))
-                    next[todo.id] = true;
-            });
-            return next;
-        });
-        setCompletedTodoIds((current) => {
-            const next = { ...current };
-            usageDetailTodoItems.forEach((todo) => {
-                if (current[todo.id])
-                    delete next[todo.id];
-            });
-            return next;
-        });
-        setMatchingStatus('idle');
-        setMatchingNotice('');
-        setPhotoValidationNotice(null);
-    }, [usageDetailTodoItems, clearTodoSignal, completedTodoIds]);
-    const handleTodoToggle = async (todo: UsageDetailTodoItem) => {
-        const nextDone = !isTodoDone(todo);
-        if (!todo.backendTodoId) {
-            setCompletedTodoIds((current) => ({ ...current, [todo.id]: nextDone }));
-            return;
-        }
-        const todoId = todo.backendTodoId;
-        const confirmingKey = getTodoConfirmingKey(todo);
-        setTodoConfirmingIds((current) => ({ ...current, [confirmingKey]: true }));
-        setOrchestratorTodoItems((current) => current.map((item) => (
-            item.backendTodoId === todoId ? { ...item, backendConfirmed: nextDone } : item
-        )));
-        try {
-            await confirmAgentTodo(projectId, todoId, nextDone);
-        } catch (error) {
-            setOrchestratorTodoItems((current) => current.map((item) => (
-                item.backendTodoId === todoId ? { ...item, backendConfirmed: !nextDone } : item
-            )));
-            setUsageDetailActionError(getAgentFailureMessage('evidence-matching', error));
-        } finally {
-            setTodoConfirmingIds((current) => {
-                const next = { ...current };
-                delete next[confirmingKey];
-                return next;
-            });
-        }
-    };
-    useEffect(() => {
-        onTodoCountChange?.(activeTodoCount);
-    }, [activeTodoCount, onTodoCountChange]);
-    const usageDetailVerificationRunning = Boolean(usageDetailVerificationStep) || matchingStatus === 'running' || photoValidationStatus === 'running';
-    const usageDetailVerificationDone = matchingStatus === 'done' || photoValidationStatus === 'done';
-    const usageDetailVerificationLabel = usageDetailVerificationRunning ? '검증 중...' : '유효성 검증';
-    const applyVisionValidationResults = (todos: UsageDetailTodoItem[] = orchestratorTodoItems, validationByFileId: Record<string, VisionValidationResult> = visionValidationByFileId) => {
-        const visionTodos = todos.filter((todo) => todo.source === 'vision');
-        commitFileData((prev) => ({
-            ...prev,
-            categories: Object.fromEntries(Object.entries(prev.categories || {}).map(([catId, lineMap]) => [
-                catId,
-                Object.fromEntries(Object.entries(lineMap).map(([usageItemId, kindMap]) => {
-                    const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
-                    const matchingVisionTodo = visionTodos.find((todo) => {
-                        if (todo.usageItemId)
-                            return String(todo.usageItemId) === String(usageItemId);
-                        if (todo.categoryId)
-                            return String(todo.categoryId) === String(catId);
-                        return Boolean(usageItem && todo.context.includes(usageItem.name));
-                    });
-                    return [
-                        usageItemId,
-                        {
-                            ...kindMap,
-                            site_photo: (kindMap.site_photo || []).map((file) => {
-                                const storedResult = file.fileId == null ? undefined : validationByFileId[String(file.fileId)];
-                                return {
-                                    ...file,
-                                    visionValidation: buildVisionValidation(file, usageItem, matchingVisionTodo?.detail, storedResult),
-                                };
-                            }),
-                        },
-                    ];
-                })),
-            ])) as ArchiveSeed['categories'],
-        }));
-    };
-    useEffect(() => {
-        const hasStoredVisionResults = Object.keys(visionValidationByFileId).length > 0;
-        const hasVisionTodos = orchestratorTodoItems.some((todo) => todo.source === 'vision');
-        if (!hasStoredVisionResults && !hasVisionTodos)
-            return;
-        applyVisionValidationResults(orchestratorTodoItems, visionValidationByFileId);
-    }, [visionValidationByFileId, orchestratorTodoItems]);
-    const isSupplementTarget = (catId: number, usageItemId?: string) => {
-        if (usageItemId)
-            return usageDetailTodoItems.some((todo) => {
-                const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
-                const todoUsageItem = resolveTodoUsageItem(todo, resolvedUsageItems);
-                return usageItem?.categoryId === catId && (todoUsageItem?.id === usageItemId || todo.usageItemId === usageItemId);
-            });
-        return usageDetailTodoItems.some((todo) => {
-            const usageItem = resolveTodoUsageItem(todo, resolvedUsageItems);
-            if (usageItem)
-                return usageItem.categoryId === catId;
-            if (todo.categoryId)
-                return todo.categoryId === catId;
-            const categoryName = CATS.find((cat) => cat.id === catId)?.short;
-            return Boolean(categoryName && todo.context.includes(categoryName));
-        });
-    };
+        todos.dismissCompletedLocalTodos();
+        verification.resetVerificationState();
+    }, [clearTodoSignal, todos, verification]);
     const uploadFilesToSection = (kind: FolderEvidenceCategory, catId: number, usageItemId: string) => {
         if (!usageItemId)
             return;
         const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
         const isWearingPhotoContext = kind === 'site_photo'
             && (catId === 3 || /보호구|착용|안전모|안전화|안전벨트|장갑|마스크|조끼|개인보호/.test(usageItem?.name || ''));
-        const matchingRequiredEvidenceTypeCodes = (requiredEvidenceByLine[usageItemId]?.[kind] || [])
+        const matchingRequiredEvidenceTypeCodes = (todos.requiredEvidenceByLine[usageItemId]?.[kind] || [])
             .filter((code) => isBackendEvidenceTypeCode(code) && backendEvidenceTypeToCategory(code) === kind);
         const requiredEvidenceTypeCode = matchingRequiredEvidenceTypeCodes.find((code) => code !== kind) || matchingRequiredEvidenceTypeCodes[0];
         const evidenceTypeCode = requiredEvidenceTypeCode || (isWearingPhotoContext ? 'wearing_photo' : undefined);
@@ -1001,33 +227,14 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         const trimmedName = nextName.trim();
         if (!trimmedName)
             return;
-        const sourceFile = usageItemId
-            ? fileData.categories?.[catId]?.[usageItemId]?.[kind]?.find((file) => file.id === fileId)
-            : Object.values(fileData.categories?.[catId] || {}).flatMap((line) => line[kind] || []).find((file) => file.id === fileId);
-        const shouldRename = (file: EvidenceFile) => file.id === fileId || (Boolean(sourceFile?.fileId) && file.fileId === sourceFile?.fileId);
-        commitFileData((prev) => ({
-            ...prev,
-            usage_statement: prev.usage_statement.map((file) => shouldRename(file) ? { ...file, name: trimmedName } : file),
-            categories: Object.fromEntries(Object.entries(prev.categories || {}).map(([nextCatId, lineMap]) => [
-                nextCatId,
-                Object.fromEntries(Object.entries(lineMap).map(([nextUsageItemId, kindMap]) => [
-                    nextUsageItemId,
-                    Object.fromEntries(Object.entries(kindMap).map(([nextKind, files]) => [
-                        nextKind,
-                        (files || []).map((file) => shouldRename(file) ? { ...file, name: trimmedName } : file),
-                    ])),
-                ])),
-            ])) as ArchiveSeed['categories'],
-        }));
+        commitFileData((prev) => renameUsageDetailFileInArchive(prev, { kind, catId, fileId, nextName: trimmedName, usageItemId }));
         onUsageDetailContentMutated?.('rename');
     };
     const confirmRemoveArchiveFile = async () => {
         if (!deleteTarget)
             return;
         const { kind, catId, fileId, usageItemId } = deleteTarget;
-        const targetFile = usageItemId
-            ? fileData.categories?.[catId]?.[usageItemId]?.[kind]?.find((file) => file.id === fileId)
-            : Object.values(fileData.categories?.[catId] || {}).flatMap((line) => line[kind] || []).find((file) => file.id === fileId);
+        const targetFile = findUsageDetailFile(fileData, kind, catId, fileId, usageItemId);
         setUsageDetailActionError('');
         try {
             if (targetFile?.linkId) {
@@ -1040,19 +247,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setUsageDetailActionError(error instanceof Error ? error.message : '파일 삭제에 실패했습니다.');
             return;
         }
-        commitFileData((prev) => {
-            const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
-            const lineMap = { ...(next.categories[catId] || {}) };
-            const usageItemIds = usageItemId ? [usageItemId] : Object.keys(lineMap);
-            usageItemIds.forEach((lineId) => {
-                lineMap[lineId] = {
-                    ...(lineMap[lineId] || {}),
-                    [kind]: (lineMap[lineId]?.[kind] || []).filter((file) => file.id !== fileId),
-                };
-            });
-            next.categories[catId] = lineMap;
-            return next;
-        });
+        commitFileData((prev) => removeUsageDetailFileFromArchive(prev, { kind, catId, fileId, usageItemId }));
         onUsageDetailContentMutated?.('delete');
         setDeleteTarget(null);
     };
@@ -1071,7 +266,6 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             return;
         if (fromKind === 'misc' || toKind === 'misc')
             return;
-        const nextKind: EvidenceCategory = toKind;
         const targetUsageItemId = toUsageItemId || resolvedUsageItems.find((item) => item.categoryId === toCatId)?.id || `cat-${toCatId}`;
         setUsageDetailActionError('');
         let movedLinkId = fileEntry.linkId;
@@ -1087,28 +281,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             setUsageDetailActionError(error instanceof Error ? error.message : '파일 이동에 실패했습니다.');
             return;
         }
-        const movedFile: EvidenceFile = {
-            ...fileEntry,
-            id: movedLinkId ? `evidence-link-${movedLinkId}` : fileEntry.id,
-            linkId: movedLinkId,
-            kind: nextKind,
-            evidenceTypeCode: kindToEvidenceCode(toKind),
-            categoryIds: [toCatId],
-        };
-        commitFileData((prev) => {
-            const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
-            next.categories[fromCatId] = { ...(next.categories[fromCatId] || {}) };
-            next.categories[toCatId] = { ...(next.categories[toCatId] || {}) };
-            next.categories[fromCatId][fromUsageItemId] = {
-                ...(next.categories[fromCatId][fromUsageItemId] || {}),
-                [fromKind]: (next.categories[fromCatId][fromUsageItemId]?.[fromKind] || []).filter((file) => file.id !== fileEntry.id),
-            };
-            next.categories[toCatId][targetUsageItemId] = {
-                ...(next.categories[toCatId][targetUsageItemId] || {}),
-                [toKind]: [...(next.categories[toCatId][targetUsageItemId]?.[toKind] || []), { ...movedFile, usageItemIds: [targetUsageItemId] }],
-            };
-            return next;
-        });
+        commitFileData((prev) => moveUsageDetailFileInArchive(prev, { fromKind, fromCatId, fromUsageItemId, toKind, toCatId, targetUsageItemId, fileEntry, movedLinkId }));
         onUsageDetailContentMutated?.('move');
         const nextUsageItem = resolvedUsageItems.find((item) => item.id === toUsageItemId) || resolvedUsageItems.find((item) => item.categoryId === toCatId);
         if (nextUsageItem)
@@ -1149,24 +322,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         }
         onUsageItemsChange?.(resolvedUsageItems.map((item) => item.id === usageItemId ? nextItem : item));
         if (targetItem.categoryId !== nextItem.categoryId) {
-            commitFileData((prev) => {
-                const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
-                const sourceLineMap = { ...(next.categories[targetItem.categoryId] || {}) };
-                const targetLineMap = { ...(next.categories[nextItem.categoryId] || {}) };
-                const lineFiles = sourceLineMap[usageItemId] || {};
-                delete sourceLineMap[usageItemId];
-                targetLineMap[usageItemId] = Object.fromEntries(Object.entries(lineFiles).map(([kind, files]) => [
-                    kind,
-                    (files || []).map((file) => ({
-                        ...file,
-                        categoryIds: [nextItem.categoryId],
-                        usageItemIds: [usageItemId],
-                    })),
-                ])) as typeof targetLineMap[string];
-                next.categories[targetItem.categoryId] = sourceLineMap;
-                next.categories[nextItem.categoryId] = targetLineMap;
-                return next;
-            });
+            commitFileData((prev) => moveUsageItemFilesToCategory(prev, usageItemId, targetItem.categoryId, nextItem.categoryId));
         }
         onUsageDetailContentMutated?.('edit-item');
         setSelectedHierarchyCatId(nextItem.categoryId);
@@ -1183,34 +339,12 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setAddUsageItemModalOpen(true);
     };
     const submitAddUsageItem = async () => {
-        const name = addUsageItemDraft.name.trim();
-        const quantity = parseUsageNumber(addUsageItemDraft.quantity);
-        const unitPrice = parseUsageNumber(addUsageItemDraft.unitPrice);
-        const amount = calculateUsageLineAmount(quantity, unitPrice);
-        if (!name) {
-            setAddUsageItemError('사용내역을 입력해 주세요.');
+        const validation = validateAddUsageItemDraft(addUsageItemDraft, usageStatementId);
+        if ('error' in validation) {
+            setAddUsageItemError(validation.error);
             return;
         }
-        if (!Number.isFinite(quantity) || quantity <= 0) {
-            setAddUsageItemError('수량을 입력해 주세요.');
-            return;
-        }
-        if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
-            setAddUsageItemError('단가를 입력해 주세요.');
-            return;
-        }
-        if (!Number.isFinite(amount) || amount <= 0) {
-            setAddUsageItemError('수량과 단가를 확인해 주세요.');
-            return;
-        }
-        if (!addUsageItemDraft.date) {
-            setAddUsageItemError('사용일자를 입력해 주세요.');
-            return;
-        }
-        if (!usageStatementId) {
-            setAddUsageItemError('사용내역서 ID가 없어 세부항목을 추가할 수 없습니다.');
-            return;
-        }
+        const { name, quantity, unitPrice, amount, usedOn, unit } = validation.value;
         setAddUsageItemError('');
         setAddUsageItemModalOpen(false);
         setClassiAgentRunning(true);
@@ -1219,30 +353,29 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             const classiResult = await createUsageStatementItem(projectId, usageStatementId, {
                 categoryId,
                 itemName: name,
-                usedOn: addUsageItemDraft.date,
-                unit: addUsageItemDraft.unit.trim() || undefined,
+                usedOn,
+                unit,
                 quantity,
                 unitPrice,
                 totalAmount: amount,
                 pageNo: 1,
             });
-            const rejectedResult = (classiResult.results || []).find((result) =>
-                result.isAppropriate === false || isRejectedClassiStatus(result.status));
+            const rejectedResult = findRejectedClassiResult(classiResult);
             if (rejectedResult) {
                 if (rejectedResult.itemId) {
                     await deleteUsageStatementItem(projectId, usageStatementId, rejectedResult.itemId).catch(() => null);
                 }
-                setClassiRejectedNotice({
-                    itemName: rejectedResult.itemName || name,
-                    fromCategoryName: getCategoryCodeDisplayName(rejectedResult.originalCategoryCode, selectedHierarchyCatId) || getCategoryDisplayName(selectedHierarchyCatId),
-                    toCategoryName: getCategoryCodeDisplayName(rejectedResult.finalCategoryCode, categoryId) || getCategoryDisplayName(categoryId),
-                    reason: rejectedResult.reason || 'classi 에이전트가 입력한 세부항목을 현재 카테고리에 적재하기 부적절하다고 판단했습니다.',
-                });
+                setClassiRejectedNotice(buildClassiRejectedNotice({
+                    result: rejectedResult,
+                    fallbackName: name,
+                    selectedCategoryId: selectedHierarchyCatId,
+                    fallbackCategoryId: categoryId,
+                }));
                 return;
             }
             const refreshedArchive = await getUsageStatementArchiveById(projectId, usageStatementId);
             const addedItem = refreshedArchive.usageItems
-                .filter((item) => item.name === name && item.date === addUsageItemDraft.date)
+                .filter((item) => item.name === name && item.date === usedOn)
                 .at(-1) || refreshedArchive.usageItems.at(-1);
             onUsageItemsChange?.(refreshedArchive.usageItems);
             onUsageDetailSeedChange?.(refreshedArchive.archiveSeed);
@@ -1250,27 +383,13 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
                 setSelectedHierarchyCatId(addedItem.categoryId || categoryId);
                 setSelectedUsageItemId(addedItem.id);
             }
-            const classiChanges = classiResult.changes || [];
-            const notices = (classiChanges.length > 0 ? classiChanges : [{
+            setClassificationMoveNotices(buildClassificationMoveNotices({
+                result: classiResult,
                 itemName: name,
-                fromCategoryName: getCategoryDisplayName(selectedHierarchyCatId),
-                toCategoryName: getCategoryDisplayName(addedItem?.categoryId || categoryId),
-            }]).map((change, index) => {
-                const fromCategoryName = change.fromCategoryName || getCategoryDisplayName(selectedHierarchyCatId);
-                const toCategoryName = change.toCategoryName || getCategoryDisplayName(addedItem?.categoryId || categoryId);
-                const categoryChanged = classiResult.categoryChanged || fromCategoryName !== toCategoryName;
-                return {
-                id: `${change.itemName}-${index}`,
-                itemName: change.itemName || name,
-                    fromCategoryName,
-                    toCategoryName,
-                    categoryChanged,
-                    reason: categoryChanged
-                        ? '입력한 항목명을 기준으로 classi 에이전트가 더 적합한 카테고리를 선택했습니다.'
-                        : 'classi 에이전트가 입력한 세부항목의 카테고리를 확인하고 현재 분류를 확정했습니다.',
-                };
-            });
-            setClassificationMoveNotices(notices);
+                selectedCategoryId: selectedHierarchyCatId,
+                fallbackCategoryId: categoryId,
+                addedItem,
+            }));
             onUsageDetailContentMutated?.('add-item');
         } catch (error) {
             setAddUsageItemError(error instanceof Error ? error.message : '세부항목 추가에 실패했습니다.');
@@ -1302,299 +421,43 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         const nextItems = resolvedUsageItems.filter((item) => item.id !== targetItem.id);
         setDeleteUsageItemTarget(null);
         onUsageItemsChange?.(nextItems);
-        commitFileData((prev) => {
-            const next: ArchiveSeed = { ...prev, categories: { ...prev.categories } };
-            const lineMap = { ...(next.categories[targetItem.categoryId] || {}) };
-            delete lineMap[targetItem.id];
-            next.categories[targetItem.categoryId] = lineMap;
-            return next;
-        });
-        setRequiredEvidenceByLine((current) => {
-            if (!current[targetItem.id])
-                return current;
-            const next = { ...current };
-            delete next[targetItem.id];
-            return next;
-        });
-        setCompletedTodoIds((current) => {
-            const next = Object.fromEntries(Object.entries(current).filter(([key]) => !key.includes(`:${targetItem.id}:`) && !key.includes(`-${targetItem.id}-`)));
-            return next;
-        });
+        commitFileData((prev) => removeUsageItemFilesFromArchive(prev, targetItem));
+        todos.removeTodoStateForUsageItem(targetItem.id);
         const nextSelected = nextItems.find((item) => item.categoryId === targetItem.categoryId) || nextItems[0];
         setSelectedHierarchyCatId(nextSelected?.categoryId || 1);
         setSelectedUsageItemId(nextSelected?.id || '');
         onUsageDetailContentMutated?.('delete-item');
     };
     const isProblemFile = (file: EvidenceFile) => file.kind === 'site_photo' && file.visionValidation?.status === 'unsuitable';
-    const usageDetailLoadingMessage = usageDetailVerificationStep === 'ocr'
-            ? {
-                title: 'OCR 매칭 결과를 확인하고 있어요',
-                body: '영수증과 사용내역서의 날짜, 빈값, 연결 가능성을 link agent가 먼저 점검합니다.',
-            }
-            : usageDetailVerificationStep === 'safety'
-                ? {
-                    title: '필수 증빙 규칙을 대조하고 있어요',
-                    body: 'safety-doc agent가 세부 항목별로 필요한 증빙과 보완 대상을 확인합니다.',
-                }
-                : usageDetailVerificationStep === 'vision'
-                    ? {
-                        title: '현장사진을 확인하고 있어요',
-                        body: 'vision model이 사진 속 현장 상태와 세부 항목의 적합성을 판단합니다.',
-                    }
-                    : null;
-    const waitForVerificationStep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-    const runUsageDetailVerification = async () => {
-        if (usageDetailVerificationRunning)
-            return;
-        if (!usageStatementId) {
-            showAgentFailure('evidence-matching');
-            return;
-        }
-        setUsageDetailVerificationStep('ocr');
-        setMatchingStatus('running');
-        setPhotoValidationStatus('running');
-        setMatchingNotice('');
-        setPhotoValidationNotice(null);
-        try {
-            await runEvidenceReviewAgent(projectId, usageStatementId);
-            await waitForVerificationStep(1800);
-            setUsageDetailVerificationStep('safety');
-            await waitForVerificationStep(2100);
-            setUsageDetailVerificationStep('vision');
-            await waitForVerificationStep(2100);
-            await waitForAgentButtonEnabled(projectId, usageStatementId, 'validate');
-            const [nextTodos, nextVisionResults] = await Promise.all([
-                refreshOrchestratorStatusTodos(),
-                refreshVisionValidationResults(),
-            ]);
-            applyVisionValidationResults(nextTodos, nextVisionResults);
-            setMatchingStatus('done');
-            setPhotoValidationStatus('done');
-            setMatchingNotice('증빙 유효성 검증 결과를 보완 TODO에 반영했습니다.');
-            setPhotoValidationNotice({ type: 'ok', message: '현장사진 검증 결과를 확인했습니다.' });
-            await onVerificationComplete?.();
-        } catch (error) {
-            setMatchingStatus('idle');
-            setPhotoValidationStatus('idle');
-            setMatchingError(getAgentFailureMessage('evidence-matching', error));
-            setPhotoValidationNotice({ type: 'bad', message: getAgentFailureMessage('photo-validation', error) });
-        } finally {
-            setUsageDetailVerificationStep(null);
-        }
-    };
-    const renderTodoList = (items: UsageDetailTodoItem[]) => (
-      <div style={{ display: 'grid', gap: 7 }}>
-        {items.map((todo) => {
-          const done = isTodoDone(todo);
-          const confirming = Boolean(todoConfirmingIds[getTodoConfirmingKey(todo)]);
-          const tone = todo.mode === 'add' ? C.primary : C.danger;
-          const toneSoft = todo.mode === 'add' ? C.bg : C.dangerBg;
-          const toneBorder = todo.mode === 'add' ? C.light : '#FFCDD2';
-          const cardBorder = done ? C.g200 : toneBorder;
-          const cardBg = C.white;
-          const textColor = done ? C.g400 : C.g800;
-          const titleText = getTodoDisplayTitle(todo);
-          return (
-            <button
-              key={todo.id}
-              type="button"
-              onClick={() => void handleTodoToggle(todo)}
-              disabled={confirming}
-              style={{
-                width: '100%',
-                border: `1px solid ${cardBorder}`,
-                borderRadius: 6,
-                background: cardBg,
-                color: textColor,
-                cursor: confirming ? 'wait' : 'pointer',
-                fontFamily: 'inherit',
-                padding: '9px 8px',
-                textAlign: 'left',
-                position: 'relative',
-                boxShadow: done ? 'none' : '0 6px 14px rgba(31,47,39,.06)',
-              }}
-            >
-              <div style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr)', gap: 7, alignItems: 'start' }}>
-                <span
-                  aria-hidden="true"
-                  style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: 999,
-                    border: `1px solid ${done ? C.g200 : toneBorder}`,
-                    background: done ? C.g100 : toneSoft,
-                    color: done ? C.g400 : tone,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    marginTop: 1,
-                  }}
-                >
-                  {done ? '✓' : ''}
-                </span>
-                <span style={{ minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 13, fontWeight: 800, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{titleText}</span>
-                </span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    );
-    const getTodoGroupMeta = (todo: UsageDetailTodoItem) => {
-        const location = getTodoGroupLocationMeta(todo, resolvedUsageItems);
-        const agentType = getTodoAgentTypeLabel(todo);
-        const locationLabel = `${location.itemName} ∙ ${location.categoryName}`;
-        if (todo.backendTodoId) {
-            const backendGroupKey = [
-                agentType,
-                todo.usageItemId || normalizeTodoIdText(location.itemName),
-                todo.categoryId || normalizeTodoIdText(location.categoryName),
-            ].join(':');
-            return {
-                id: `backend:${backendGroupKey}`,
-                label: locationLabel,
-                agentType,
-                order: resolvedUsageItems.length + (todo.categoryId || 0) / 100,
-            };
-        }
-        const usageItem = resolveTodoUsageItem(todo, resolvedUsageItems);
-        if (usageItem)
-            return {
-                id: `item:${agentType}:${usageItem.id}`,
-                label: `${usageItem.name} ∙ ${getCategoryDisplayName(usageItem.categoryId)}`,
-                agentType,
-                order: resolvedUsageItems.findIndex((item) => String(item.id) === String(usageItem.id)),
-            };
-        if (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT)
-            return {
-                id: `context:${agentType}:${normalizeTodoIdText(todo.context)}`,
-                label: locationLabel,
-                agentType,
-                order: resolvedUsageItems.length + 1,
-            };
-        if (todo.categoryId)
-            return {
-                id: `category:${agentType}:${todo.categoryId}`,
-                label: locationLabel,
-                agentType,
-                order: resolvedUsageItems.length + todo.categoryId / 100,
-            };
-        return {
-            id: `unassigned:${agentType}`,
-            label: locationLabel,
-            agentType,
-            order: resolvedUsageItems.length + 2,
-        };
-    };
-    const todoGroups = Array.from(usageDetailTodoItems.reduce((groupMap, todo) => {
-        const meta = getTodoGroupMeta(todo);
-        const current = groupMap.get(meta.id);
-        if (current) {
-            current.items.push(todo);
-            return groupMap;
-        }
-        groupMap.set(meta.id, { ...meta, items: [todo] });
-        return groupMap;
-    }, new Map<string, { id: string; label: string; agentType: string; order: number; items: UsageDetailTodoItem[] }>()).values())
-        .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'ko'));
-    const renderTodoGroup = (group: { id: string; label: string; agentType: string; items: UsageDetailTodoItem[] }) => {
-        const items = group.items;
-        const activeCount = items.filter((todo) => !isTodoDone(todo)).length;
-        const collapsed = Boolean(collapsedTodoGroupIds[group.id]);
-        return (
-          <div key={group.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: 7, display: 'grid', gap: collapsed ? 0 : 7, marginBottom: 8, position: 'relative' }}>
-            <button
-              type="button"
-              aria-expanded={!collapsed}
-              onClick={() => setCollapsedTodoGroupIds((current) => ({ ...current, [group.id]: !current[group.id] }))}
-              style={{ width: '100%', border: 'none', background: 'transparent', padding: 0, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto auto', alignItems: 'center', gap: 7, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
-            >
-              <span style={{ minWidth: 0 }}>
-                <span title={group.label} style={{ display: 'block', fontSize: 13, fontWeight: 800, color: activeCount ? C.g800 : C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.label}</span>
-                <span title={group.agentType} style={{ display: 'block', marginTop: 2, fontSize: 11, fontWeight: 700, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.agentType}</span>
-              </span>
-              <span style={{ minWidth: 20, height: 18, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 11, fontWeight: 800 }}>{activeCount}</span>
-              <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: 999, border: `1px solid ${C.g200}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                <ChevronIcon direction={collapsed ? 'right' : 'down'} size={14} color={C.g600} />
-              </span>
-            </button>
-            {!collapsed && renderTodoList(items)}
-          </div>
-        );
-    };
-    const renderTodoSidebar = () => {
-        if (!usageDetailTodoItems.length)
-            return null;
-        return (
-          <>
-            {todoSidebarOpen && (
-              <aside data-ui="usage-detail-screen.todo-panel" onClick={() => setTodoSidebarPinned(true)} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 320, maxWidth: 'calc(100vw - 24px)', height: 'calc(100vh - var(--app-header-height))', zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '10px 0 0 10px', background: C.white, boxShadow: '-18px 0 42px rgba(31,47,39,.14)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)', overscrollBehavior: 'contain', opacity: todoSidebarPinned ? 1 : 0.95, transition: 'opacity .16s ease' }}>
-                <div style={{ position: 'sticky', top: 0, zIndex: 2, background: C.white, borderBottom: `1px solid ${C.g200}`, padding: '16px 16px 12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                    <div style={{ fontSize: 19, fontWeight: 800, color: C.g800 }}>보완 TODO</div>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: C.primary }}>{activeTodoCount}건</div>
-                      <button type="button" aria-label="보완 TODO 접기" onClick={(event) => { event.stopPropagation(); setTodoSidebarPinned(false); setTodoSidebarOpen(false); setTodoHoverBlocked(true); }} style={{ width: 28, height: 28, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 19, fontWeight: 800, lineHeight: 1 }}>
-                        »
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div className="usage-detail-todo-scroll" style={{ overflowY: 'auto', overflowX: 'hidden', padding: '12px 8px 12px 12px', scrollbarWidth: 'thin', scrollbarColor: `${C.g200} transparent`, background: C.white, overscrollBehavior: 'contain' }}>
-                  {todoGroups.map((group) => renderTodoGroup(group))}
-                </div>
-              </aside>
-            )}
-            {!todoSidebarOpen && (
-              <aside data-ui="usage-detail-screen.todo-rail" onMouseEnter={() => { if (!todoHoverBlocked) setTodoSidebarOpen(true); }} onMouseLeave={() => setTodoHoverBlocked(false)} style={{ position: 'fixed', top: 'var(--app-header-height)', right: 0, width: 45, height: 180, zIndex: 54, border: `1px solid ${C.g200}`, borderRight: 'none', borderRadius: '14px 0 0 14px', background: C.white, boxShadow: '-10px 0 28px rgba(31,47,39,.10)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '10px 6px' }}>
-                <button type="button" aria-label="보완 TODO 펼치기" onClick={() => { setTodoHoverBlocked(false); setTodoSidebarPinned(true); setTodoSidebarOpen(true); }} style={{ width: 34, height: 34, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontSize: 21, fontWeight: 800, lineHeight: 1, boxShadow: '0 8px 18px rgba(31,47,39,.10)' }}>
-                  «
-                </button>
-                <div style={{ width: 30, borderTop: `1px solid ${C.g200}` }} />
-                <button type="button" onClick={() => { setTodoHoverBlocked(false); setTodoSidebarPinned(true); setTodoSidebarOpen(true); }} style={{ width: 36, minHeight: 92, border: 'none', borderRadius: 10, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', display: 'grid', placeItems: 'center', gap: 5, padding: '7px 3px' }}>
-                  <span aria-hidden="true" style={{ width: 23, height: 23, borderRadius: 999, border: `2px solid ${C.primary}`, background: C.white, color: C.primary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>{activeTodoCount}</span>
-                  <span style={{ fontSize: 11, fontWeight: 800, lineHeight: 1.2, writingMode: 'vertical-rl', letterSpacing: 0 }}>보완 TODO</span>
-                </button>
-              </aside>
-            )}
-          </>
-        );
-    };
-    const usageDetailVerificationStepIndex = usageDetailVerificationStep === 'ocr' ? 0 : usageDetailVerificationStep === 'safety' ? 1 : usageDetailVerificationStep === 'vision' ? 2 : -1;
-    const renderUsageDetailVerificationLoader = () => {
-        if (!usageDetailVerificationStep || !usageDetailLoadingMessage)
-            return null;
-        const steps = [
-            { id: 'ocr', label: 'OCR/link agent' },
-            { id: 'safety', label: 'safety_doc_agent' },
-            { id: 'vision', label: 'vision model' },
-        ];
-        return (
-          <div className="usage-detail-verification-loader">
-            <div className="usage-detail-loader-ocean" aria-hidden="true" />
-            <div style={{ display: 'grid', gap: 10, minWidth: 0 }}>
-              <div style={{ fontSize: 19, fontWeight: 800, color: C.g800 }}>{usageDetailLoadingMessage.title}</div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.55 }}>{usageDetailLoadingMessage.body}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 4 }}>
-                {steps.map((step, index) => {
-                    const active = index === usageDetailVerificationStepIndex;
-                    const done = index < usageDetailVerificationStepIndex;
-                    return (
-                      <div key={step.id} style={{ border: `1px solid ${active ? C.primary : done ? C.light : C.g200}`, borderRadius: 999, background: active ? C.bg : done ? '#F4FBF6' : C.white, color: active ? C.primary : done ? C.ok : C.g400, padding: '7px 8px', textAlign: 'center', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {done ? '완료 · ' : active ? '진행 · ' : ''}{step.label}
-                      </div>
-                    );
-                })}
-              </div>
-            </div>
-          </div>
-        );
-    };
     return (<div data-ui="usage-detail-screen.1" style={{ background: 'transparent', position: 'relative' }}>
-      {contentVisible && renderTodoSidebar()}
+      <UsageDetailTodoSidebar
+        visible={contentVisible}
+        open={todoSidebarOpen}
+        pinned={todoSidebarPinned}
+        hoverBlocked={todoHoverBlocked}
+        activeTodoCount={todos.activeTodoCount}
+        groups={todos.todoGroups}
+        collapsedGroupIds={collapsedTodoGroupIds}
+        confirmingIds={todos.todoConfirmingIds}
+        isTodoDone={todos.isTodoDone}
+        getTodoConfirmingKey={todos.getTodoConfirmingKey}
+        getTodoDisplayTitle={todos.getTodoDisplayTitle}
+        onTodoToggle={(todo) => void todos.handleTodoToggle(todo)}
+        onGroupToggle={(groupId) => setCollapsedTodoGroupIds((current) => ({ ...current, [groupId]: !current[groupId] }))}
+        onPin={() => setTodoSidebarPinned(true)}
+        onCollapse={() => {
+          setTodoSidebarPinned(false);
+          setTodoSidebarOpen(false);
+          setTodoHoverBlocked(true);
+        }}
+        onRailEnter={() => setTodoSidebarOpen(true)}
+        onRailLeave={() => setTodoHoverBlocked(false)}
+        onRailOpen={() => {
+          setTodoHoverBlocked(false);
+          setTodoSidebarPinned(true);
+          setTodoSidebarOpen(true);
+        }}
+      />
       <div data-ui="usage-detail-screen.2" className="screen-enter" style={{ display: contentVisible ? 'grid' : 'none', gap: 12, minWidth: 0 }}>
         <div data-ui="usage-detail-screen.detail-header" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', alignItems: 'center', gap: 10, marginBottom: 4, minWidth: 0 }}>
           <div style={{ minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
@@ -1603,153 +466,53 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           </div>
           <div />
           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={() => void runUsageDetailVerification()} disabled={usageDetailVerificationRunning} style={{ height: 40, border: `1px solid ${usageDetailVerificationDone ? C.primary : C.g800}`, borderRadius: 999, background: usageDetailVerificationDone ? C.bg : C.white, color: usageDetailVerificationDone ? C.primary : C.g800, cursor: usageDetailVerificationRunning ? 'wait' : 'pointer', fontSize: 14, fontWeight: 800, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{usageDetailVerificationLabel}</button>
+            <button type="button" onClick={() => void verification.run()} disabled={verification.running} style={{ height: 40, border: `1px solid ${verification.done ? C.primary : C.g800}`, borderRadius: 999, background: verification.done ? C.bg : C.white, color: verification.done ? C.primary : C.g800, cursor: verification.running ? 'wait' : 'pointer', fontSize: 14, fontWeight: 800, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{verification.label}</button>
             {uploadCompleteAction}
           </div>
         </div>
         <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureMessage} actionLabel="확인" onAction={() => { setAgentFailureTarget(null); setAgentFailureMessage(''); }} />
-        {matchingError && (
-          <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: C.danger, lineHeight: 1.5 }}>{matchingError}</div>
-              <button type="button" onClick={() => setMatchingError('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 19, lineHeight: 1 }}>×</button>
-            </div>
-          </Card>
-        )}
-        {usageDetailActionError && (
-          <Card style={{ marginBottom: 12, padding: '12px 14px', background: C.dangerBg, border: '1px solid #FFCDD2' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: C.danger, lineHeight: 1.5 }}>{usageDetailActionError}</div>
-              <button type="button" onClick={() => setUsageDetailActionError('')} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 19, lineHeight: 1 }}>×</button>
-            </div>
-          </Card>
-        )}
-        {(matchingNotice || photoValidationNotice) && (
-          <Card style={{ marginBottom: 12, padding: '12px 14px', background: photoValidationNotice?.type === 'bad' ? C.dangerBg : C.bg, border: `1px solid ${photoValidationNotice?.type === 'bad' ? '#FFCDD2' : C.light}` }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'start', gap: 12 }}>
-              <div style={{ display: 'grid', gap: 5, minWidth: 0 }}>
-                {matchingNotice && <div style={{ fontSize: 14, fontWeight: 800, color: photoValidationNotice?.type === 'bad' ? C.danger : C.primary, lineHeight: 1.5 }}>{matchingNotice}</div>}
-                {photoValidationNotice && <div style={{ fontSize: 14, fontWeight: 800, color: photoValidationNotice.type === 'bad' ? C.danger : C.primary, lineHeight: 1.5 }}>{photoValidationNotice.message}</div>}
-              </div>
-              <button type="button" onClick={() => {
-                setMatchingNotice('');
-                setPhotoValidationNotice(null);
-              }} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 19, lineHeight: 1 }}>×</button>
-            </div>
-          </Card>
-        )}
+        <UsageDetailNotices
+          matchingError={verification.matchingError}
+          actionError={usageDetailActionError}
+          matchingNotice={verification.matchingNotice}
+          photoValidationNotice={verification.photoValidationNotice}
+          onDismissMatchingError={verification.dismissMatchingError}
+          onDismissActionError={() => setUsageDetailActionError('')}
+          onDismissNotices={verification.dismissActionNotices}
+        />
         <div data-ui="usage-detail-screen.6" className="screen-enter" style={{ paddingTop: 0, position: 'relative', minHeight: 560 }}>
-          <UsageDetailFileView cats={CATS} usageItems={resolvedUsageItems} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} actionRequest={actionRequest} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} isSupplementTarget={isSupplementTarget} onSelectCat={(catId) => {
+          <UsageDetailFileView cats={CATS} usageItems={resolvedUsageItems} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} actionRequest={actionRequest} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} isSupplementTarget={todos.isSupplementTarget} onSelectCat={(catId) => {
                 setSelectedHierarchyCatId(catId);
                 setSelectedUsageItemId(resolvedUsageItems.find((item) => item.categoryId === catId)?.id || '');
             }} onSelectUsageItem={(item) => {
                 setSelectedUsageItemId(item.id);
                 setSelectedHierarchyCatId(item.categoryId);
             }} onRemove={removeHierarchyFile} onRename={renameHierarchyFile} onMove={moveHierarchyFile} onEditUsageItem={editUsageItem} onAddUsageItem={openAddUsageItemModal} onDeleteUsageItem={requestDeleteUsageItem} onUpload={uploadFilesToSection} onDownloadFile={openFileDownload}/>
-          {usageDetailVerificationStep && usageDetailLoadingMessage && (
-            <div style={{ position: 'absolute', inset: 0, zIndex: 20, display: 'grid', placeItems: 'center', padding: 24, background: 'rgba(247, 252, 248, .62)', backdropFilter: 'blur(1px)' }}>
-              <div style={{ width: 'min(100%, 680px)', background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 22 }}>
-                {renderUsageDetailVerificationLoader()}
-              </div>
-            </div>
-          )}
+          <UsageDetailVerificationOverlay step={verification.step} message={verification.loadingMessage} />
         </div>
       </div>
-      <Modal open={addUsageItemModalOpen} onClose={() => setAddUsageItemModalOpen(false)} zIndex={960} maxWidth={520}>
-        <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: '24px 24px 20px' }}>
-          <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, marginBottom: 8 }}>세부 항목 추가</div>
-          <div style={{ fontSize: 14, color: C.g600, lineHeight: 1.6, marginBottom: 16 }}>
-            입력한 항목은 classi 에이전트가 9개 항목 기준으로 분류합니다.
-          </div>
-          <div style={{ display: 'grid', gap: 12 }}>
-            <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-              <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>사용내역</span>
-              <input value={addUsageItemDraft.name} onChange={(event) => setAddUsageItemDraft((current) => ({ ...current, name: event.target.value }))} autoFocus style={addUsageItemInputStyle} />
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-              <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>사용일자</span>
-                <input type="date" value={addUsageItemDraft.date} onChange={(event) => setAddUsageItemDraft((current) => ({ ...current, date: event.target.value }))} style={addUsageItemInputStyle} />
-              </label>
-              <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>단위</span>
-                <input value={addUsageItemDraft.unit} onChange={(event) => setAddUsageItemDraft((current) => ({ ...current, unit: event.target.value }))} style={addUsageItemInputStyle} />
-              </label>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-              <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>수량</span>
-                <input value={addUsageItemDraft.quantity} onChange={(event) => setAddUsageItemDraft((current) => ({ ...current, quantity: event.target.value }))} inputMode="decimal" style={addUsageItemInputStyle} />
-              </label>
-              <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>단가</span>
-                <input value={addUsageItemDraft.unitPrice} onChange={(event) => setAddUsageItemDraft((current) => ({ ...current, unitPrice: event.target.value }))} inputMode="numeric" style={addUsageItemInputStyle} />
-              </label>
-            </div>
-          </div>
-          {addUsageItemError && <div style={{ marginTop: 12, color: C.danger, fontSize: 13, fontWeight: 800 }}>{addUsageItemError}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-            <button type="button" onClick={() => setAddUsageItemModalOpen(false)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={submitAddUsageItem} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>완료</button>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal open={classiAgentRunning} onClose={() => {}} zIndex={1200} maxWidth={560}>
-        <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.18)', padding: 24 }}>
-          <InlineLoader title="classi 에이전트 실행 중" body="세부 항목의 9개 항목 분류를 확인하고 있습니다." />
-        </div>
-      </Modal>
-      <CenterModal open={Boolean(classiRejectedNotice)} title="세부항목 미반영" body={classiRejectedNotice && <div>
-        <div style={{ marginBottom: 10, fontSize: 14, color: C.g600, lineHeight: 1.6 }}>
-          classi 에이전트가 입력한 세부항목을 부적절로 판단해 화면에 추가하지 않았습니다.
-        </div>
-        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
-          <div title={classiRejectedNotice.itemName} style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{classiRejectedNotice.itemName}</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-            <span title={classiRejectedNotice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{classiRejectedNotice.fromCategoryName}</span>
-            <span style={{ color: C.danger, fontWeight: 800 }}>×</span>
-            <span title={classiRejectedNotice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: '1px solid #FFCDD2', borderRadius: 999, padding: '6px 9px', background: C.dangerBg, color: C.danger, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{classiRejectedNotice.toCategoryName}</span>
-          </div>
-          <div style={{ marginTop: 7, fontSize: 12, color: C.g600, lineHeight: 1.5 }}>{classiRejectedNotice.reason}</div>
-        </div>
-      </div>} actionLabel="확인" onAction={() => setClassiRejectedNotice(null)} />
-      <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 결과" body={<div>
-        <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
-          {classificationMoveNotices.map((notice) => (
-            <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
-              <div title={notice.itemName} style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
-                <span style={{ color: C.primary, fontWeight: 800 }}>→</span>
-                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 8, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>} actionLabel="확인" onAction={() => setClassificationMoveNotices([])} />
-
-      <Modal open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} zIndex={940} maxWidth={420}>
-        <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: '24px 24px 20px' }}>
-          <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, marginBottom: 8 }}>파일 삭제</div>
-          <div style={{ fontSize: 14, color: C.g600, lineHeight: 1.6, marginBottom: 18 }}>이 파일을 삭제하시겠습니까?</div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button type="button" onClick={() => setDeleteTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={confirmRemoveArchiveFile} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>삭제</button>
-          </div>
-        </div>
-      </Modal>
-      <Modal open={Boolean(deleteUsageItemTarget)} onClose={() => setDeleteUsageItemTarget(null)} zIndex={940} maxWidth={420}>
-        <div style={{ background: C.white, borderRadius: 18, border: `1px solid ${C.g200}`, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: '24px 24px 20px' }}>
-          <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, marginBottom: 8 }}>세부 항목 삭제</div>
-          <div style={{ fontSize: 14, color: C.g600, lineHeight: 1.6, marginBottom: 18 }}>
-            {deleteUsageItemTarget?.name ? `"${deleteUsageItemTarget.name}" 항목을 삭제하시겠습니까?` : '이 세부 항목을 삭제하시겠습니까?'}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button type="button" onClick={() => setDeleteUsageItemTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
-            <button type="button" onClick={() => void confirmDeleteUsageItem()} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>삭제</button>
-          </div>
-        </div>
-      </Modal>
+      <UsageStatementAddItemModal
+        open={addUsageItemModalOpen}
+        draft={addUsageItemDraft}
+        error={addUsageItemError}
+        onChange={(patch) => setAddUsageItemDraft((current) => ({ ...current, ...patch }))}
+        onClose={() => setAddUsageItemModalOpen(false)}
+        onSubmit={submitAddUsageItem}
+      />
+      <UsageStatementClassiModals
+        running={classiAgentRunning}
+        rejectedNotice={classiRejectedNotice}
+        classificationMoveNotices={classificationMoveNotices}
+        onDismissRejected={() => setClassiRejectedNotice(null)}
+        onDismissClassification={() => setClassificationMoveNotices([])}
+      />
+      <UsageStatementDeleteModals
+        fileDeleteOpen={Boolean(deleteTarget)}
+        usageItemDeleteTarget={deleteUsageItemTarget}
+        onCloseFileDelete={() => setDeleteTarget(null)}
+        onConfirmFileDelete={confirmRemoveArchiveFile}
+        onCloseUsageItemDelete={() => setDeleteUsageItemTarget(null)}
+        onConfirmUsageItemDelete={() => void confirmDeleteUsageItem()}
+      />
     </div>);
 }
