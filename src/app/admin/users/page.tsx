@@ -52,6 +52,12 @@ const inputStyle: React.CSSProperties = {
   outline: 'none',
 };
 
+const pageContentStyle: React.CSSProperties = {
+  width: 'calc(100% - 56px)',
+  marginLeft: 'auto',
+  marginRight: 'auto',
+};
+
 type UserDraft = {
   employeeNo: string;
   realName: string;
@@ -259,8 +265,9 @@ export default function AdminUsersPage() {
       title="사용자 관리"
       description="전체 사용자 계정과 역할을 관리합니다."
       actions={<Button size="sm" onClick={openCreateModal} style={{ boxShadow: 'none' }}>사용자 생성</Button>}
+      headerContentStyle={{ ...pageContentStyle, marginBottom: 16 }}
     >
-      <Card style={{ padding: 18, marginBottom: 14 }}>
+      <Card style={{ ...pageContentStyle, padding: 18, marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 180px', gap: 10, alignItems: 'center' }}>
           <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="사번 또는 이름 검색" style={inputStyle} />
           <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as BackendRoleCode | 'all')} style={{ ...inputStyle, cursor: 'pointer' }}>
@@ -270,7 +277,7 @@ export default function AdminUsersPage() {
         </div>
       </Card>
 
-      <Card style={{ padding: 0, overflow: 'hidden' }}>
+      <Card style={{ ...pageContentStyle, padding: 0, overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 170px 190px 150px', background: C.g100, borderBottom: `1px solid ${C.g200}` }}>
           {['사번', '이름', '역할', '수정일', '관리'].map((head) => <div key={head} style={{ padding: '12px 14px', fontSize: 13, fontWeight: 800, color: C.g600 }}>{head}</div>)}
         </div>

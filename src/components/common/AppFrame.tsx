@@ -15,6 +15,7 @@ interface AppFrameProps {
   description?: string;
   actions?: React.ReactNode;
   mainClassName?: string;
+  headerContentStyle?: React.CSSProperties;
   children: React.ReactNode;
 }
 
@@ -82,7 +83,7 @@ const HeaderIcon = ({ name, color }: { name: HeaderIconName; color: string }) =>
   );
 };
 
-export default function AppFrame({ description, actions, mainClassName, children }: AppFrameProps) {
+export default function AppFrame({ description, actions, mainClassName, headerContentStyle, children }: AppFrameProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, clearCurrentUser } = useCurrentUser();
@@ -280,7 +281,7 @@ export default function AppFrame({ description, actions, mainClassName, children
 
       <main data-ui="app-frame.18" className={mainClassName ? `app-main ${mainClassName}` : 'app-main'}>
         {hasHeaderContent && (
-          <div data-ui="app-frame.19" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 16 }}>
+          <div data-ui="app-frame.19" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 16, ...headerContentStyle }}>
             <div data-ui="app-frame.20" style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               {description && <div data-ui="app-frame.21" style={{ fontSize: 15, color: C.g400, fontWeight: 600 }}>{description}</div>}
             </div>

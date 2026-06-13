@@ -8,13 +8,15 @@ import { useCurrentUser } from '../../lib/dev-user';
 import { C } from '../../lib/theme';
 import { listUsageRecords, type UsageRecordScope, type UsageRecordSummary } from '../../lib/usage-records-api';
 
-const SCOPES: Array<{ key: UsageRecordScope; label: string; description: string }> = [
-  { key: 'user', label: '사용자별', description: '사용자 단위 토큰 사용량과 비용' },
-  { key: 'project', label: '프로젝트별', description: '프로젝트 단위 AI 사용 비용' },
-  { key: 'agent', label: '에이전트별', description: 'OCR, 매칭, 법령 검증 등 에이전트별 사용량' },
-  { key: 'month', label: '월별', description: '월 단위 사용량 추이' },
-  { key: 'date', label: '일별', description: '일 단위 사용량 추이' },
-];
+const SCOPES: UsageRecordScope[] = ['user', 'project', 'agent', 'month', 'date'];
+
+const SCOPE_TAB_TEXT: Record<UsageRecordScope, string> = {
+  user: '사용자별',
+  project: '프로젝트별',
+  agent: '에이전트별',
+  month: '월별',
+  date: '일별',
+};
 
 const currency = (value: number) => `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatTokens = (value: number) => value.toLocaleString('ko-KR');
@@ -49,7 +51,7 @@ export default function UsageRecordsPage() {
       alive = false;
     };
     setLoading(true);
-    Promise.all(SCOPES.map((item) => listUsageRecords(item.key, { year, month }).catch(() => [])))
+    Promise.all(SCOPES.map((item) => listUsageRecords(item, { year, month }).catch(() => [])))
       .then((results) => {
         if (!alive) return;
         setRowsByScope({
@@ -68,7 +70,16 @@ export default function UsageRecordsPage() {
     };
   }, [month, year]);
 
-  const activeRows = rowsByScope[scope];
+  const activeRows = useMemo(() => {
+    const rows = rowsByScope[scope];
+    if (scope === 'user' || scope === 'project') {
+      return [...rows].sort((a, b) => a.label.localeCompare(b.label, 'ko', { sensitivity: 'base' }));
+    }
+    if (scope === 'agent') {
+      return [...rows].sort((a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base' }));
+    }
+    return rows;
+  }, [rowsByScope, scope]);
   const backHref = user.role === 'system_admin' ? '/admin/users' : '/dashboard';
   const backLabel = user.role === 'system_admin' ? '사용자 관리로 돌아가기' : '대시보드로 돌아가기';
   const totals = useMemo(() => activeRows.reduce((summary, row) => ({
@@ -76,10 +87,8 @@ export default function UsageRecordsPage() {
     calls: summary.calls + row.calls,
     cost: summary.cost + row.cost,
   }), { tokens: 0, calls: 0, cost: 0 }), [activeRows]);
-  const activeScope = SCOPES.find((item) => item.key === scope) || SCOPES[0];
-
   const pageStyle: CSSProperties = {
-    width: 'min(1280px, calc(100vw - 80px))',
+    width: 'min(1224px, calc(100% - 56px))',
     margin: '0 auto',
     display: 'grid',
     gap: 18,
@@ -128,8 +137,8 @@ export default function UsageRecordsPage() {
         <Card style={{ padding: 18, borderRadius: 14, display: 'grid', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 800, color: C.g800 }}>조회 기간</div>
-              <div style={{ marginTop: 4, fontSize: 13, fontWeight: 600, color: C.g500 }}>선택한 기간의 전체 사용량 요약입니다.</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.g800 }}>사용량 요약</div>
+              <div style={{ marginTop: 4, fontSize: 13, fontWeight: 600, color: C.g500 }}>선택한 연월 기준의 비용, 토큰, 호출 수입니다.</div>
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <select aria-label="사용량 조회 연도" value={year} onChange={(event) => setYear(event.target.value)} style={{ ...periodSelectStyle, width: 92 }}>
@@ -163,18 +172,17 @@ export default function UsageRecordsPage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 {SCOPES.map((item) => (
-                  <button key={item.key} type="button" onClick={() => setScope(item.key)} style={compactButtonStyle(scope === item.key)}>
-                    {item.label}
+                  <button key={item} type="button" onClick={() => setScope(item)} style={compactButtonStyle(scope === item)}>
+                    {SCOPE_TAB_TEXT[item]}
                   </button>
                 ))}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 19, fontWeight: 700, color: C.g800 }}>{activeScope.label} 사용량</div>
-              <div style={{ marginTop: 5, fontSize: 13, fontWeight: 600, color: C.g500 }}>{activeScope.description}</div>
-            </div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.g500 }}>{year}년 {Number(month)}월</div>
+              <div>
+                <div style={{ fontSize: 19, fontWeight: 700, color: C.g800 }}>{SCOPE_TAB_TEXT[scope]} 사용량</div>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.g500 }}>{year}년 {Number(month)}월</div>
             </div>
           </div>
 

@@ -181,6 +181,41 @@ const normalizeMonthKey = (month?: string | null) => {
     const match = month.match(/^(\d{4})-(\d{2})/);
     return match ? `${match[1]}-${match[2]}` : month;
 };
+const pendingUsageMonthsStorageKey = (projectId: string) => `i-veri:pending-usage-months:${projectId}`;
+const readPendingUsageMonths = (projectId: string) => {
+    if (typeof window === 'undefined')
+        return [];
+    try {
+        const parsed = JSON.parse(window.localStorage.getItem(pendingUsageMonthsStorageKey(projectId)) || '[]');
+        return Array.isArray(parsed) ? parsed.map((month) => normalizeMonthKey(String(month))).filter(Boolean) : [];
+    } catch {
+        return [];
+    }
+};
+const writePendingUsageMonths = (projectId: string, months: string[]) => {
+    if (typeof window === 'undefined')
+        return;
+    const normalized = Array.from(new Set(months.map((month) => normalizeMonthKey(month)).filter(Boolean))).sort();
+    if (normalized.length)
+        window.localStorage.setItem(pendingUsageMonthsStorageKey(projectId), JSON.stringify(normalized));
+    else
+        window.localStorage.removeItem(pendingUsageMonthsStorageKey(projectId));
+};
+const pendingMonthSummary = (month: string): MonthlyUsageStatementSummary => ({
+    month,
+    label: formatMonthLabel(month),
+    sourceFileName: '-',
+    revisionNo: 0,
+    documentWrittenDate: '-',
+    uploadedAt: '-',
+    uploadedBy: '-',
+    parseStatus: '미업로드',
+    validationStatus: '미검증',
+    currentAmount: '0',
+    cumulativeAmount: '0',
+    evidenceCount: 0,
+    issueCount: 0,
+});
 const toMonthKeyFromDate = (value?: string | null) => {
     const match = value?.trim().replace(/\//g, '-').match(/^(\d{4})-(\d{2})/);
     return match ? `${match[1]}-${match[2]}` : '';
@@ -301,7 +336,9 @@ const extractClassificationMoveNotices = (workflow: unknown): ClassificationMove
     });
 };
 const getNextMonthKey = (month?: string) => {
-    const base = month ? new Date(`${month}-01`) : new Date();
+    if (!month)
+        return new Date().toISOString().slice(0, 7);
+    const base = new Date(`${month}-01`);
     if (Number.isNaN(base.getTime()))
         return new Date().toISOString().slice(0, 7);
     base.setMonth(base.getMonth() + 1);
@@ -518,20 +555,28 @@ function ProjectDetailPageContent() {
             getProjectArchiveFromCategories(targetProjectId).catch(() => null),
         ]);
         const mergedWithOrchestrator = await Promise.all(statementArchives.map(attachOrchestratorState));
-        if (mergedWithOrchestrator.length) {
-            setDbUsageStatementsByMonth(Object.fromEntries(mergedWithOrchestrator.map((item) => {
-                const month = normalizeMonthKey(item.statementSummary.month);
-                return [month, {
-                    ...item,
-                    statementSummary: {
-                        ...item.statementSummary,
-                        month,
-                        label: formatMonthLabel(month),
-                    },
-                    actionRequestDetails: withActionRequestMonth(item.actionRequestDetails, month),
-                }];
-            })) as Record<string, MonthUsageStatementArchiveData>);
-        }
+        const statementsByMonth = Object.fromEntries(mergedWithOrchestrator.map((item) => {
+            const month = normalizeMonthKey(item.statementSummary.month);
+            return [month, {
+                ...item,
+                statementSummary: {
+                    ...item.statementSummary,
+                    month,
+                    label: formatMonthLabel(month),
+                },
+                actionRequestDetails: withActionRequestMonth(item.actionRequestDetails, month),
+            }];
+        })) as Record<string, MonthUsageStatementArchiveData>;
+        const pendingMonths = readPendingUsageMonths(targetProjectId).filter((month) => !statementsByMonth[month]);
+        setDbUsageStatementsByMonth({
+            ...statementsByMonth,
+            ...Object.fromEntries(pendingMonths.map((month) => [month, {
+                archiveSeed: { usage_statement: [], categories: {} },
+                usageItems: [],
+                overviewRows: EMPTY_OVERVIEW_ROWS,
+                statementSummary: pendingMonthSummary(month),
+            } satisfies MonthUsageStatementArchiveData])),
+        });
         if (latestData) {
             const latestMonth = normalizeMonthKey(latestData.statementSummary.month);
             const latestWithOrchestrator = mergedWithOrchestrator.find((item) => normalizeMonthKey(item.statementSummary.month) === latestMonth) || await attachOrchestratorState(latestData);
@@ -657,21 +702,8 @@ function ProjectDetailPageContent() {
             setNewMonthError(`프로젝트 기간(${startMonth} ~ ${endMonth})에 맞지 않는 월입니다.`);
             return;
         }
-        const statementSummary: MonthlyUsageStatementSummary = {
-            month,
-            label: formatMonthLabel(month),
-            sourceFileName: '-',
-            revisionNo: 0,
-            documentWrittenDate: '-',
-            uploadedAt: '-',
-            uploadedBy: '-',
-            parseStatus: '미업로드',
-            validationStatus: '미검증',
-            currentAmount: '0',
-            cumulativeAmount: '0',
-            evidenceCount: 0,
-            issueCount: 0,
-        };
+        const statementSummary = pendingMonthSummary(month);
+        writePendingUsageMonths(project.id || projectId, [...readPendingUsageMonths(project.id || projectId), month]);
         setDbUsageStatementsByMonth((current) => ({
             ...current,
             [month]: {
@@ -695,7 +727,19 @@ function ProjectDetailPageContent() {
             return;
         const usageStatementId = dbUsageStatementsByMonth[targetMonth]?.usageStatementId;
         if (!usageStatementId) {
-            setMonthDeleteError('삭제할 사용내역서 ID를 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.');
+            writePendingUsageMonths(project.id || projectId, readPendingUsageMonths(project.id || projectId).filter((month) => month !== targetMonth));
+            setDbUsageStatementsByMonth((current) => {
+                const next = { ...current };
+                delete next[targetMonth];
+                return next;
+            });
+            setMonthDeleteError('');
+            setMonthDeleteTarget(null);
+            if (selectedMonth === targetMonth) {
+                setSelectedMonth('');
+                setArchiveSeed(null);
+                setArchiveUsageItems([]);
+            }
             return;
         }
         setMonthDeleting(true);
@@ -1102,6 +1146,7 @@ function ProjectDetailPageContent() {
                         }
                         const uploadedAt = uploadedEntry.uploadedAt || new Date().toISOString().slice(0, 10);
                         const month = savedArchive?.statementSummary.month || selectedMonth || uploadedAt.slice(0, 7);
+                        writePendingUsageMonths(project.id, readPendingUsageMonths(project.id).filter((pendingMonth) => pendingMonth !== month));
                         if (savedArchive && existingUploadedMonths.has(month)) {
                             setDuplicateUsageMonthWarning(`${formatMonthLabel(month)} 사용내역서가 이미 존재합니다. 파일의 세부항목 사용일자를 확인한 뒤 다시 업로드해주세요.`);
                             setUsageUploadStage('idle');
@@ -1335,7 +1380,7 @@ function ProjectDetailPageContent() {
         <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
           <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, marginBottom: 8 }}>사용내역서 월 삭제</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.6 }}>
-            {monthDeleteTarget?.label} 사용내역서를 삭제하시겠습니까? 해당 월의 사용내역서와 증빙 서류가 제거됩니다.
+            {monthDeleteTarget?.label} 사용내역서를 삭제하시겠습니까? <br/>해당 월의 사용내역서와 증빙 서류가 제거됩니다.
           </div>
           {monthDeleteError && <div style={{ marginTop: 12, borderRadius: 10, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 800, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{monthDeleteError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
@@ -1424,14 +1469,14 @@ function ProjectDetailPageContent() {
     ) : null;
     const projectDetailCardShadow = 'var(--ui-shadow-card)';
     const overviewUsageRows = selectedStatementArchive?.overviewRows || EMPTY_OVERVIEW_ROWS;
-    const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '150px minmax(170px, 1fr) 150px minmax(170px, 1fr)', minWidth: 720 } as const;
+    const usageInfoGridStyle = { display: 'grid', gridTemplateColumns: '125px minmax(170px, 1fr) 125px minmax(170px, 1fr)', width: '100%', minWidth: 900, flexShrink: 0 } as const;
     const usageSummaryGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 130px 150px 130px', minWidth: 670 } as const;
     const usageTableScrollStyle = { width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden' } as const;
     const detailPanelWidth = 'min(1180px, 100%)';
     const tabPanelMinWidth = selectedMonth ? 1180 : 0;
     const tabPanelStyle: CSSProperties = selectedMonth && activeTab === 'report'
-        ? { padding: 0, border: 'none', boxShadow: 'none', background: 'transparent', width: detailPanelWidth, minWidth: tabPanelMinWidth, maxWidth: '100%', overflow: 'visible', margin: '0 auto' }
-        : { padding: 24, borderRadius: 12, border: `1px solid ${C.g200}`, background: C.white, width: detailPanelWidth, minWidth: tabPanelMinWidth, maxWidth: '100%', overflow: 'visible', boxShadow: projectDetailCardShadow, margin: '0 auto' };
+        ? { padding: 0, border: 'none', boxShadow: 'none', background: 'transparent', width: detailPanelWidth, minWidth: tabPanelMinWidth, maxWidth: selectedMonth ? 'none' : '100%', overflow: 'visible', margin: '0 auto' }
+        : { padding: 24, borderRadius: 12, border: `1px solid ${C.g200}`, background: C.white, width: detailPanelWidth, minWidth: tabPanelMinWidth, maxWidth: selectedMonth ? 'none' : '100%', overflow: 'visible', boxShadow: projectDetailCardShadow, margin: '0 auto' };
     const parseProjectPeriod = (period: string) => {
         const [startDate = '', endDate = ''] = period.split('~').map((value) => value.trim().replace(/\//g, '-'));
         return { startDate, endDate };
@@ -1684,8 +1729,8 @@ function ProjectDetailPageContent() {
         ) : <>
         {!selectedMonthHasUploadedStatement ? <>
         <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ width: 'min(100%, 420px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
-            <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 9 }}>{selectedStatement.label} 사용내역서가 업로드되지 않았습니다</div>
+          <div style={{ width: 'min(100%, 440px)', border: `1px solid ${C.g200}`, borderRadius: 12, background: C.white, padding: '34px 28px', textAlign: 'center', boxShadow: '0 10px 24px rgba(31,47,39,.05)' }}>
+            <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, marginBottom: 22 }}>{selectedStatement.label} 사용내역서가 업로드되지 않았습니다</div>
             {usageUploadButton}
           </div>
         </div>
@@ -1820,7 +1865,7 @@ function ProjectDetailPageContent() {
               {showUsageStatementHeaderInfo && <button type="button" onClick={() => setProjectHeaderOpen((open) => !open)} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, height: 34, padding: '0 11px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 7px 16px rgba(31, 55, 43, .08)' }}>
                 <ChevronIcon direction={projectHeaderOpen ? 'up' : 'down'} size={14} />
               </button>}
-              {activeTab === 'overview' && selectedMonth ? usageUploadButton : null}
+              {selectedMonth ? usageUploadButton : null}
               {canEditManagers && <button type="button" onClick={openProjectInfoModal} style={{ flex: '0 0 auto', border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.primary, height: 34, padding: '0 13px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', boxShadow: 'none' }}>기본 정보 수정</button>}
             </div>
           </div>
@@ -1846,15 +1891,15 @@ function ProjectDetailPageContent() {
                     <div data-ui="project-detail.18" title={valueA} style={{ gridColumn: labelB ? undefined : 'span 3', padding: '9px 11px', color: C.g800, fontWeight: 700, borderRight: labelB ? `1px solid ${C.g200}` : 'none', borderBottom: `1px solid ${C.g200}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valueA}</div>
                     {labelB && <>
                       {labelC ? (
-                        <div style={{ gridColumn: 'span 2', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', borderBottom: `1px solid ${C.g200}` }}>
+                        <div style={{ gridColumn: 'span 2', display: 'grid', gridTemplateColumns: '125px minmax(0, 1fr) 125px minmax(0, 1fr)', borderBottom: `1px solid ${C.g200}` }}>
                           {[
                             [labelB, valueB],
                             [labelC, valueC],
                           ].map(([label, value], index) => (
-                            <div key={label} style={{ display: 'grid', gridTemplateColumns: '90px minmax(0, 1fr)', minWidth: 0, borderRight: index === 0 ? `1px solid ${C.g200}` : 'none' }}>
+                            <Fragment key={label}>
                               <div style={{ padding: '9px 11px', background: C.g100, color: C.g600, fontWeight: 800, borderRight: `1px solid ${C.g200}` }}>{label}</div>
-                              <div title={value} style={{ padding: '9px 11px', color: C.g800, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
-                            </div>
+                              <div title={value} style={{ padding: '9px 11px', color: C.g800, fontWeight: 700, borderRight: index === 0 ? `1px solid ${C.g200}` : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+                            </Fragment>
                           ))}
                         </div>
                       ) : (
@@ -1935,11 +1980,9 @@ function ProjectDetailPageContent() {
 
       <div
         data-ui="project-detail.31"
-        className="thin-x-scroll"
         style={{
           minWidth: 0,
-          maxWidth: '100%',
-          overflowX: 'auto',
+          overflowX: 'visible',
           overflowY: 'visible',
         }}
       >

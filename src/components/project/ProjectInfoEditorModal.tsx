@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Modal from '../ui/Modal';
+import ChevronIcon from '../ui/ChevronIcon';
 import DateRangePicker from '../common/DateRangePicker';
 import { C } from '../../lib/theme';
 
@@ -158,7 +159,9 @@ export default function ProjectInfoEditorModal({
             <span style={{ color: C.g400, fontSize: 14, fontWeight: 700 }}>{label}를 선택해 주세요</span>
           )}
         </span>
-        <span aria-hidden="true" style={{ color: C.g500, fontSize: 15, fontWeight: 800 }}>{openAssigneePopup === key ? '⌃' : '⌄'}</span>
+        <span aria-hidden="true" style={{ color: C.g500, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18 }}>
+          <ChevronIcon direction={openAssigneePopup === key ? 'up' : 'down'} size={18} color={C.g500} />
+        </span>
       </button>
       {openAssigneePopup === key && (
         <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, width: 'min(300px, calc(100vw - 48px))', zIndex: 20, border: `1px solid ${C.g200}`, borderRadius: 8, background: C.white, boxShadow: '0 16px 36px rgba(31,47,39,.16)', padding: 8 }}>

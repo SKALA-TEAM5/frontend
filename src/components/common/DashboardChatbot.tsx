@@ -28,6 +28,15 @@ type FloatingPosition = {
   top: number;
 };
 
+type FloatingEdge = 'left' | 'right' | 'top' | 'bottom';
+
+type StoredFloatingPosition = {
+  horizontalAnchor: Extract<FloatingEdge, 'left' | 'right'>;
+  horizontalOffset: number;
+  verticalAnchor: Extract<FloatingEdge, 'top' | 'bottom'>;
+  verticalOffset: number;
+};
+
 type ViewportSize = {
   width: number;
   height: number;
@@ -59,12 +68,52 @@ const getDefaultFloatingPosition = (viewport: ViewportSize): FloatingPosition =>
   top: viewport.height - floatingButtonSize - 28,
 }, viewport);
 
+const positionToStoredFloatingPosition = (
+  position: FloatingPosition,
+  viewport: ViewportSize,
+): StoredFloatingPosition => {
+  const clampedPosition = clampFloatingPosition(position, viewport);
+  const right = viewport.width - clampedPosition.left - floatingButtonSize;
+  const bottom = viewport.height - clampedPosition.top - floatingButtonSize;
+  const horizontalAnchor = clampedPosition.left <= right ? 'left' : 'right';
+  const verticalAnchor = clampedPosition.top <= bottom ? 'top' : 'bottom';
+
+  return {
+    horizontalAnchor,
+    horizontalOffset: horizontalAnchor === 'left' ? clampedPosition.left : right,
+    verticalAnchor,
+    verticalOffset: verticalAnchor === 'top' ? clampedPosition.top : bottom,
+  };
+};
+
+const storedFloatingPositionToPosition = (
+  storedPosition: StoredFloatingPosition,
+  viewport: ViewportSize,
+): FloatingPosition => clampFloatingPosition({
+  left: storedPosition.horizontalAnchor === 'right'
+    ? viewport.width - floatingButtonSize - storedPosition.horizontalOffset
+    : storedPosition.horizontalOffset,
+  top: storedPosition.verticalAnchor === 'bottom'
+    ? viewport.height - floatingButtonSize - storedPosition.verticalOffset
+    : storedPosition.verticalOffset,
+}, viewport);
+
+const isStoredFloatingPosition = (value: Partial<StoredFloatingPosition>): value is StoredFloatingPosition => (
+  (value.horizontalAnchor === 'left' || value.horizontalAnchor === 'right')
+  && typeof value.horizontalOffset === 'number'
+  && (value.verticalAnchor === 'top' || value.verticalAnchor === 'bottom')
+  && typeof value.verticalOffset === 'number'
+);
+
 const readStoredFloatingPosition = (viewport: ViewportSize): FloatingPosition => {
   if (typeof window === 'undefined') return getDefaultFloatingPosition(viewport);
   try {
-    const parsed = JSON.parse(window.sessionStorage.getItem(floatingPositionStorageKey) || '') as Partial<FloatingPosition>;
+    const parsed = JSON.parse(window.sessionStorage.getItem(floatingPositionStorageKey) || '') as Partial<FloatingPosition & StoredFloatingPosition>;
+    if (isStoredFloatingPosition(parsed)) {
+      return storedFloatingPositionToPosition(parsed, viewport);
+    }
     if (typeof parsed.left === 'number' && typeof parsed.top === 'number') {
-      return clampFloatingPosition({ left: parsed.left, top: parsed.top }, viewport);
+      return getDefaultFloatingPosition(viewport);
     }
   } catch {
     // Ignore invalid persisted coordinates and fall back to the default corner.
@@ -147,28 +196,30 @@ export default function DashboardChatbot() {
   const assistantMessageIdRef = useRef<string | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
+  const storedPositionRef = useRef<StoredFloatingPosition | null>(null);
 
   const dateLabel = useMemo(todayLabel, []);
   const canSubmit = input.trim().length > 0 && !streaming;
+  const visibleButtonPosition = clampFloatingPosition(buttonPosition, viewport);
   const panelWidth = Math.min(panelMaxWidth, Math.max(280, viewport.width - floatingMargin * 2 - floatingButtonSize - panelGap));
   const panelHeight = Math.min(panelMaxHeight, Math.max(panelMinHeight, viewport.height - floatingMargin * 2 - floatingButtonSize - panelGap));
-  const panelBelowIcon = buttonPosition.top + floatingButtonSize / 2 < viewport.height / 2;
+  const panelBelowIcon = visibleButtonPosition.top + floatingButtonSize / 2 < viewport.height / 2;
   const panelTop = clamp(
-    panelBelowIcon ? buttonPosition.top + floatingButtonSize + panelGap : buttonPosition.top - panelHeight - panelGap,
+    panelBelowIcon ? visibleButtonPosition.top + floatingButtonSize + panelGap : visibleButtonPosition.top - panelHeight - panelGap,
     floatingMargin,
     Math.max(floatingMargin, viewport.height - panelHeight - floatingMargin),
   );
   const panelLeft = clamp(
-    buttonPosition.left + floatingButtonSize - panelWidth,
+    visibleButtonPosition.left + floatingButtonSize - panelWidth,
     floatingMargin,
     Math.max(floatingMargin, viewport.width - panelWidth - floatingButtonSize - panelGap - floatingMargin),
   );
   const floatingControlPosition = open
     ? {
       left: clamp(panelLeft + panelWidth + panelGap, floatingMargin, Math.max(floatingMargin, viewport.width - floatingButtonSize - floatingMargin)),
-      top: clamp(buttonPosition.top, panelTop, Math.max(panelTop, panelTop + panelHeight - floatingButtonSize)),
+      top: clamp(visibleButtonPosition.top, panelTop, Math.max(panelTop, panelTop + panelHeight - floatingButtonSize)),
     }
-    : buttonPosition;
+    : visibleButtonPosition;
 
   useEffect(() => {
     if (!open) return;
@@ -187,14 +238,19 @@ export default function DashboardChatbot() {
 
   useEffect(() => {
     const initialViewport = getViewportSize();
+    const initialPosition = readStoredFloatingPosition(initialViewport);
     setViewport(initialViewport);
-    setButtonPosition(readStoredFloatingPosition(initialViewport));
+    setButtonPosition(initialPosition);
+    storedPositionRef.current = positionToStoredFloatingPosition(initialPosition, initialViewport);
     setPositionInitialized(true);
 
     const handleResize = () => {
       const nextViewport = getViewportSize();
       setViewport(nextViewport);
-      setButtonPosition((current) => clampFloatingPosition(current, nextViewport));
+      setButtonPosition((currentPosition) => storedFloatingPositionToPosition(
+        storedPositionRef.current || positionToStoredFloatingPosition(currentPosition, nextViewport),
+        nextViewport,
+      ));
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -202,8 +258,9 @@ export default function DashboardChatbot() {
 
   useEffect(() => {
     if (!positionInitialized) return;
-    window.sessionStorage.setItem(floatingPositionStorageKey, JSON.stringify(buttonPosition));
-  }, [buttonPosition, positionInitialized]);
+    const storedPosition = storedPositionRef.current || positionToStoredFloatingPosition(buttonPosition, viewport);
+    window.sessionStorage.setItem(floatingPositionStorageKey, JSON.stringify(storedPosition));
+  }, [buttonPosition, positionInitialized, viewport]);
 
   const handleEvent = (event: ChatbotStreamEvent) => {
     if (event.type === 'session_id' && typeof event.value === 'string') {
@@ -323,10 +380,10 @@ export default function DashboardChatbot() {
     event.currentTarget.setPointerCapture(event.pointerId);
     dragStateRef.current = {
       pointerId: event.pointerId,
-      offsetX: event.clientX - buttonPosition.left,
-      offsetY: event.clientY - buttonPosition.top,
-      startLeft: buttonPosition.left,
-      startTop: buttonPosition.top,
+      offsetX: event.clientX - visibleButtonPosition.left,
+      offsetY: event.clientY - visibleButtonPosition.top,
+      startLeft: visibleButtonPosition.left,
+      startTop: visibleButtonPosition.top,
       moved: false,
     };
     setDragging(true);
@@ -342,6 +399,7 @@ export default function DashboardChatbot() {
     if (Math.abs(nextPosition.left - dragState.startLeft) > 4 || Math.abs(nextPosition.top - dragState.startTop) > 4) {
       dragState.moved = true;
     }
+    storedPositionRef.current = positionToStoredFloatingPosition(nextPosition, viewport);
     setButtonPosition(nextPosition);
   };
 
