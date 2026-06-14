@@ -14,6 +14,13 @@ interface CategoryMeta {
 
 export type HierarchyEvidenceKind = FolderEvidenceCategory | 'misc';
 
+type PreviewTargetMeta = {
+  id: string;
+  kind: FolderEvidenceCategory;
+  catId: number;
+  usageItemId: string;
+};
+
 const EVIDENCE_SECTIONS: Array<{ id: FolderEvidenceCategory; label: string }> = [
   { id: 'receipt', label: '영수증' },
   { id: 'site_photo', label: '사진' },
@@ -69,7 +76,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
   const [moveTarget, setMoveTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; file: EvidenceFile } | null>(null);
   const [openFileMenu, setOpenFileMenu] = useState<{ kind: FolderEvidenceCategory; file: EvidenceFile; top: number; left: number } | null>(null);
   const fileMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
-  const [previewTarget, setPreviewTarget] = useState<EvidenceFile | null>(null);
+  const [previewTargetMeta, setPreviewTargetMeta] = useState<PreviewTargetMeta | null>(null);
   const [showVisionBoxes, setShowVisionBoxes] = useState(true);
   const [fileEditDraft, setFileEditDraft] = useState('');
   const [editUsageItemTarget, setEditUsageItemTarget] = useState<UsageLineItem | null>(null);
@@ -80,6 +87,10 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
   const [moveTargetKind, setMoveTargetKind] = useState<FolderEvidenceCategory>('receipt');
   const filteredItems = usageItems.filter((item) => item.categoryId === selectedCatId);
   const activeItem = filteredItems.find((item) => item.id === selectedUsageItemId) || filteredItems[0];
+  const previewTarget = previewTargetMeta
+    ? getFiles(previewTargetMeta.kind, previewTargetMeta.catId, previewTargetMeta.usageItemId)
+      .find((file) => file.id === previewTargetMeta.id) ?? null
+    : null;
   const layoutColumns = '220px 600px 310px';
   const usageItemGridColumns = '72px minmax(140px, .78fr) 32px 32px 80px 86px';
   const usageItemRowColumns = `${usageItemGridColumns} 66px`;
@@ -222,7 +233,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     const left = Math.min(openFileMenu.left, window.innerWidth - menuWidth - 8);
     return createPortal(
       <div style={{ position: 'fixed', top: openFileMenu.top, left, zIndex: 1100, width: menuWidth, border: `1px solid ${C.g200}`, borderRadius: 8, background: C.white, boxShadow: '0 12px 26px rgba(31,47,39,.14)', padding: 3 }}>
-        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setPreviewTarget(openFileMenu.file); setShowVisionBoxes(true); setOpenFileMenu(null); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>미리보기</button>
+        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setPreviewTargetMeta({ id: openFileMenu.file.id, kind: openFileMenu.kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId }); setShowVisionBoxes(true); setOpenFileMenu(null); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>미리보기</button>
         <div style={{ height: 1, background: C.g100, margin: '2px 4px' }} />
         <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; openFileEditModal(openFileMenu.kind, openFileMenu.file); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>수정</button>
         <div style={{ height: 1, background: C.g100, margin: '2px 4px' }} />
@@ -244,7 +255,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
       <div
         role="dialog"
         aria-label="파일 미리보기"
-        onClick={() => setPreviewTarget(null)}
+        onClick={() => setPreviewTargetMeta(null)}
         style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'grid', placeItems: 'center', background: 'rgba(31,47,39,.08)', backdropFilter: 'blur(.5px)', padding: 24 }}
       >
         <div onClick={(event) => event.stopPropagation()} style={{ width: 'min(560px, 72%)', border: `1px solid ${C.g200}`, borderRadius: 16, background: C.white, boxShadow: '0 22px 52px rgba(31,47,39,.22)', padding: 16 }}>
@@ -301,7 +312,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                 바운더리 박스 {showVisionBoxes ? 'ON' : 'OFF'}
               </button>
             )}
-            <button type="button" onClick={() => setPreviewTarget(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, padding: '8px 14px' }}>
+            <button type="button" onClick={() => setPreviewTargetMeta(null)} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, padding: '8px 14px' }}>
               닫기
             </button>
           </div>
