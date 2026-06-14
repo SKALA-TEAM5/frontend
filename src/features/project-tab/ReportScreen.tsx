@@ -60,9 +60,25 @@ const normalizeEvidenceTypeLabel = (value: string) => {
   return EVIDENCE_TYPE_LABELS[normalized] || trimmed;
 };
 
+const isAppropriateDecisionText = (value: string) => {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, '');
+  return ['적정', 'appropriate', 'valid', 'pass', 'passed'].includes(normalized);
+};
+
+const isReviewRequiredDecisionText = (value: string) => {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, '');
+  return ['검토필요', 'reviewrequired', 'needsreview'].includes(normalized);
+};
+
+const isGenericReviewRequiredText = (value: string) =>
+  /(?:검토\s*필요|she\s*검토|review\s*required|needs?\s*review)/i.test(value);
+
+const hasActionableIssueDetails = (draft: ReportDraft) => draft.issue_details.length > 0;
+
 const normalizeReportSectionTable = (
   sectionId: string,
   table: ReportDraft['report_sections'][number]['tables'][number],
+  hasIssues = true,
 ): ReportDraft['report_sections'][number]['tables'][number] => {
   if (sectionId === 'issue_details') {
     return {
@@ -76,32 +92,98 @@ const normalizeReportSectionTable = (
       rows: table.rows.map((row) => row.map((cell, cellIndex) => cellIndex === 0 ? normalizeEvidenceTypeLabel(cell) : cell)),
     };
   }
+  if (sectionId === 'execution_summary' && !hasIssues) {
+    const noteIndex = table.headers.findIndex((header) => header.includes('비고'));
+    const countIndex = table.headers.findIndex((header) => header.includes('건수'));
+    if (noteIndex < 0) return table;
+    return {
+      ...table,
+      rows: table.rows.map((row) => {
+        const note = row[noteIndex] || '';
+        if (!isGenericReviewRequiredText(note)) return row;
+        return row.map((cell, index) => {
+          if (index === noteIndex) return '특이사항 없음';
+          if (index === countIndex) return '0건';
+          return cell;
+        });
+      }),
+    };
+  }
+  if (sectionId === 'item_reviews') {
+    const decisionIndex = table.headers.findIndex((header) => header.includes('판정'));
+    const reasonIndex = table.headers.findIndex((header) => header.includes('요약') || header.includes('사유'));
+    if (decisionIndex < 0 || reasonIndex < 0) return table;
+    return {
+      ...table,
+      rows: table.rows.map((row) => {
+        const decision = row[decisionIndex] || '';
+        const reason = row[reasonIndex] || '';
+        const shouldNormalizeReason = isAppropriateDecisionText(decision) && isGenericReviewRequiredText(reason);
+        const shouldNormalizeDecision = !hasIssues && isReviewRequiredDecisionText(decision);
+        if (!shouldNormalizeReason && !shouldNormalizeDecision) return row;
+        return row.map((cell, index) => {
+          if (index === decisionIndex && shouldNormalizeDecision) return '적정';
+          if (index === reasonIndex) return '특이사항 없음';
+          return cell;
+        });
+      }),
+    };
+  }
   return table;
 };
 
-const normalizeReportDraftEvidenceLabels = (draft: ReportDraft): ReportDraft => ({
-  ...draft,
-  evidence_validation_summaries: draft.evidence_validation_summaries.map((item) => ({
-    ...item,
-    evidence_type_name: normalizeEvidenceTypeLabel(item.evidence_type_name || item.evidence_type_code),
-  })),
-  report_sections: draft.report_sections
-    .filter((section) => section.section_id !== 'tax_settlement' && section.section_id !== 'supplement_actions')
-    .map((section) => ({
-      ...section,
-      title:
-        section.section_id === 'item_reviews' ? '4. 법령 적정성 검토 결과'
-        : section.section_id === 'issue_details' ? '5. 부적정 및 검토 필요 상세 내역'
-        : section.section_id === 'overall_opinion' ? '6. 종합 의견'
-        : section.title,
-      tables: section.tables.map((table) => normalizeReportSectionTable(section.section_id, table)),
+const normalizeReportDraftEvidenceLabels = (draft: ReportDraft): ReportDraft => {
+  const hasIssues = hasActionableIssueDetails(draft);
+  return {
+    ...draft,
+    category_summaries: draft.category_summaries.map((item) => {
+      if (hasIssues || !isGenericReviewRequiredText(item.note)) return item;
+      return { ...item, count: 0, note: '특이사항 없음' };
+    }),
+    item_reviews: draft.item_reviews.map((item) => {
+      const shouldNormalizeReason = isAppropriateDecisionText(item.decision_label || item.decision) && isGenericReviewRequiredText(item.summary_reason);
+      const shouldNormalizeDecision = !hasIssues && isReviewRequiredDecisionText(item.decision_label || item.decision);
+      if (!shouldNormalizeReason && !shouldNormalizeDecision) return item;
+      return {
+        ...item,
+        decision: shouldNormalizeDecision ? 'appropriate' : item.decision,
+        decision_label: shouldNormalizeDecision ? '적정' : item.decision_label,
+        summary_reason: '특이사항 없음',
+        risk_level: shouldNormalizeDecision ? '낮음' : item.risk_level,
+      };
+    }),
+    needs_human_review: hasIssues ? draft.needs_human_review : [],
+    evidence_validation_summaries: draft.evidence_validation_summaries.map((item) => ({
+      ...item,
+      evidence_type_name: normalizeEvidenceTypeLabel(item.evidence_type_name || item.evidence_type_code),
     })),
-});
+    report_sections: draft.report_sections
+      .filter((section) =>
+        section.section_id !== 'tax_settlement'
+        && section.section_id !== 'supplement_actions'
+        && (hasIssues || section.section_id !== 'issue_details')
+      )
+      .map((section) => ({
+        ...section,
+        title:
+          section.section_id === 'item_reviews' ? '4. 법령 적정성 검토 결과'
+          : section.section_id === 'issue_details' ? '5. 부적정 및 검토 필요 상세 내역'
+          : section.section_id === 'overall_opinion' ? `${hasIssues ? '6' : '5'}. 종합 의견`
+          : section.title,
+        tables: section.tables.map((table) => normalizeReportSectionTable(section.section_id, table, hasIssues)),
+      })),
+  };
+};
 
 const isReportDraft = (value: unknown): value is ReportDraft => {
   if (!value || typeof value !== 'object') return false;
   const draft = value as Partial<ReportDraft>;
   return typeof draft.report_no === 'string' && Array.isArray(draft.report_sections);
+};
+
+const getReportDraftSignature = (draft: ReportDraft | null) => {
+  if (!draft) return null;
+  return JSON.stringify(draft);
 };
 
 const asRecord = (value: unknown) => value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -275,7 +357,10 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
     };
   }, [projectId, reportStatus, usageStatementId]);
 
-  const waitForReportDraft = async (initialResponse: Awaited<ReturnType<typeof runReportAgent>>) => {
+  const waitForReportDraft = async (
+    initialResponse: Awaited<ReturnType<typeof runReportAgent>>,
+    previousDraftSignature?: string | null,
+  ) => {
     const initialDraft = readReportDraftFromAgentResponse(initialResponse);
     if (isReportDraft(initialDraft)) return initialDraft;
     if (!projectId || !usageStatementId) return null;
@@ -283,15 +368,16 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
       const detail = await getReportDetail(projectId, usageStatementId).catch(() => null);
       if (detail) {
         const draft = readReportDraftFromDetail(detail);
-        if (isReportDraft(draft)) return draft;
+        if (isReportDraft(draft) && getReportDraftSignature(draft) !== previousDraftSignature) return draft;
       }
       await new Promise((resolve) => window.setTimeout(resolve, 2500));
     }
     return null;
   };
 
-  const handleReportGenerate = async () => {
+  const handleReportGenerate = async (forceRegenerate = false) => {
     if (reportStatus === 'generating') return;
+    const previousDraftSignature = forceRegenerate ? getReportDraftSignature(reportDraft) : null;
     try {
       if (!validationComplete || !reportGenerationEnabled || !projectId || !usageStatementId) {
         throw new Error('보고서 생성에 필요한 법령 검증 결과가 없습니다.');
@@ -310,11 +396,11 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
         onPoll: () => setReportProgress((current) => Math.min(current + 8, 88)),
       });
       setReportProgress(92);
-      const reportDraft = await waitForReportDraft(response);
+      const reportDraft = await waitForReportDraft(response, previousDraftSignature);
       if (!isReportDraft(reportDraft)) throw new Error('보고서 Agent 응답에 reportDraft가 없습니다.');
       showReportDraft(reportDraft);
     } catch (error) {
-      setReportStatus('idle');
+      setReportStatus(reportDraft ? 'done' : 'idle');
       setReportProgress(0);
       showAgentFailure('server-request', error);
     }
@@ -561,7 +647,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
         </div>
         <button
           type="button"
-          onClick={handleReportGenerate}
+          onClick={() => handleReportGenerate(false)}
           disabled={reportStatus === 'generating' || !canGenerateReport}
           style={{ border: 'none', borderRadius: 999, padding: '9px 18px', background: canGenerateReport ? C.primary : C.g200, color: canGenerateReport ? C.white : C.g400, fontFamily: 'inherit', fontSize: 14, fontWeight: 800, cursor: reportStatus === 'generating' ? 'wait' : canGenerateReport ? 'pointer' : 'not-allowed', boxShadow: canGenerateReport ? `0 10px 22px ${C.primaryShadow}` : 'none' }}
         >
@@ -585,7 +671,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
             <div style={{ fontSize: 12, color: C.g400, marginTop: 4 }}>{reportWorkflowMeta.description}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-            <Button size="sm" onClick={handleReportGenerate} disabled={!canGenerateReport} style={{ ...reportActionButtonStyle, boxShadow: canGenerateReport ? reportActionButtonStyle.boxShadow : 'none' }}>다시 생성하기</Button>
+            <Button size="sm" onClick={() => handleReportGenerate(true)} disabled={!canGenerateReport} style={{ ...reportActionButtonStyle, boxShadow: canGenerateReport ? reportActionButtonStyle.boxShadow : 'none' }}>다시 생성하기</Button>
             <Button size="sm" variant="outline" onClick={handleSaveDraft} disabled={savePending || !reportDraft} style={{ ...reportActionButtonStyle, boxShadow: 'none' }}>{savePending ? '저장 중...' : '저장'}</Button>
             <Button size="sm" variant="outline" onClick={handleDocxExport} disabled={!reportDraft || docxExporting} style={reportActionButtonStyle}>{docxExporting ? '추출 중...' : 'DOCX 추출'}</Button>
           </div>
