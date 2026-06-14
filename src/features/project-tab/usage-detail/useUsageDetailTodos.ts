@@ -204,12 +204,30 @@ export default function useUsageDetailTodos({
     return next;
   }, [todoItems]);
 
-  const isTodoDone = (todo: UsageDetailTodoItem) => (
-    todo.backendTodoId ? Boolean(todo.backendConfirmed) : Boolean(completedTodoIds[todo.id])
+  const backendTodoItemCounts = useMemo(() => {
+    const counts: Record<number, number> = {};
+    todoItems.forEach((todo) => {
+      if (!todo.backendTodoId) return;
+      counts[todo.backendTodoId] = (counts[todo.backendTodoId] || 0) + 1;
+    });
+    return counts;
+  }, [todoItems]);
+
+  const isSharedBackendTodo = (todo: UsageDetailTodoItem) => (
+    Boolean(todo.backendTodoId && backendTodoItemCounts[todo.backendTodoId] > 1)
   );
 
+  const isTodoDone = (todo: UsageDetailTodoItem) => {
+    if (!todo.backendTodoId) return Boolean(completedTodoIds[todo.id]);
+    if (!isSharedBackendTodo(todo)) return Boolean(todo.backendConfirmed);
+    if (Object.prototype.hasOwnProperty.call(completedTodoIds, todo.id)) {
+      return Boolean(completedTodoIds[todo.id]);
+    }
+    return Boolean(todo.backendConfirmed);
+  };
+
   const getTodoConfirmingKey = (todo: UsageDetailTodoItem) => (
-    todo.backendTodoId ? `backend:${todo.backendTodoId}` : todo.id
+    todo.backendTodoId && !isSharedBackendTodo(todo) ? `backend:${todo.backendTodoId}` : todo.id
   );
 
   const activeTodoCount = todoItems.filter((todo) => !isTodoDone(todo)).length;
@@ -227,6 +245,41 @@ export default function useUsageDetailTodos({
     }
     const todoId = todo.backendTodoId;
     const confirmingKey = getTodoConfirmingKey(todo);
+    if (isSharedBackendTodo(todo)) {
+      const sharedTodos = todoItems.filter((item) => item.backendTodoId === todoId);
+      const previousCompletedTodoIds = completedTodoIds;
+      const nextCompletedTodoIds = { ...completedTodoIds };
+      sharedTodos.forEach((item) => {
+        if (!Object.prototype.hasOwnProperty.call(nextCompletedTodoIds, item.id)) {
+          nextCompletedTodoIds[item.id] = Boolean(item.backendConfirmed);
+        }
+      });
+      nextCompletedTodoIds[todo.id] = nextDone;
+      const allSharedTodosDone = sharedTodos.every((item) => Boolean(nextCompletedTodoIds[item.id]));
+      const shouldSyncBackend = allSharedTodosDone !== Boolean(todo.backendConfirmed);
+      setCompletedTodoIds(nextCompletedTodoIds);
+      if (!shouldSyncBackend) return;
+      setTodoConfirmingIds((current) => ({ ...current, [confirmingKey]: true }));
+      setOrchestratorTodoItems((current) => current.map((item) => (
+        item.backendTodoId === todoId ? { ...item, backendConfirmed: allSharedTodosDone } : item
+      )));
+      try {
+        await confirmAgentTodo(projectId, todoId, allSharedTodosDone);
+      } catch (error) {
+        setCompletedTodoIds(previousCompletedTodoIds);
+        setOrchestratorTodoItems((current) => current.map((item) => (
+          item.backendTodoId === todoId ? { ...item, backendConfirmed: !allSharedTodosDone } : item
+        )));
+        onActionError(getAgentFailureMessage('evidence-matching', error));
+      } finally {
+        setTodoConfirmingIds((current) => {
+          const next = { ...current };
+          delete next[confirmingKey];
+          return next;
+        });
+      }
+      return;
+    }
     setTodoConfirmingIds((current) => ({ ...current, [confirmingKey]: true }));
     setOrchestratorTodoItems((current) => current.map((item) => (
       item.backendTodoId === todoId ? { ...item, backendConfirmed: nextDone } : item
