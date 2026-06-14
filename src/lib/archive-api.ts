@@ -154,6 +154,7 @@ interface VisionDetectionResponse {
   boxColor?: string | null;
   confidence?: number | string | null;
   isWearing?: boolean | null;
+  needsReview?: boolean | null;
   bboxXyxy?: number[] | null;
   bbox_xyxy?: number[] | null;
 }
@@ -163,6 +164,8 @@ interface VisionDetectionsResponse {
   imageHeight?: number | string | null;
   detections?: VisionDetectionResponse[] | null;
 }
+
+const VISION_REVIEW_CONFIDENCE_THRESHOLD = 0.5;
 
 interface RequirementResponse {
   evidenceTypeCode: BackendEvidenceTypeCode | string;
@@ -374,12 +377,14 @@ const visionDetectionsToValidation = (
       const box = normalizeVisionBox(detection.bboxXyxy || detection.bbox_xyxy, imageWidth, imageHeight);
       if (!box)
         return null;
-      const colorText = String(detection.boxColor || '');
-      const status: 'ok' | 'bad' = detection.isWearing === false || /red|danger|fail|bad|부적|미착용/i.test(colorText) ? 'bad' : 'ok';
       const confidence = Number(detection.confidence);
+      const normalizedConfidence = Number.isFinite(confidence) ? confidence : 0;
+      const colorText = String(detection.boxColor || '');
+      const isLowConfidenceWearing = detection.isWearing === true && normalizedConfidence < VISION_REVIEW_CONFIDENCE_THRESHOLD;
+      const status: 'ok' | 'bad' = detection.needsReview || isLowConfidenceWearing || detection.isWearing === false || /red|danger|fail|bad|부적|미착용/i.test(colorText) ? 'bad' : 'ok';
       return {
         label: detection.label || '비전 검출',
-        confidence: Number.isFinite(confidence) ? confidence : 0,
+        confidence: normalizedConfidence,
         box,
         status,
       };

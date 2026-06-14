@@ -77,6 +77,14 @@ const canShowLawChangeNotice = (role: string) => role === 'system_admin' || role
 const getLawChangeNoticeStorageKey = (user: { id: string; name: string; role: string }) =>
   `${LAW_CHANGE_NOTICE_KEY_PREFIX}:${user.id || user.name || user.role}`;
 
+const getTodayDateKey = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const clearLawChangeNoticeStorage = (user: { id: string; name: string; role: string }) => {
   if (typeof window === 'undefined') return;
   window.localStorage.removeItem(getLawChangeNoticeStorageKey(user));
@@ -398,12 +406,13 @@ export default function DashboardPage() {
 
     let alive = true;
     const storageKey = getLawChangeNoticeStorageKey(user);
-    if (window.localStorage.getItem(storageKey) === 'true') return;
+    const today = getTodayDateKey();
+    if (window.localStorage.getItem(storageKey) === today) return;
 
     getRecentLawChanges()
       .then((notice) => {
-        if (!alive || !notice.hasChanges) return;
-        window.localStorage.setItem(storageKey, 'true');
+        if (!alive || !notice.lastRunAt) return;
+        window.localStorage.setItem(storageKey, today);
         setLawChangeNotice(notice);
       })
       .catch(() => null);
