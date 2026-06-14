@@ -20,6 +20,12 @@ const EVIDENCE_SECTIONS: Array<{ id: FolderEvidenceCategory; label: string }> = 
   { id: 'tax_invoice', label: '세금계산서' },
   { id: 'other_document', label: '기타' },
 ];
+
+const VISION_REVIEW_CONFIDENCE_THRESHOLD = 0.5;
+
+const isVisionDetectionReviewTarget = (detection: NonNullable<EvidenceFile['visionValidation']>['detections'][number]) =>
+  detection.status === 'bad' || detection.confidence < VISION_REVIEW_CONFIDENCE_THRESHOLD;
+
 interface UsageDetailFileViewProps {
   cats: CategoryMeta[];
   usageItems: UsageLineItem[];
@@ -231,6 +237,8 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     const previewSrc = previewTarget.previewUrl || `data:image/svg+xml;charset=UTF-8,${makeThumbSvg(previewTarget.kind)}`;
     const canShowImagePreview = Boolean(previewTarget.previewUrl || isImageFile(previewTarget.name));
     const detections = previewTarget.visionValidation?.detections || [];
+    const hasReviewTargetDetection = detections.some(isVisionDetectionReviewTarget);
+    const previewVisionStatus = previewTarget.visionValidation?.status === 'unsuitable' || hasReviewTargetDetection ? 'unsuitable' : 'suitable';
     const showDetections = showVisionBoxes && detections.length > 0 && canShowImagePreview;
     return (
       <div
@@ -240,35 +248,38 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
         style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'grid', placeItems: 'center', background: 'rgba(31,47,39,.08)', backdropFilter: 'blur(.5px)', padding: 24 }}
       >
         <div onClick={(event) => event.stopPropagation()} style={{ width: 'min(560px, 72%)', border: `1px solid ${C.g200}`, borderRadius: 16, background: C.white, boxShadow: '0 22px 52px rgba(31,47,39,.22)', padding: 16 }}>
-          <div style={{ position: 'relative', border: `1px solid ${C.g100}`, borderRadius: 12, overflow: 'hidden', background: C.g100, minHeight: 260, display: 'grid', placeItems: 'center' }}>
+          <div style={{ border: `1px solid ${C.g100}`, borderRadius: 12, overflow: 'hidden', background: C.g100, minHeight: 260, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {canShowImagePreview ? (
-              <AuthenticatedPreviewImage src={previewTarget.previewUrl} fallbackSrc={previewSrc} alt={previewTarget.name} style={{ width: '100%', maxHeight: 360, objectFit: 'contain', display: 'block' }} />
+              <div style={{ position: 'relative', display: 'inline-flex', maxWidth: '100%', maxHeight: 360, lineHeight: 0 }}>
+                <AuthenticatedPreviewImage src={previewTarget.previewUrl} fallbackSrc={previewSrc} alt={previewTarget.name} style={{ maxWidth: '100%', maxHeight: 360, width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }} />
+                {showDetections && detections.map((detection, index) => {
+                  const [x, y, width, height] = detection.box;
+                  const boxColor = isVisionDetectionReviewTarget(detection) ? '#E53935' : '#2F73D9';
+                  return (
+                    <div
+                      key={`${detection.label}-${index}`}
+                      style={{ position: 'absolute', left: `${x}%`, top: `${y}%`, width: `${width}%`, height: `${height}%`, border: `2px solid ${boxColor}`, boxSizing: 'border-box', pointerEvents: 'none' }}
+                    >
+                      <span style={{ position: 'absolute', left: -3, top: -3, transform: 'translate(-50%, -50%)', width: 20, height: 20, borderRadius: 999, background: boxColor, color: C.white, border: `2px solid ${C.white}`, boxShadow: '0 2px 6px rgba(31,47,39,.24)', fontSize: 11, fontWeight: 800, lineHeight: '16px', textAlign: 'center' }}>
+                        {index + 1}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               <div style={{ minHeight: 260, display: 'grid', placeItems: 'center' }}>
                 <FileThumb entry={previewTarget} size={104} />
               </div>
             )}
-            {showDetections && detections.map((detection, index) => {
-              const [x, y, width, height] = detection.box;
-              const boxColor = detection.status === 'bad' ? '#E53935' : '#2F73D9';
-              return (
-                <div
-                  key={`${detection.label}-${index}`}
-                  style={{ position: 'absolute', left: `${x}%`, top: `${y}%`, width: `${width}%`, height: `${height}%`, border: `2px solid ${boxColor}`, boxSizing: 'border-box', pointerEvents: 'none' }}
-                >
-                  <span style={{ position: 'absolute', left: -3, top: -3, transform: 'translate(-50%, -50%)', width: 20, height: 20, borderRadius: 999, background: boxColor, color: C.white, border: `2px solid ${C.white}`, boxShadow: '0 2px 6px rgba(31,47,39,.24)', fontSize: 11, fontWeight: 800, lineHeight: '16px', textAlign: 'center' }}>
-                    {index + 1}
-                  </span>
-                </div>
-              );
-            })}
           </div>
           {showDetections && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
               {detections.map((detection, index) => {
-                const boxColor = detection.status === 'bad' ? '#E53935' : '#2F73D9';
+                const isReviewTarget = isVisionDetectionReviewTarget(detection);
+                const boxColor = isReviewTarget ? '#E53935' : '#2F73D9';
                 return (
-                  <span key={`${detection.label}-legend-${index}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${detection.status === 'bad' ? '#FFCDD2' : '#BBD2FA'}`, borderRadius: 999, background: detection.status === 'bad' ? C.dangerBg : '#F0F6FF', color: detection.status === 'bad' ? C.danger : '#1D57A8', padding: '4px 8px', fontSize: 11, fontWeight: 800, lineHeight: 1.2 }}>
+                  <span key={`${detection.label}-legend-${index}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${isReviewTarget ? '#FFCDD2' : '#BBD2FA'}`, borderRadius: 999, background: isReviewTarget ? C.dangerBg : '#F0F6FF', color: isReviewTarget ? C.danger : '#1D57A8', padding: '4px 8px', fontSize: 11, fontWeight: 800, lineHeight: 1.2 }}>
                     <span style={{ width: 16, height: 16, borderRadius: 999, background: boxColor, color: C.white, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, flexShrink: 0 }}>{index + 1}</span>
                     <span>{detection.label} {detection.confidence.toFixed(2)}</span>
                   </span>
@@ -279,8 +290,8 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
           <div style={{ display: 'grid', gridTemplateColumns: previewTarget.visionValidation ? 'minmax(0,1fr) auto' : 'minmax(0,1fr)', gap: 10, alignItems: 'center', marginTop: 12 }}>
             <div title={previewTarget.name} style={{ minWidth: 0, fontSize: 14, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{previewTarget.name}</div>
             {previewTarget.visionValidation && (
-              <span style={{ border: `1px solid ${previewTarget.visionValidation.status === 'unsuitable' ? '#FFCDD2' : C.g200}`, borderRadius: 999, background: previewTarget.visionValidation.status === 'unsuitable' ? C.dangerBg : C.bg, color: previewTarget.visionValidation.status === 'unsuitable' ? C.danger : C.primary, padding: '5px 10px', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>
-                비전 결과 {previewTarget.visionValidation.status === 'unsuitable' ? '부적합' : '적합'}
+              <span style={{ border: `1px solid ${previewVisionStatus === 'unsuitable' ? '#FFCDD2' : C.g200}`, borderRadius: 999, background: previewVisionStatus === 'unsuitable' ? C.dangerBg : C.bg, color: previewVisionStatus === 'unsuitable' ? C.danger : C.primary, padding: '5px 10px', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                비전 결과 {previewVisionStatus === 'unsuitable' ? '부적합' : '적합'}
               </span>
             )}
           </div>

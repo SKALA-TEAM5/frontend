@@ -208,6 +208,8 @@ export interface VisionValidationResult {
   detections: Array<{ label: string; confidence: number; box: [number, number, number, number]; status?: 'ok' | 'bad' }>;
 }
 
+const VISION_REVIEW_CONFIDENCE_THRESHOLD = 0.5;
+
 const readField = <T = unknown>(source: Record<string, unknown>, camelKey: string, snakeKey: string): T | undefined =>
   (source[camelKey] ?? source[snakeKey]) as T | undefined;
 
@@ -279,13 +281,15 @@ const extractVisionValidationFromResult = (rawResult: unknown, fallbackReason?: 
     const box = normalizeBox(detection.bbox_xyxy ?? detection.bboxXyxy ?? detection.box, imageWidth, imageHeight);
     if (!box)
       return [];
+    const confidence = readNumberField(detection, ['confidence', 'score']) ?? 0;
     const needsReview = Boolean(detection.needs_review ?? detection.needsReview);
     const isWearing = detection.is_wearing ?? detection.isWearing;
+    const isLowConfidenceWearing = isWearing === true && confidence < VISION_REVIEW_CONFIDENCE_THRESHOLD;
     return [{
       label: String(detection.label || detection.equipment_label || detection.equipmentLabel || '검출 결과'),
-      confidence: readNumberField(detection, ['confidence', 'score']) ?? 0,
+      confidence,
       box,
-      status: needsReview || isWearing === false ? 'bad' as const : 'ok' as const,
+      status: needsReview || isLowConfidenceWearing || isWearing === false ? 'bad' as const : 'ok' as const,
     }];
   });
   const isAppropriate = result.is_appropriate ?? result.isAppropriate ?? nestedResult.is_appropriate ?? nestedResult.isAppropriate;
