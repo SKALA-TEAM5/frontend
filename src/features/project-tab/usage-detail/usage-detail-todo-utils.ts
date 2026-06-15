@@ -147,27 +147,6 @@ export const cleanEvidenceTodoText = (value: string) => value
   .replace(/(?:자료|서류|증빙)\s*$/u, '')
   .trim();
 
-const extractEvidenceDocumentNames = (value: string, fallbackKind?: FolderEvidenceCategory) => {
-  const source = value || '';
-  const normalizedSource = normalizeEvidenceNameKey(source);
-  const names = EVIDENCE_DOCUMENT_MATCHERS
-    .filter((matcher) => normalizedSource.includes(matcher.key))
-    .map((matcher) => matcher.label)
-    .filter((label) => label !== '보완 서류');
-  const translatedCleaned = cleanEvidenceTodoText(translateEvidenceText(source));
-  const splitNames = translatedCleaned
-    .split(EVIDENCE_NAME_SPLIT_PATTERN)
-    .map((name) => cleanEvidenceTodoText(name)
-      .replace(/^(?:누락|필수|필요|증빙)\s*/u, '')
-      .replace(/\s*(?:업로드|제출|필요|누락|미흡|확인|보완|있음)$/u, '')
-      .trim())
-    .filter((name) => name && /[가-힣]/.test(name) && name.length <= 24 && !/문제|사유|항목|세부|사용내역|보완 사항|증빙\s*누락|매칭\s*검토|위치\s*확인/.test(name));
-  const extractedNames = Array.from(new Set([...names, ...splitNames].filter(Boolean)));
-  if (extractedNames.length) return extractedNames;
-  const fallbackName = fallbackKind && fallbackKind !== 'other_document' ? EVIDENCE_KIND_LABELS[fallbackKind] : '';
-  return fallbackName ? [fallbackName] : [];
-};
-
 const stripTodoContextPrefix = (value: string, context?: string | null) => {
   const text = value.trim();
   const prefix = (context || '').trim();
@@ -203,29 +182,6 @@ export const toNounPhraseDetail = (value?: string) => {
 
 // TODO title and lookup helpers
 
-const getTodoDocumentTitle = (reason: string, kind: FolderEvidenceCategory) => {
-  const names = extractEvidenceDocumentNames(reason, kind);
-  if (names.length) return names.join(', ');
-  return kind === 'other_document' ? '보완 서류' : EVIDENCE_KIND_LABELS[kind];
-};
-
-const getUploadTodoTitle = (value: string, context?: string | null) => {
-  const translated = translateTodoDisplayText(value, context)
-    .replace(/^.+?필수\s*증빙\s*누락\s*[:：]?\s*/u, '')
-    .replace(/^(?:필수\s*)?증빙\s*누락\s*[:：]?\s*/u, '')
-    .replace(/^필수\s*증빙\s*[:：]?\s*/u, '')
-    .replace(/\s*(?:업로드|제출)?\s*필요$/u, '')
-    .trim();
-  return `${translated || '보완 서류'} 업로드 필요`;
-};
-
-const getBackendTodoDisplayTitle = (todo: OrchestratorTodo) => {
-  const reason = translateTodoDisplayText(todo.reason || '보완 사항 확인 필요', todo.usageStatementItemName);
-  if (todo.agentTypeCode !== 'legal') return getUploadTodoTitle(reason, todo.usageStatementItemName);
-  const legalReason = reason.replace(/^법령\s*검토\s*(?:필요|결과)\s*[:：]?\s*/u, '').trim() || reason;
-  return `법령 검토 결과 ${legalReason}`;
-};
-
 export const normalizeTodoIdText = (value: string) => value.replace(/\s+/g, '').toLowerCase();
 export const normalizeTodoLookupText = (value: string) => normalizeTodoIdText(value)
   .replace(/[·.,:;()[\]{}'"“”‘’~\-_/]/g, '');
@@ -236,6 +192,13 @@ export const inferEvidenceKindFromText = (value: string): FolderEvidenceCategory
   if (/사진|현장|착용|설치\s*전후|설치\s*상세/.test(value) || /(photo|site_photo|field_photo|wearing_photo|installation_photo|safety_equipment)/.test(normalized)) return 'site_photo';
   if (/세금|계산서|전자세금/.test(value) || /(tax_invoice|electronic_tax_invoice|invoice)/.test(normalized)) return 'tax_invoice';
   return 'other_document';
+};
+
+const inferEvidenceTypeCodeFromText = (value: string) => {
+  const normalized = normalizeEvidenceNameKey(value);
+  return Object.keys(EVIDENCE_DOCUMENT_NAME_LABELS)
+    .sort((left, right) => right.length - left.length)
+    .find((code) => normalized.includes(code));
 };
 
 const getCategoryFromBackendTodo = (todo: OrchestratorTodo) => {
@@ -313,15 +276,9 @@ export const getTodoGroupLocationMeta = (todo: UsageDetailTodoItem, usageItems: 
   };
 };
 
-const isLinkAgentTodo = (todo: Pick<UsageDetailTodoItem, 'backendAgentTypeCode'>) => (
-  todo.backendAgentTypeCode === 'link'
-);
-
 export const getTodoDisplayTitle = (todo: UsageDetailTodoItem) => {
+  if (todo.backendTodoId) return todo.title.trim() || '보완 사항 확인 필요';
   const title = translateTodoDisplayText(todo.title.trim(), todo.context);
-  if (todo.backendTodoId && isLinkAgentTodo(todo)) return title;
-  if (todo.backendTodoId && todo.source === 'law') return title;
-  if (todo.backendTodoId) return getUploadTodoTitle(title, todo.context);
   const needsActionSuffix = !/(?:업로드|제출|삭제|제거|교체|필요)$/u.test(title);
   if (!needsActionSuffix) return title;
   return `${title} ${todo.mode === 'add' ? '업로드 필요' : '삭제 필요'}`;
@@ -405,54 +362,26 @@ export const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLin
   const source = todo.agentTypeCode === 'legal' ? 'law' : todo.agentTypeCode === 'vision' ? 'vision' : 'matching';
   if (todo.todoId) {
     const categoryId = getCategoryIdFromTodoCode(todo.categoryCode);
-    if (todo.agentTypeCode === 'link') {
-      return [{
-        id: `orchestrator:${todo.todoId}:link-review`,
-        backendTodoId: todo.todoId,
-        backendConfirmed: Boolean(todo.confirmed),
-        backendAgentTypeCode: todo.agentTypeCode,
-        backendCategoryName: todo.categoryName || null,
-        mode: 'add',
-        source,
-        kind: 'other_document',
-        title: '증빙 매칭 검토 필요',
-        context: todo.usageStatementItemName || '',
-        categoryId,
-        usageItemId: todo.usageStatementItemId == null ? undefined : String(todo.usageStatementItemId),
-        detail: translateTodoDisplayText(reason, todo.usageStatementItemName),
-      }];
-    }
     const titleText = todo.title || '';
     const fallbackKind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(`${titleText} ${reason}`);
     const evidenceTypeCodes = todo.evidenceTypeCodes || [];
-    const evidenceCodeNames = (todo.evidenceTypeCodes || [])
-      .map((code) => translateEvidenceDocumentName(code))
-      .filter(Boolean);
-    const documentNames = todo.agentTypeCode === 'legal'
-      ? [getBackendTodoDisplayTitle(todo)]
-      : evidenceCodeNames.length > 0
-        ? evidenceCodeNames
-        : extractEvidenceDocumentNames(`${titleText} ${reason}`, fallbackKind);
-    const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(`${titleText} ${reason}`, fallbackKind)];
-    return titles.map((title, index) => {
-      const translatedTitle = translateEvidenceDocumentName(title) || title;
-      return {
-        id: `orchestrator:${todo.todoId}:${normalizeTodoIdText(translatedTitle)}:${index}`,
-        backendTodoId: todo.todoId,
-        backendConfirmed: Boolean(todo.confirmed),
-        backendAgentTypeCode: todo.agentTypeCode,
-        backendCategoryName: todo.categoryName || null,
-        mode: 'add',
-        source,
-        kind: todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(translatedTitle || reason),
-        requiredEvidenceTypeCode: evidenceTypeCodes[index] || evidenceTypeCodes[0],
-        title: translatedTitle,
-        context: todo.usageStatementItemName || '',
-        categoryId,
-        usageItemId: todo.usageStatementItemId == null ? undefined : String(todo.usageStatementItemId),
-        detail: reason,
-      };
-    });
+    const requiredEvidenceTypeCode = evidenceTypeCodes[0] || inferEvidenceTypeCodeFromText(`${titleText} ${reason}`);
+    return [{
+      id: `orchestrator:${todo.todoId}`,
+      backendTodoId: todo.todoId,
+      backendConfirmed: Boolean(todo.confirmed),
+      backendAgentTypeCode: todo.agentTypeCode,
+      backendCategoryName: todo.categoryName || null,
+      mode: 'add',
+      source,
+      kind: fallbackKind,
+      requiredEvidenceTypeCode,
+      title: reason,
+      context: todo.usageStatementItemName || '',
+      categoryId,
+      usageItemId: todo.usageStatementItemId == null ? undefined : String(todo.usageStatementItemId),
+      detail: reason,
+    }];
   }
   const usageItemById = todo.usageStatementItemId == null
     ? undefined
@@ -465,39 +394,29 @@ export const toOrchestratorTodos = (todo: OrchestratorTodo, usageItems: UsageLin
   const titleText = todo.title || '';
   const fallbackKind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(reason);
   const evidenceTypeCodes = todo.evidenceTypeCodes || [];
-  const evidenceCodeNames = (todo.evidenceTypeCodes || [])
-    .map((code) => translateEvidenceDocumentName(code))
-    .filter(Boolean);
-  const documentNames = evidenceCodeNames.length > 0
-    ? evidenceCodeNames
-    : extractEvidenceDocumentNames(`${titleText} ${reason}`, fallbackKind);
+  const requiredEvidenceTypeCode = evidenceTypeCodes[0] || inferEvidenceTypeCodeFromText(`${titleText} ${reason}`);
   const linkedFileKey = todo.fileId || (todo.fileIds && todo.fileIds.length ? todo.fileIds.join('-') : 'none');
   const baseId = `orchestrator:${todo.agentTypeCode}:${todo.usageStatementItemId || 'all'}:${linkedFileKey}`;
-  const titles = documentNames.length > 0 ? documentNames : [getTodoDocumentTitle(`${titleText} ${reason}`, fallbackKind)];
+  const lookupText = `${titleText} ${reason}`;
+  const inferredUsageItem = usageItem || findUsageItemFromTodoText(lookupText, usageItems);
+  const inferredCategory = inferredUsageItem ? undefined : (backendCategory || findCategoryFromTodoText(lookupText));
 
-  return titles.map((title, index) => {
-    const lookupText = `${titleText} ${reason} ${title}`;
-    const inferredUsageItem = usageItem || findUsageItemFromTodoText(lookupText, usageItems);
-    const inferredCategory = inferredUsageItem ? undefined : (backendCategory || findCategoryFromTodoText(lookupText));
-    const kind = todo.agentTypeCode === 'vision' ? 'site_photo' : inferEvidenceKindFromText(title || reason);
-    const translatedTitle = translateEvidenceDocumentName(title) || title;
-    return {
-      id: `${baseId}:${normalizeTodoIdText(title)}:${index}`,
-      backendTodoId: todo.todoId ?? null,
-      backendConfirmed: Boolean(todo.confirmed),
-      backendAgentTypeCode: todo.agentTypeCode,
-      backendCategoryName: todo.categoryName || null,
-      mode: 'add',
-      source,
-      kind,
-      requiredEvidenceTypeCode: evidenceTypeCodes[index] || evidenceTypeCodes[0],
-      title: translatedTitle,
-      context: inferredUsageItem?.name || todo.usageStatementItemName || '',
-      categoryId: inferredUsageItem?.categoryId || backendCategory?.id || inferredCategory?.id,
-      usageItemId: inferredUsageItem?.id,
-      detail: toNounPhraseDetail(translateEvidenceText(reason)),
-    };
-  });
+  return [{
+    id: baseId,
+    backendTodoId: todo.todoId ?? null,
+    backendConfirmed: Boolean(todo.confirmed),
+    backendAgentTypeCode: todo.agentTypeCode,
+    backendCategoryName: todo.categoryName || null,
+    mode: 'add',
+    source,
+    kind: fallbackKind,
+    requiredEvidenceTypeCode,
+    title: reason,
+    context: inferredUsageItem?.name || todo.usageStatementItemName || '',
+    categoryId: inferredUsageItem?.categoryId || backendCategory?.id || inferredCategory?.id,
+    usageItemId: inferredUsageItem?.id,
+    detail: reason,
+  }];
 };
 
 // Action request and classification helpers
