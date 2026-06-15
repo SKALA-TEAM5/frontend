@@ -61,6 +61,8 @@ export interface OrchestratorTodo {
   fileId: number | null;
   fileIds?: number[];
   title?: string | null;
+  evidenceTypeCode?: string | null;
+  evidenceTypeName?: string | null;
   evidenceTypeCodes?: string[];
   reason: string;
   statusCode: string;
@@ -113,6 +115,10 @@ interface AgentTodoItemResponse {
   fileIds?: number[] | null;
   file_ids?: number[] | null;
   title?: string | null;
+  evidenceTypeCode?: string | null;
+  evidence_type_code?: string | null;
+  evidenceTypeName?: string | null;
+  evidence_type_name?: string | null;
   evidenceTypeCodes?: string[] | null;
   evidence_type_codes?: string[] | null;
   categoryCode?: string | null;
@@ -140,19 +146,44 @@ interface AgentTodoListResponse {
 
 interface BackendTodoResponse {
   todoId?: number | null;
+  todo_id?: number | null;
   usageStatementId?: number | null;
+  usage_statement_id?: number | null;
   usageStatementItemId?: number | null;
+  usage_statement_item_id?: number | null;
   usageStatementItemName?: string | null;
+  usage_statement_item_name?: string | null;
   categoryCode?: string | null;
+  category_code?: string | null;
   categoryName?: string | null;
+  category_name?: string | null;
   agentTypeCode?: string | null;
+  agent_type_code?: string | null;
   fileId?: number | null;
+  file_id?: number | null;
+  fileIds?: number[] | null;
+  file_ids?: number[] | null;
+  evidenceTypeCode?: string | null;
+  evidence_type_code?: string | null;
+  evidenceTypeName?: string | null;
+  evidence_type_name?: string | null;
+  evidenceTypeCodes?: string[] | null;
+  evidence_type_codes?: string[] | null;
+  title?: string | null;
   reason?: string | null;
   confirmed?: boolean;
 }
 
 const isAggregateTodoReason = (reason: string) =>
   /^(?:필수\s*증빙\s*누락\s*항목\s*\d+\s*건|매칭\s*검토\s*필요\s*\d+\s*건|현장사진\s*\d+\s*건\s*중\s*\d+\s*건\s*보완\s*필요)$/u.test(reason.trim());
+
+const isNonActionableTodoReason = (reason?: string | null) => {
+  const text = (reason || '').trim();
+  if (!text) return true;
+  return isAggregateTodoReason(text)
+    || /(?:적정|누락\s*없음|특이사항\s*없음)$/u.test(text)
+    || /모두\s*적정/u.test(text);
+};
 
 export interface AgentButtonStateResponse {
   enabled?: boolean;
@@ -326,21 +357,41 @@ const extractVisionValidationResults = (warning: AgentWarningResponse): Record<s
 };
 
 const normalizeFlatBackendAgentTodos = (raw: BackendTodoResponse[] | null | undefined): OrchestratorTodo[] =>
-  (raw || []).map((todo) => ({
-    todoId: todo.todoId ?? null,
-    agentTypeCode: normalizeAgentTypeCode(todo.agentTypeCode),
-    usageStatementItemId: todo.usageStatementItemId == null ? null : Number(todo.usageStatementItemId),
-    categoryCode: todo.categoryCode ?? null,
-    categoryName: todo.categoryName ?? null,
-    usageStatementItemName: todo.usageStatementItemName ?? null,
-    fileId: todo.fileId == null ? null : Number(todo.fileId),
-    fileIds: [],
-    title: null,
-    evidenceTypeCodes: [],
-    reason: todo.reason || '보완 사항 확인 필요',
-    statusCode: 'open',
-    confirmed: Boolean(todo.confirmed),
-  }));
+  (raw || []).filter((todo) => !isNonActionableTodoReason(todo.reason)).map((todo) => {
+    const todoRecord = todo as Record<string, unknown>;
+    const todoId = readField(todoRecord, 'todoId', 'todo_id');
+    const usageStatementItemId = readField(todoRecord, 'usageStatementItemId', 'usage_statement_item_id');
+    const fileId = readField(todoRecord, 'fileId', 'file_id');
+    const rawFileIds = readField(todoRecord, 'fileIds', 'file_ids');
+    const fileIds = Array.isArray(rawFileIds)
+      ? rawFileIds.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+      : [];
+    const evidenceTypeCode = readField<string | null>(todoRecord, 'evidenceTypeCode', 'evidence_type_code') || null;
+    const rawEvidenceTypeCodes = readField(todoRecord, 'evidenceTypeCodes', 'evidence_type_codes');
+    const evidenceTypeCodes = Array.isArray(rawEvidenceTypeCodes)
+      ? rawEvidenceTypeCodes.map((value) => String(value)).filter(Boolean)
+      : [];
+    if (evidenceTypeCode && !evidenceTypeCodes.includes(evidenceTypeCode)) {
+      evidenceTypeCodes.unshift(evidenceTypeCode);
+    }
+    return {
+      todoId: todoId == null ? null : Number(todoId),
+      agentTypeCode: normalizeAgentTypeCode(readField(todoRecord, 'agentTypeCode', 'agent_type_code')),
+      usageStatementItemId: usageStatementItemId == null ? null : Number(usageStatementItemId),
+      categoryCode: readField(todoRecord, 'categoryCode', 'category_code') as string | null,
+      categoryName: readField(todoRecord, 'categoryName', 'category_name') as string | null,
+      usageStatementItemName: readField(todoRecord, 'usageStatementItemName', 'usage_statement_item_name') as string | null,
+      fileId: fileId == null ? null : Number(fileId),
+      fileIds,
+      title: readField(todoRecord, 'title', 'title') as string | null,
+      evidenceTypeCode,
+      evidenceTypeName: readField(todoRecord, 'evidenceTypeName', 'evidence_type_name') as string | null,
+      evidenceTypeCodes,
+      reason: todo.reason || '보완 사항 확인 필요',
+      statusCode: 'open',
+      confirmed: Boolean(todo.confirmed),
+    };
+  });
 
 const normalizeLegacyBackendAgentTodos = (raw: AgentTodoListResponse | null | undefined): OrchestratorTodo[] => {
   const entries = [...(raw?.validate || []), raw?.legal].filter((entry): entry is AgentTodoEntryResponse => Boolean(entry));
@@ -349,7 +400,7 @@ const normalizeLegacyBackendAgentTodos = (raw: AgentTodoListResponse | null | un
     const entryReason = entry.reason || '';
     const items = entry.items || [];
     if (!items.length) {
-      if (isAggregateTodoReason(entryReason)) return [];
+      if (isNonActionableTodoReason(entryReason)) return [];
       return [{
         agentTypeCode,
         usageStatementItemId: null,
@@ -365,7 +416,7 @@ const normalizeLegacyBackendAgentTodos = (raw: AgentTodoListResponse | null | un
         confirmed: false,
       }];
     }
-    return items.map((item) => {
+    return items.filter((item) => !isNonActionableTodoReason(item.reason || entryReason)).map((item) => {
       const itemRecord = item as Record<string, unknown>;
       const usageStatementItemId = readField(itemRecord, 'usageStatementItemId', 'usage_statement_item_id');
       const fileId = readField(itemRecord, 'fileId', 'file_id');
@@ -377,6 +428,10 @@ const normalizeLegacyBackendAgentTodos = (raw: AgentTodoListResponse | null | un
       const evidenceTypeCodes = Array.isArray(rawEvidenceTypeCodes)
         ? rawEvidenceTypeCodes.map((value) => String(value)).filter(Boolean)
         : [];
+      const evidenceTypeCode = readField<string | null>(itemRecord, 'evidenceTypeCode', 'evidence_type_code') || evidenceTypeCodes[0] || null;
+      if (evidenceTypeCode && !evidenceTypeCodes.includes(evidenceTypeCode)) {
+        evidenceTypeCodes.unshift(evidenceTypeCode);
+      }
       return {
         agentTypeCode,
         usageStatementItemId: usageStatementItemId == null ? null : Number(usageStatementItemId),
@@ -386,6 +441,8 @@ const normalizeLegacyBackendAgentTodos = (raw: AgentTodoListResponse | null | un
         fileId: fileId == null ? null : Number(fileId),
         fileIds,
         title: readField(itemRecord, 'title', 'title') as string | null,
+        evidenceTypeCode,
+        evidenceTypeName: readField(itemRecord, 'evidenceTypeName', 'evidence_type_name') as string | null,
         evidenceTypeCodes,
         reason: item.reason || entryReason || '보완 사항 확인 필요',
         statusCode: 'open',

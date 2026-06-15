@@ -16,8 +16,6 @@ import {
   resolveTodoUsageItem,
   toNounPhraseDetail,
   toOrchestratorTodos,
-  translateEvidenceDocumentName,
-  translateEvidenceText,
 } from './usage-detail-todo-utils';
 
 interface UseUsageDetailTodosInput {
@@ -94,7 +92,7 @@ export default function useUsageDetailTodos({
       : findCategoryFromTodoText(actionRequestRawText);
     const legalEvidenceNames = extractActionRequestEvidenceNames(actionRequest?.message);
     if (legalEvidenceNames.length > 0) {
-      legalEvidenceNames.map((name) => translateEvidenceDocumentName(name) || name).forEach((name, index) => {
+      legalEvidenceNames.forEach((name, index) => {
         const kind = inferEvidenceKindFromText(name);
         todos.push({
           id: `law:add:${normalizeTodoIdText(actionRequest?.title || '보완요청')}:${normalizeTodoIdText(name)}:${index}`,
@@ -105,7 +103,7 @@ export default function useUsageDetailTodos({
           context: actionRequestUsageItem?.name || '',
           categoryId: actionRequestUsageItem?.categoryId || actionRequestCategory?.id,
           usageItemId: actionRequestUsageItem?.id,
-          detail: toNounPhraseDetail(translateEvidenceText(actionRequest?.message)),
+          detail: toNounPhraseDetail(actionRequest?.message),
         });
       });
     } else if (actionRequest?.message) {
@@ -118,7 +116,7 @@ export default function useUsageDetailTodos({
         context: actionRequestUsageItem?.name || '',
         categoryId: actionRequestUsageItem?.categoryId || actionRequestCategory?.id,
         usageItemId: actionRequestUsageItem?.id,
-        detail: toNounPhraseDetail(translateEvidenceText(actionRequest.message)),
+        detail: toNounPhraseDetail(actionRequest.message),
       });
     }
     Object.entries(fileCategories || {}).forEach(([catId, lineMap]) => {

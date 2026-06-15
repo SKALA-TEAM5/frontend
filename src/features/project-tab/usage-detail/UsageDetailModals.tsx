@@ -16,6 +16,14 @@ interface UsageStatementAddItemModalProps {
 
 const formatSentenceLines = (value: string) => value.replace(/([.!?。])\s+/g, '$1\n');
 
+const normalizeCurrencyInput = (value: string) => value.replace(/[^\d]/g, '');
+
+const formatCurrencyInput = (value: string) => {
+  const numeric = normalizeCurrencyInput(value);
+  if (!numeric) return '';
+  return Number(numeric).toLocaleString('ko-KR');
+};
+
 export function UsageStatementAddItemModal({
   open,
   draft,
@@ -53,7 +61,7 @@ export function UsageStatementAddItemModal({
             </label>
             <label style={{ display: 'grid', gap: 7, minWidth: 0 }}>
               <span style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>단가</span>
-              <input value={draft.unitPrice} onChange={(event) => onChange({ unitPrice: event.target.value })} inputMode="numeric" style={inputStyle} />
+              <input value={formatCurrencyInput(draft.unitPrice)} onChange={(event) => onChange({ unitPrice: normalizeCurrencyInput(event.target.value) })} inputMode="numeric" style={inputStyle} />
             </label>
           </div>
         </div>

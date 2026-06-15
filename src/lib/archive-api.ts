@@ -731,6 +731,13 @@ export const deleteProjectFile = async (projectId: string, fileId: number | stri
   });
 };
 
+export const updateProjectFileName = async (projectId: string, fileId: number | string, originalFilename: string) => {
+  await apiFetch<null>(`/projects/${projectId}/files/${fileId}`, {
+    method: 'PATCH',
+    body: { originalFilename },
+  });
+};
+
 export const linkEvidenceFile = async (
   projectId: string,
   itemId: string,
