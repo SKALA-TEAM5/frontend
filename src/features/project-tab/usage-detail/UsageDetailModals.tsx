@@ -14,6 +14,8 @@ interface UsageStatementAddItemModalProps {
   onSubmit: () => void;
 }
 
+const formatSentenceLines = (value: string) => value.replace(/([.!?。])\s+/g, '$1\n');
+
 export function UsageStatementAddItemModal({
   open,
   draft,
@@ -55,7 +57,7 @@ export function UsageStatementAddItemModal({
             </label>
           </div>
         </div>
-        {error && <div style={{ marginTop: 12, color: C.danger, fontSize: 13, fontWeight: 800 }}>{error}</div>}
+        {error && <div style={{ marginTop: 12, color: C.danger, fontSize: 13, fontWeight: 800, lineHeight: 1.45, whiteSpace: 'pre-line' }}>{formatSentenceLines(error)}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
           <button type="button" onClick={onClose} style={{ border: `1px solid ${C.g200}`, borderRadius: 999, padding: '9px 14px', background: C.white, color: C.g600, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>취소</button>
           <button type="button" onClick={onSubmit} style={{ border: 'none', borderRadius: 999, padding: '9px 16px', background: C.primary, color: C.white, fontSize: 14, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>완료</button>

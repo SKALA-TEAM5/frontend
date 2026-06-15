@@ -137,13 +137,25 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
             validationByFileId,
         }));
     };
+    const refreshUsageDetailArchive = async () => {
+        if (!usageStatementId)
+            return;
+        const latestArchive = await getUsageStatementArchiveById(projectId, usageStatementId).catch(() => null);
+        if (!latestArchive)
+            return;
+        const normalizedSeed = normalizeArchiveData(latestArchive.archiveSeed);
+        commitFileData(() => normalizedSeed);
+    };
     const verification = useUsageDetailVerification({
         projectId,
         usageStatementId,
         refreshOrchestratorStatusTodos: todos.refreshOrchestratorStatusTodos,
         refreshVisionValidationResults: todos.refreshVisionValidationResults,
         applyVisionValidationResults,
-        onVerificationComplete,
+        onVerificationComplete: async () => {
+            await refreshUsageDetailArchive();
+            await onVerificationComplete?.();
+        },
         onMissingUsageStatement: () => showAgentFailure('evidence-matching'),
     });
     useEffect(() => {
