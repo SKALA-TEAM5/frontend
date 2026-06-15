@@ -70,6 +70,13 @@ const getTodoEvidenceDisplayName = (todo: UsageDetailTodoItem) => {
   return '';
 };
 
+const formatTodoReasonForDisplay = (value?: string) => (value || '')
+  .replace(/,\s*허용:\s*[^);]+/gu, '')
+  .replace(/;\s*/gu, ';\n')
+  .replace(/[^\S\n]+/gu, ' ')
+  .replace(/\n\s+/gu, '\n')
+  .trim();
+
 export const toNounPhraseDetail = (value?: string) => {
   const text = (value || '').trim();
   if (!text) return '';
@@ -178,7 +185,7 @@ export const getTodoGroupLocationMeta = (todo: UsageDetailTodoItem, usageItems: 
 
 export const getTodoDisplayTitle = (todo: UsageDetailTodoItem) => {
   const evidenceName = getTodoEvidenceDisplayName(todo);
-  if (!evidenceName) return todo.title || todo.detail || '보완 사항 확인 필요';
+  if (!evidenceName) return formatTodoReasonForDisplay(todo.title || todo.detail) || '보완 사항 확인 필요';
   return `${evidenceName} ${todo.mode === 'add' ? '업로드 필요' : '삭제 필요'}`;
 };
 

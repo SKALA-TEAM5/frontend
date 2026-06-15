@@ -210,7 +210,7 @@ function TodoList({
                 {done ? '✓' : ''}
               </span>
               <span style={{ minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 13, fontWeight: 800, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{titleText}</span>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 800, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none', whiteSpace: 'pre-line' }}>{titleText}</span>
               </span>
             </div>
           </button>
