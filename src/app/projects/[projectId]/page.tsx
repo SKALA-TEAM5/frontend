@@ -1151,7 +1151,7 @@ function ProjectDetailPageContent() {
                         const month = savedArchive?.statementSummary.month || selectedMonth || uploadedAt.slice(0, 7);
                         writePendingUsageMonths(project.id, readPendingUsageMonths(project.id).filter((pendingMonth) => pendingMonth !== month));
                         if (savedArchive && existingUploadedMonths.has(month)) {
-                            setDuplicateUsageMonthWarning(`${formatMonthLabel(month)} 사용내역서가 이미 존재합니다.<br/>파일의 세부항목 사용일자를 확인한 뒤 다시 업로드해주세요.`);
+                            setDuplicateUsageMonthWarning(`${formatMonthLabel(month)} 사용내역서가 이미 존재합니다.\n파일의 세부항목 사용일자를 확인한 뒤 다시 업로드해주세요.`);
                             setUsageUploadStage('idle');
                             return;
                         }
@@ -1382,8 +1382,8 @@ function ProjectDetailPageContent() {
       }} zIndex={980} maxWidth={440}>
         <div style={{ background: C.white, border: `1px solid ${C.g200}`, borderRadius: 18, boxShadow: '0 18px 44px rgba(0,0,0,.16)', padding: 22 }}>
           <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, marginBottom: 8 }}>사용내역서 월 삭제</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.6 }}>
-            {monthDeleteTarget?.label} 사용내역서를 삭제하시겠습니까? <br/>해당 월의 사용내역서와 증빙 서류가 제거됩니다.
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.6, whiteSpace: 'pre-line' }}>
+            {`${monthDeleteTarget?.label || ''} 사용내역서를 삭제하시겠습니까?\n해당 월의 사용내역서와 증빙 서류가 제거됩니다.`}
           </div>
           {monthDeleteError && <div style={{ marginTop: 12, borderRadius: 10, background: C.dangerBg, color: C.danger, padding: '10px 12px', fontSize: 13, fontWeight: 800, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{monthDeleteError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
@@ -1816,7 +1816,7 @@ function ProjectDetailPageContent() {
       </div>} actionLabel="확인" onAction={() => setOcrFailureReason('')} />
       <CenterModal open={Boolean(duplicateUsageMonthWarning)} title="이미 존재하는 사용내역서" body={<div>
         <div style={{ marginBottom: 8 }}>업로드한 파일의 세부항목 사용일자가 이미 등록된 월에 해당합니다.</div>
-        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800, lineHeight: 1.6 }}>{duplicateUsageMonthWarning}</div>
+        <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800, lineHeight: 1.6, whiteSpace: 'pre-line' }}>{duplicateUsageMonthWarning}</div>
       </div>} actionLabel="확인" onAction={() => setDuplicateUsageMonthWarning('')} />
       <CenterModal open={Boolean(usageUploadFailureMessage)} title="사용내역서 처리 실패" body={<div>
         <div style={{ marginBottom: 8 }}>파일 업로드 후 OCR/classi 처리 단계에서 문제가 발생했습니다.</div>
@@ -1848,8 +1848,8 @@ function ProjectDetailPageContent() {
         <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.g200}`, boxShadow: '0 22px 52px rgba(31,47,39,.18)', overflow: 'hidden' }}>
           <div style={{ padding: '20px 22px 17px', borderBottom: `1px solid ${C.g100}` }}>
             <div style={{ fontSize: 19, fontWeight: 800, color: C.g800, lineHeight: 1.35, marginBottom: 8 }}>미완료 보완 TODO가 있습니다</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.65 }}>
-              미완료 보완 TODO {activeSupplementTodoCount}건이 남아 있습니다.<br/>그래도 업로드 완료 처리할까요?
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.g600, lineHeight: 1.65, whiteSpace: 'pre-line' }}>
+              {`미완료 보완 TODO ${activeSupplementTodoCount}건이 남아 있습니다.\n그래도 업로드 완료 처리할까요?`}
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px 18px', background: '#FAFBFA' }}>
