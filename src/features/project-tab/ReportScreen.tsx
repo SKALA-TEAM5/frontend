@@ -643,7 +643,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
           {canGenerateReport ? '보고서 생성 준비 완료' : '보고서 생성 대기'}
         </div>
         <div style={{ fontSize: 14, color: C.g400, marginBottom: 16 }}>
-          {canGenerateReport ? '법령 검증 결과를 기반으로 보고서 초안을 생성할 수 있습니다.' : reportGenerateDisabledReason}
+          {canGenerateReport ? '법령 검증 결과를 기반으로 보고서 초안을 생성할 수 있습니다.' : '법령 검증을 완료해야만 보고서를 생성할 수 있습니다.'}
         </div>
         <button
           type="button"

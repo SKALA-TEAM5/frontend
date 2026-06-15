@@ -688,7 +688,7 @@ function ProjectDetailPageContent() {
         )
     );
     const selectedValidationDisabledReason = selectedValidationGateBlockedItem
-        ? `${selectedValidationGateBlockedItem.label} 조건이 충족되어야 법령 검증을 시작할 수 있습니다.`
+        ? `업로드 완료 및 유효성 검증 조건이 충족되어야 법령 검증을 시작할 수 있습니다.`
         : '사용내역서와 에이전트 검증 로그를 확인한 뒤 법령 검증을 시작할 수 있습니다.';
     const selectedApproveDisabledReason = selectedValidationStatus !== 'done'
         ? '법령 검증을 먼저 완료해야 검토 완료할 수 있습니다.'
