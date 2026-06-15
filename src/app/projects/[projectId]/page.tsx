@@ -382,6 +382,26 @@ const withActionRequestMonth = (details: ProjectSummary['actionRequestDetails'] 
         return details;
     return details.month || !month ? details : { ...details, month };
 };
+const buildActionRequestDetailsFromTodos = (project: ProjectSummary, todos: OrchestratorTodo[] = [], month?: string): ProjectSummary['actionRequestDetails'] => {
+    const todoLines = todos
+        .filter((todo) => !todo.confirmed)
+        .map((todo) => [todo.reason, todo.title].find((value) => value?.trim())?.trim())
+        .filter((value): value is string => Boolean(value));
+    return {
+        title: '보완 요청 확인 필요',
+        reason: todoLines.length > 0 ? todoLines.map((line, index) => `${index + 1}. ${line}`).join('\n') : '사용내역서 또는 증빙 자료를 보완해 주세요.',
+        assignee: getProjectAssigneeLabel(project),
+        dueDate: '',
+        requestedAt: '-',
+        ...(month ? { month } : {}),
+    };
+};
+const resolveActionRequestDetails = (
+    project: ProjectSummary,
+    month?: string,
+    details?: ProjectSummary['actionRequestDetails'],
+    todos: OrchestratorTodo[] = [],
+): ProjectSummary['actionRequestDetails'] => withActionRequestMonth(details, month) || buildActionRequestDetailsFromTodos(project, todos, month);
 const formatLegalDisabledReason = (reason?: string | null) => {
     const text = (reason || '').trim();
     if (!text)
@@ -557,7 +577,7 @@ function ProjectDetailPageContent() {
             const status = await getOrchestratorStatus(project.id || projectId, item.usageStatementId);
             const todos = status.todos || [];
             const actionRequestDetails = archiveWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-                ? withActionRequestMonth(project.actionRequestDetails, month)
+                ? resolveActionRequestDetails(project, month, project.actionRequestDetails, todos)
                 : undefined;
             return {
                 ...item,
@@ -668,7 +688,9 @@ function ProjectDetailPageContent() {
         || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED;
     const selectedMonthShouldDisplayWorkflowStatus = selectedMonthHasUploadedStatement || Boolean(selectedStatementArchive?.workflowStatus);
     const selectedMonthActionRequestDetails = selectedStatementArchive?.actionRequestDetails
-        || (selectedMonthHasActionRequest ? withActionRequestMonth(project.actionRequestDetails, selectedStatement.month) : undefined);
+        || (selectedMonthHasActionRequest
+            ? resolveActionRequestDetails(project, selectedStatement.month, project.actionRequestDetails, selectedStatementArchive?.orchestratorTodos)
+            : undefined);
     const selectedValidationGateItems = buildValidationGateItems({
         usageStatementUploaded: selectedMonthHasUploadedStatement,
         uploadCompleted: selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED,
@@ -955,7 +977,7 @@ function ProjectDetailPageContent() {
                     ...entry,
                     orchestratorTodos: todos,
                     actionRequestDetails: archiveWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-                        ? entry.actionRequestDetails
+                        ? resolveActionRequestDetails(project, selectedStatement.month, entry.actionRequestDetails || project.actionRequestDetails, todos)
                         : undefined,
                     legalReady: status.legalReady,
                     legalDisabledReason: status.legalDisabledReason,
@@ -989,7 +1011,7 @@ function ProjectDetailPageContent() {
                     },
                     workflowStatus: latestWorkflowStatus,
                     actionRequestDetails: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED
-                        ? entry.actionRequestDetails
+                        ? resolveActionRequestDetails(project, month, entry.actionRequestDetails || project.actionRequestDetails, entry.orchestratorTodos)
                         : undefined,
                     orchestratorTodos: entry.orchestratorTodos,
                     legalReady: latestWorkflowStatus === USAGE_WORKFLOW_STATUS.DRAFT ? false : entry.legalReady,
