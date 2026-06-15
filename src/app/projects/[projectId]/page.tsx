@@ -619,6 +619,7 @@ function ProjectDetailPageContent() {
                 ...current,
                 hasUploads: latestData.statementSummary.evidenceCount > 0 || Boolean(latestData.statementSummary.sourceFileName && latestData.statementSummary.sourceFileName !== '-'),
                 accumulatedAmount: latestData.statementSummary.cumulativeAmount,
+                progressRate: formatProgressRateText(latestData.cumulativeProgressRate),
                 usageRate: calculateUsageRateText(latestData.statementSummary.cumulativeAmount, current.plannedAmount),
             }, latestWorkflowStatus, latestActionRequestDetails));
             return;
@@ -1549,6 +1550,14 @@ function ProjectDetailPageContent() {
         const rate = Math.round((used / planned) * 1000) / 10;
         return `${rate}%`;
     };
+    const formatProgressRateText = (value?: string | number | null) => {
+        if (value == null || value === '')
+            return '0%';
+        const numeric = Number(String(value).replace(/[^\d.-]/g, ''));
+        if (!Number.isFinite(numeric))
+            return String(value).endsWith('%') ? String(value) : `${value}%`;
+        return `${Math.round(numeric * 10) / 10}%`;
+    };
     const editableUsageRows = overviewUsageRows.filter(([item]) => item !== '계');
     const monthlyUsageTotal = editableUsageRows.reduce((sum, [, , current]) => sum + parseCurrencyValue(current), 0);
     const usedSafetyCost = parseCurrencyValue(selectedStatement.cumulativeAmount);
@@ -1561,10 +1570,10 @@ function ProjectDetailPageContent() {
         ['건설업체명', project.constructionCompany, '소재지', project.location],
         ['프로젝트 담당자', getProjectAssigneeLabel(project), 'SHE 담당자', getProjectSheManagerLabel(project)],
         ['공사금액', `${project.constructionAmount}원`, '계상된 안전관리비', `${project.plannedAmount}원`],
-        ['공사기간', project.period, '공정률', project.progressRate, '사용률', `${safetyUsagePercent}%`],
+        ['공사기간', project.period, '공정률', project.progressRate],
         ...(selectedMonth
             ? [
-                ['업로드일', selectedStatement.uploadedAt, '최종수정일', selectedStatement.documentWrittenDate],
+                ['업로드일', selectedStatement.uploadedAt, '사용률', `${safetyUsagePercent}%`],
             ]
             : []),
     ];
