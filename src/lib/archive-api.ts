@@ -240,6 +240,7 @@ export interface CreateUsageStatementItemResponse {
 
 export interface UsageStatementArchiveData {
   usageStatementId?: number;
+  cumulativeProgressRate?: number | string | null;
   archiveSeed: ArchiveSeed;
   usageItems: UsageLineItem[];
   overviewRows: Array<[string, string, string, string]>;
@@ -560,6 +561,7 @@ const toArchiveData = (projectId: string, statement: UsageStatementDetailRespons
 
   return {
     usageStatementId: statement.id,
+    cumulativeProgressRate: statement.cumulativeProgressRate,
     archiveSeed,
     usageItems,
     overviewRows: buildOverviewRows(statement.summaries || [], usageItems),

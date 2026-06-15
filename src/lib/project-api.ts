@@ -50,6 +50,8 @@ interface ProjectDetailResponse {
   contractAmount: number | string;
   constructionStartDate: string;
   constructionEndDate: string;
+  latestCumulativeProgressRate?: number | string | null;
+  usageRate?: number | string | null;
   clientName: string | null;
   appropriatedAmount: number | string;
   status: ProjectStatusCode;
@@ -198,6 +200,8 @@ export const projectDetailToSummary = (project: ProjectDetailResponse): ProjectS
     constructionAmount: formatMoney(project.contractAmount),
     manager: managerText(assigneeNames),
     period: formatPeriod(project.constructionStartDate, project.constructionEndDate),
+    progressRate: progressText(project.latestCumulativeProgressRate),
+    usageRate: progressText(project.usageRate),
     location: project.siteLocation || '',
     plannedAmount: formatMoney(project.appropriatedAmount),
     recentActivity: project.updatedAt ? `프로젝트 정보가 ${project.updatedAt.slice(0, 10)}에 갱신되었습니다.` : '',
