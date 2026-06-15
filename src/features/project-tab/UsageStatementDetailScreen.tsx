@@ -78,6 +78,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const syncingUsageDetailSeedRef = useRef(false);
     const usageDetailSeedSnapshotRef = useRef('');
     const clearTodoSignalRef = useRef(clearTodoSignal);
+    const selectionInitializedRef = useRef(false);
     useEffect(() => {
         if (!usageDetailSeed)
             return;
@@ -90,15 +91,28 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         setFileData(normalizedSeed);
     }, [usageDetailSeed]);
     useEffect(() => {
+        selectionInitializedRef.current = false;
+        setSelectedHierarchyCatId(1);
+        setSelectedUsageItemId('');
+    }, [usageStatementId]);
+    useEffect(() => {
+        if (selectionInitializedRef.current || !resolvedUsageItems.length)
+            return;
+        const firstPopulatedCategory = CATS.find((cat) => resolvedUsageItems.some((item) => item.categoryId === cat.id));
+        const firstCategoryId = firstPopulatedCategory?.id || 1;
+        const firstUsageItem = resolvedUsageItems.find((item) => item.categoryId === firstCategoryId);
+        setSelectedHierarchyCatId(firstCategoryId);
+        setSelectedUsageItemId(firstUsageItem?.id || '');
+        selectionInitializedRef.current = true;
+    }, [resolvedUsageItems, usageStatementId]);
+    useEffect(() => {
         if (!resolvedUsageItems.length) {
             setSelectedUsageItemId('');
             return;
         }
         const categoryItems = resolvedUsageItems.filter((item) => item.categoryId === selectedHierarchyCatId);
         if (!categoryItems.length) {
-            const fallbackItem = resolvedUsageItems[0];
-            setSelectedHierarchyCatId(fallbackItem.categoryId);
-            setSelectedUsageItemId(fallbackItem.id);
+            setSelectedUsageItemId('');
             return;
         }
         const hasSelectedItem = categoryItems.some((item) => item.id === selectedUsageItemId);
