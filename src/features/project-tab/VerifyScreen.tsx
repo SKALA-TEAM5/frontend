@@ -169,6 +169,13 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
     setSheReviewDecision(initialSheReviewDecision);
   }, [initialSheReviewDecision]);
 
+  useEffect(() => {
+    if (initialStatus !== 'loading') return;
+    setStatus('loading');
+    setValidationProgress((current) => Math.max(current, 48));
+    setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
+  }, [initialStatus]);
+
   const sortedCategories = useMemo(
     () => [...categories].sort((a, b) => getDecisionWeight(b.decision) - getDecisionWeight(a.decision) || a.categoryId - b.categoryId),
     [categories],
@@ -226,6 +233,14 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
             ? buildLegalRunFallbackResult(existingResult, usageStatementId)
             : EMPTY_VALIDATION_RESULT;
         if (resultToShow.categories.length === 0) {
+          if (initialStatus === 'loading') {
+            setStatus('loading');
+            setResult(EMPTY_VALIDATION_RESULT);
+            setValidationId(usageStatementId ? `legal-${usageStatementId}` : '');
+            setValidationProgress((current) => Math.max(current, 48));
+            setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
+            return;
+          }
           setStatus('idle');
           setResult(EMPTY_VALIDATION_RESULT);
           setValidationId('');
@@ -238,6 +253,14 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       })
       .catch(() => {
         if (!alive) return;
+        if (initialStatus === 'loading') {
+          setStatus('loading');
+          setResult(EMPTY_VALIDATION_RESULT);
+          setValidationId(usageStatementId ? `legal-${usageStatementId}` : '');
+          setValidationProgress((current) => Math.max(current, 48));
+          setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
+          return;
+        }
         setStatus('idle');
         setResult(EMPTY_VALIDATION_RESULT);
         setValidationId('');

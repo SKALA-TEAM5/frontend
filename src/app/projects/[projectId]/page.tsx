@@ -194,6 +194,7 @@ const normalizeMonthKey = (month?: string | null) => {
     const match = month.match(/^(\d{4})-(\d{2})/);
     return match ? `${match[1]}-${match[2]}` : month;
 };
+const isAgentRunningReason = (reason?: string | null) => String(reason || '').includes('현재 실행 중');
 const pendingUsageMonthsStorageKey = (projectId: string) => `i-veri:pending-usage-months:${projectId}`;
 const readPendingUsageMonths = (projectId: string) => {
     if (typeof window === 'undefined')
@@ -635,7 +636,10 @@ function ProjectDetailPageContent() {
     const selectedStatementArchive = selectedStatement.month ? dbUsageStatementsByMonth[selectedStatement.month] : undefined;
     const selectedMonthHasUploadedStatement = Boolean(selectedStatement.sourceFileName && selectedStatement.sourceFileName !== '-');
     const hasUsageStatement = monthlyStatements.length > 0 || Boolean(archiveSeed?.usage_statement?.length || archiveUsageItems.length);
-    const selectedValidationStatus = validationStatusByMonth[selectedStatement.month] || 'idle';
+    const selectedLegalAgentRunning = isAgentRunningReason(selectedStatementArchive?.legalDisabledReason);
+    const selectedValidationStatus = selectedLegalAgentRunning
+        ? 'running'
+        : validationStatusByMonth[selectedStatement.month] || 'idle';
     const selectedLegalResultCode = String(selectedStatementArchive?.legalResultCode || '').toLowerCase();
     const selectedLegalAllowsReport = selectedLegalResultCode === 'success' || selectedLegalResultCode === 'hil' || (!selectedLegalResultCode && selectedValidationStatus === 'done');
     const selectedReportGenerationEnabled = Boolean(
@@ -1739,7 +1743,7 @@ function ProjectDetailPageContent() {
             }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveSupplementTodoCount} onVerificationComplete={refreshSelectedAgentButtonState} uploadCompleteAction={uploadCompleteAction}/>}
         </>}
       </div>),
-        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : 'idle'} initialSheReviewDecision={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED ? 'review_completed' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? 'supplement_requested' : 'pending'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} canApproveValidation={canApproveValidationForCurrentView} approveDisabledReason={selectedApproveDisabledReason} onValidationComplete={() => {
+        validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : selectedValidationStatus === 'running' ? 'loading' : 'idle'} initialSheReviewDecision={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED ? 'review_completed' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? 'supplement_requested' : 'pending'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} canApproveValidation={canApproveValidationForCurrentView} approveDisabledReason={selectedApproveDisabledReason} onValidationComplete={() => {
                 setValidationStatusByMonth((prev) => ({ ...prev, [selectedStatement.month]: 'done' }));
                 void refreshSelectedAgentButtonState();
             }} onValidationApproved={async () => {
