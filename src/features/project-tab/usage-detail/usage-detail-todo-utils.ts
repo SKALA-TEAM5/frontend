@@ -71,6 +71,7 @@ const getTodoEvidenceDisplayName = (todo: UsageDetailTodoItem) => {
 };
 
 const formatTodoReasonForDisplay = (value?: string) => (value || '')
+  .replace(/^.*?증빙\s*매칭\s*:\s*/u, '')
   .replace(/,\s*허용:\s*[^);]+/gu, '')
   .replace(/\s*\(\s*유사도\s*:?\s*\d+(?:\.\d+)?\s*\)/gu, '')
   .replace(/;\s*/gu, ';\n')
