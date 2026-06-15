@@ -4,7 +4,7 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { getLatestValidation, getLegalDetail, getValidationStatus, isAgentRunningError, runLegalAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
+import { getAgentButtonStates, getLatestValidation, getLegalDetail, getValidationStatus, isAgentRunningError, isAgentStageRunning, runLegalAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
@@ -337,6 +337,17 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       setValidationStatusText('법령 검토가 완료되었습니다.');
       onValidationComplete?.();
     } catch (error) {
+      const buttonStates = projectId && usageStatementId
+        ? await getAgentButtonStates(projectId, usageStatementId).catch(() => null)
+        : null;
+      if (buttonStates && isAgentStageRunning(buttonStates, 'legal')) {
+        setValidationId(usageStatementId ? `legal-${usageStatementId}` : '');
+        setResult(EMPTY_VALIDATION_RESULT);
+        setStatus('loading');
+        setValidationProgress((current) => Math.max(current, 55));
+        setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
+        return;
+      }
       setValidationId('');
       setResult(EMPTY_VALIDATION_RESULT);
       setStatus('idle');
@@ -408,7 +419,9 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       </div>
       <div style={{ margin: '18px auto 0', width: 'min(100%, 680px)' }}>
         <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}>
-          <div style={{ height: '100%', width: `${validationProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} />
+          <div style={{ position: 'relative', height: '100%', width: `${validationProgress}%`, minWidth: 28, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, overflow: 'hidden', transition: 'width .3s' }}>
+            <div aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '45%', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent)', animation: 'loadingSlide 1.15s linear infinite' }} />
+          </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
           {LEGAL_VALIDATION_STEPS.map((step, index) => (

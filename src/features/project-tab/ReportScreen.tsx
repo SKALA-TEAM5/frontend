@@ -598,7 +598,9 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
   const renderReportProgress = () => (
     <div style={{ margin: '16px auto 0', width: 'min(100%, 680px)' }}>
       <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}>
-        <div style={{ height: '100%', width: `${reportProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} />
+        <div style={{ position: 'relative', height: '100%', width: `${reportProgress}%`, minWidth: 28, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, overflow: 'hidden', transition: 'width .3s' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '45%', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent)', animation: 'loadingSlide 1.15s linear infinite' }} />
+        </div>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
         {REPORT_STEPS.map((step, index) => (
