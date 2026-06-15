@@ -17,16 +17,16 @@ interface UseUsageDetailVerificationInput {
 
 const loadingMessages: Record<UsageDetailVerificationStep, UsageDetailLoadingMessage> = {
   ocr: {
-    title: 'OCR 매칭 결과를 확인하고 있어요',
-    body: '영수증과 사용내역서의 날짜, 빈값, 연결 가능성을 link agent가 먼저 점검합니다.',
+    title: '증빙 연결 상태를 확인하고 있어요',
+    body: '사용내역서와 증빙 파일의 날짜, 빈값, 연결 가능성을 먼저 점검합니다.',
   },
   safety: {
-    title: '필수 증빙 규칙을 대조하고 있어요',
-    body: 'safety-doc agent가 세부 항목별로 필요한 증빙과 보완 대상을 확인합니다.',
+    title: '필수 증빙을 확인하고 있어요',
+    body: '세부 항목별로 필요한 증빙과 보완 대상을 확인합니다.',
   },
   vision: {
     title: '현장사진을 확인하고 있어요',
-    body: 'vision model이 사진 속 현장 상태와 세부 항목의 적합성을 판단합니다.',
+    body: '사진 속 현장 상태와 세부 항목의 적합성을 판단합니다.',
   },
 };
 
@@ -90,6 +90,12 @@ export default function useUsageDetailVerification({
         refreshVisionValidationResults(),
       ]);
       applyVisionValidationResults(nextTodos, nextVisionResults);
+      await waitForVerificationStep(700);
+      const [confirmedTodos, confirmedVisionResults] = await Promise.all([
+        refreshOrchestratorStatusTodos(),
+        refreshVisionValidationResults(),
+      ]);
+      applyVisionValidationResults(confirmedTodos, confirmedVisionResults);
       setMatchingStatus('done');
       setPhotoValidationStatus('done');
       setMatchingNotice('증빙 유효성 검증 결과를 보완 TODO에 반영했습니다.');

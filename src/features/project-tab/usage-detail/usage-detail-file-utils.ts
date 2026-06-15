@@ -96,6 +96,7 @@ export const moveUsageDetailFileInArchive = (
     targetUsageItemId,
     fileEntry,
     movedLinkId,
+    evidenceTypeCode,
   }: {
     fromKind: FolderEvidenceCategory;
     fromCatId: number;
@@ -105,6 +106,7 @@ export const moveUsageDetailFileInArchive = (
     targetUsageItemId: string;
     fileEntry: EvidenceFile;
     movedLinkId?: EvidenceFile['linkId'];
+    evidenceTypeCode?: EvidenceFile['evidenceTypeCode'];
   },
 ): ArchiveSeed => {
   const nextKind: EvidenceCategory = toKind;
@@ -113,7 +115,7 @@ export const moveUsageDetailFileInArchive = (
     id: movedLinkId ? `evidence-link-${movedLinkId}` : fileEntry.id,
     linkId: movedLinkId,
     kind: nextKind,
-    evidenceTypeCode: kindToEvidenceCode(toKind),
+    evidenceTypeCode: kindToEvidenceCode(toKind, evidenceTypeCode),
     categoryIds: [toCatId],
   };
   const next: ArchiveSeed = { ...seed, categories: { ...seed.categories } };

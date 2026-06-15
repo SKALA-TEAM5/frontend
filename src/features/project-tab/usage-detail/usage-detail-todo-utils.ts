@@ -32,6 +32,7 @@ const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
   invoice: '계산서',
   tax_invoice: '세금계산서',
   electronic_tax_invoice: '전자세금계산서',
+  tax_invoice_confirm: '세금계산서 확인서',
   third_party_lookup: '제3자발급사실조회서',
   third_party_issue_lookup: '제3자발급사실조회서',
   site_photo: '현장사진',
@@ -51,6 +52,7 @@ const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
   education_attendance: '교육 참석자 명단',
   training_completion_certificate: '교육 이수증',
   education_completion_certificate: '교육 이수증',
+  edu_confirm: '교육 이수증',
   training_material: '교육자료',
   education_material: '교육자료',
   appointment_report: '선임 신고서',
@@ -62,8 +64,12 @@ const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
   delivery_note: '납품서',
   delivery_statement: '납품서',
   purchase_order: '발주서',
+  usage_statement: '사용내역서',
+  analysis_table: '분석표',
   work_log: '업무일지',
+  daily_output_log: '일일 출력일보',
   daily_report: '작업일지',
+  inspection_log: '점검일지',
   inspection_report: '점검표',
   checklist: '점검표',
   supply_ledger: '지급대장',
@@ -75,6 +81,8 @@ const EVIDENCE_DOCUMENT_NAME_LABELS: Record<string, string> = {
   employment_contract: '근로계약서',
   worker_roster: '근로자 명부',
   consultant_report: '컨설팅 보고서',
+  health_checkup_result: '건강검진 결과서',
+  health_checkup_contract: '건강검진 계약서',
   tech_guidance_contract: '기술지도 계약서',
   technical_guidance_report: '기술지도 보고서',
   tech_guidance_report: '기술지도 보고서',
@@ -161,6 +169,19 @@ export const translateTodoDisplayText = (value: string, context?: string | null)
     .replace(/\s*,\s*/g, ', ')
     .replace(/\s+/g, ' ')
     .trim();
+};
+
+const getTodoEvidenceDisplayName = (todo: UsageDetailTodoItem) => {
+  const byCode = todo.requiredEvidenceTypeCode
+    ? translateEvidenceDocumentName(todo.requiredEvidenceTypeCode)
+    : '';
+  if (byCode) return byCode;
+  const cleanedTitle = cleanEvidenceTodoText(todo.title.trim());
+  const translatedTitle = translateTodoDisplayText(cleanedTitle, todo.context)
+    .replace(/^(?:필수\s*)?증빙\s*누락\s*[:：]\s*/u, '')
+    .replace(/\s*(?:업로드|제출|삭제|제거|교체)?\s*필요$/u, '')
+    .trim();
+  return translatedTitle || translateTodoDisplayText(todo.title.trim(), todo.context);
 };
 
 export const toNounPhraseDetail = (value?: string) => {
@@ -277,11 +298,9 @@ export const getTodoGroupLocationMeta = (todo: UsageDetailTodoItem, usageItems: 
 };
 
 export const getTodoDisplayTitle = (todo: UsageDetailTodoItem) => {
-  if (todo.backendTodoId) return todo.title.trim() || '보완 사항 확인 필요';
-  const title = translateTodoDisplayText(todo.title.trim(), todo.context);
-  const needsActionSuffix = !/(?:업로드|제출|삭제|제거|교체|필요)$/u.test(title);
-  if (!needsActionSuffix) return title;
-  return `${title} ${todo.mode === 'add' ? '업로드 필요' : '삭제 필요'}`;
+  const evidenceName = getTodoEvidenceDisplayName(todo);
+  if (!evidenceName) return '보완 사항 확인 필요';
+  return `${evidenceName} ${todo.mode === 'add' ? '업로드 필요' : '삭제 필요'}`;
 };
 
 type TodoGroupMeta = {
