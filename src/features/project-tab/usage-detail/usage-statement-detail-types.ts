@@ -36,6 +36,7 @@ export type UsageDetailTodoItem = {
   source: UsageDetailTodoSource;
   kind: FolderEvidenceCategory;
   requiredEvidenceTypeCode?: string;
+  requiredEvidenceTypeName?: string;
   title: string;
   context: string;
   categoryId?: number;
