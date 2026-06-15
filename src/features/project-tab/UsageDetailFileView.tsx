@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from '../../components/ui/Modal';
 import FileThumb, { AuthenticatedPreviewImage } from '../../components/ui/FileThumb';
+import { getProjectFileVisionDetections } from '../../lib/archive-api';
 import { calculateUsageLineAmount, fmt, isImageFile, makeThumbSvg, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import { C } from '../../lib/theme';
 import type { EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
@@ -34,6 +35,7 @@ const isVisionDetectionReviewTarget = (detection: NonNullable<EvidenceFile['visi
   detection.status === 'bad' || detection.confidence < VISION_REVIEW_CONFIDENCE_THRESHOLD;
 
 interface UsageDetailFileViewProps {
+  projectId: string;
   cats: CategoryMeta[];
   usageItems: UsageLineItem[];
   selectedCatId: number;
@@ -71,12 +73,13 @@ const MoreIcon = ({ color = C.g600 }: { color?: string }) => (
   </span>
 );
 
-export default function UsageDetailFileView({ cats, usageItems, selectedCatId, selectedUsageItemId, actionRequest, getFiles, onSelectCat, onSelectUsageItem, onRemove, onRename, onMove, onEditUsageItem, onAddUsageItem, onDeleteUsageItem, onUpload, onDownloadFile, isProblemFile, isSupplementTarget, fileHeaderAction, renderEvidenceTodos }: UsageDetailFileViewProps) {
+export default function UsageDetailFileView({ projectId, cats, usageItems, selectedCatId, selectedUsageItemId, actionRequest, getFiles, onSelectCat, onSelectUsageItem, onRemove, onRename, onMove, onEditUsageItem, onAddUsageItem, onDeleteUsageItem, onUpload, onDownloadFile, isProblemFile, isSupplementTarget, fileHeaderAction, renderEvidenceTodos }: UsageDetailFileViewProps) {
   const [dragPayload, setDragPayload] = useState<{ kind: HierarchyEvidenceKind; catId: number; usageItemId: string; file: EvidenceFile } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; file: EvidenceFile } | null>(null);
   const [openFileMenu, setOpenFileMenu] = useState<{ kind: FolderEvidenceCategory; file: EvidenceFile; top: number; left: number } | null>(null);
   const fileMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
   const [previewTargetMeta, setPreviewTargetMeta] = useState<PreviewTargetMeta | null>(null);
+  const [previewVisionValidationById, setPreviewVisionValidationById] = useState<Record<string, EvidenceFile['visionValidation'] | null>>({});
   const [showVisionBoxes, setShowVisionBoxes] = useState(true);
   const [fileEditDraft, setFileEditDraft] = useState('');
   const [editUsageItemTarget, setEditUsageItemTarget] = useState<UsageLineItem | null>(null);
@@ -91,6 +94,11 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     ? getFiles(previewTargetMeta.kind, previewTargetMeta.catId, previewTargetMeta.usageItemId)
       .find((file) => file.id === previewTargetMeta.id) ?? null
     : null;
+  const previewVisionValidation = previewTarget
+    ? previewVisionValidationById[previewTarget.id] === undefined
+      ? previewTarget.visionValidation
+      : previewVisionValidationById[previewTarget.id] || undefined
+    : undefined;
   const layoutColumns = '220px 600px 310px';
   const usageItemGridColumns = '72px minmax(140px, .78fr) 32px 32px 80px 86px';
   const usageItemRowColumns = `${usageItemGridColumns} 66px`;
@@ -211,6 +219,29 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     };
   }, [openFileMenu]);
 
+  useEffect(() => {
+    if (!previewTargetMeta || !previewTarget?.fileId || previewTargetMeta.kind !== 'site_photo') return;
+    let alive = true;
+    getProjectFileVisionDetections(projectId, previewTarget.fileId, previewTargetMeta.kind)
+      .then((visionValidation) => {
+        if (!alive) return;
+        setPreviewVisionValidationById((current) => ({
+          ...current,
+          [previewTargetMeta.id]: visionValidation || null,
+        }));
+      })
+      .catch(() => {
+        if (!alive) return;
+        setPreviewVisionValidationById((current) => ({
+          ...current,
+          [previewTargetMeta.id]: current[previewTargetMeta.id] ?? previewTarget.visionValidation ?? null,
+        }));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [previewTargetMeta?.id, previewTargetMeta?.kind, previewTarget?.fileId, projectId]);
+
   const renderFileRow = (kind: FolderEvidenceCategory, file: EvidenceFile) => (
     <div key={file.id} draggable onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ position: 'relative', border: `1px solid ${C.g100}`, background: C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: 6 }}>
@@ -247,9 +278,9 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     if (!previewTarget) return null;
     const previewSrc = previewTarget.previewUrl || `data:image/svg+xml;charset=UTF-8,${makeThumbSvg(previewTarget.kind)}`;
     const canShowImagePreview = Boolean(previewTarget.previewUrl || isImageFile(previewTarget.name));
-    const detections = previewTarget.visionValidation?.detections || [];
+    const detections = previewVisionValidation?.detections || [];
     const hasReviewTargetDetection = detections.some(isVisionDetectionReviewTarget);
-    const previewVisionStatus = previewTarget.visionValidation?.status === 'unsuitable' || hasReviewTargetDetection ? 'unsuitable' : 'suitable';
+    const previewVisionStatus = previewVisionValidation?.status === 'unsuitable' || hasReviewTargetDetection ? 'unsuitable' : 'suitable';
     const showDetections = showVisionBoxes && detections.length > 0 && canShowImagePreview;
     return (
       <div
@@ -298,16 +329,16 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
               })}
             </div>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: previewTarget.visionValidation ? 'minmax(0,1fr) auto' : 'minmax(0,1fr)', gap: 10, alignItems: 'center', marginTop: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: previewVisionValidation ? 'minmax(0,1fr) auto' : 'minmax(0,1fr)', gap: 10, alignItems: 'center', marginTop: 12 }}>
             <div title={previewTarget.name} style={{ minWidth: 0, fontSize: 14, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{previewTarget.name}</div>
-            {previewTarget.visionValidation && (
+            {previewVisionValidation && (
               <span style={{ border: `1px solid ${previewVisionStatus === 'unsuitable' ? '#FFCDD2' : C.g200}`, borderRadius: 999, background: previewVisionStatus === 'unsuitable' ? C.dangerBg : C.bg, color: previewVisionStatus === 'unsuitable' ? C.danger : C.primary, padding: '5px 10px', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>
                 비전 결과 {previewVisionStatus === 'unsuitable' ? '부적합' : '적합'}
               </span>
             )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-            {previewTarget.visionValidation && (
+            {previewVisionValidation && (
               <button type="button" onClick={() => setShowVisionBoxes((value) => !value)} style={{ border: `1px solid ${showVisionBoxes ? C.primary : C.g200}`, borderRadius: 999, background: showVisionBoxes ? C.bg : C.white, color: showVisionBoxes ? C.primary : C.g600, padding: '7px 10px', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 바운더리 박스 {showVisionBoxes ? 'ON' : 'OFF'}
               </button>
