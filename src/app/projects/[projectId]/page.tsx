@@ -1868,7 +1868,7 @@ function ProjectDetailPageContent() {
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800, lineHeight: 1.6, whiteSpace: 'pre-line' }}>{duplicateUsageMonthWarning}</div>
       </div>} actionLabel="확인" onAction={() => setDuplicateUsageMonthWarning('')} />
       <CenterModal open={Boolean(usageUploadFailureMessage)} title="사용내역서 처리 실패" body={<div>
-        <div style={{ marginBottom: 8 }}>파일 업로드 후 OCR/classi 처리 단계에서 문제가 발생했습니다.</div>
+        <div style={{ marginBottom: 8 }}>파일 업로드 후 분석 단계에서 문제가 발생했습니다.</div>
         <div style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.g100, padding: '10px 12px', color: C.g800, lineHeight: 1.6 }}>{usageUploadFailureMessage}</div>
       </div>} actionLabel="확인" onAction={() => setUsageUploadFailureMessage('')} />
       <Modal open={usageUploadStage === 'classifying'} onClose={() => {}} zIndex={1200} maxWidth={520}>
