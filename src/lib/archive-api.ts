@@ -731,23 +731,35 @@ export const deleteProjectFile = async (projectId: string, fileId: number | stri
   });
 };
 
-export const linkEvidenceFile = async (projectId: string, itemId: string, fileId: number | string, kind: FolderEvidenceCategory) => {
+export const linkEvidenceFile = async (
+  projectId: string,
+  itemId: string,
+  fileId: number | string,
+  kind: FolderEvidenceCategory,
+  evidenceTypeCode?: BackendEvidenceTypeCode | string,
+) => {
   const response = await apiFetch<EvidenceLinkResponse>(`/projects/${projectId}/usage-statement-items/${itemId}/evidence-files`, {
     method: 'POST',
     body: {
       fileId: Number(fileId),
-      evidenceTypeCode: kindToEvidenceCode(kind),
+      evidenceTypeCode: kindToEvidenceCode(kind, evidenceTypeCode),
     },
   });
   return response.data;
 };
 
-export const moveEvidenceFileLink = async (projectId: string, linkId: number | string, targetItemId: string, kind: FolderEvidenceCategory) => {
+export const moveEvidenceFileLink = async (
+  projectId: string,
+  linkId: number | string,
+  targetItemId: string,
+  kind: FolderEvidenceCategory,
+  evidenceTypeCode?: BackendEvidenceTypeCode | string,
+) => {
   const response = await apiFetch<EvidenceLinkResponse>(`/projects/${projectId}/evidence-file-links/${linkId}`, {
     method: 'PATCH',
     body: {
       targetItemId: Number(targetItemId),
-      evidenceTypeCode: kindToEvidenceCode(kind),
+      evidenceTypeCode: kindToEvidenceCode(kind, evidenceTypeCode),
     },
   });
   return response.data;

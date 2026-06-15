@@ -34,6 +34,22 @@ interface UsageStatementDetailScreenProps {
     onVerificationComplete?: () => void | Promise<void>;
     uploadCompleteAction?: ReactNode;
 }
+const isWearingPhotoContext = (kind: FolderEvidenceCategory, catId: number, itemName?: string) => (
+    kind === 'site_photo'
+    && (catId === 3 || /보호구|착용|안전모|안전화|안전벨트|장갑|마스크|조끼|개인보호/.test(itemName || ''))
+);
+const getDefaultEvidenceTypeCode = (
+    kind: FolderEvidenceCategory,
+    catId: number,
+    itemName?: string,
+    preferredEvidenceTypeCode?: string | null,
+) => {
+    if (isWearingPhotoContext(kind, catId, itemName))
+        return 'wearing_photo';
+    if (isBackendEvidenceTypeCode(preferredEvidenceTypeCode) && backendEvidenceTypeToCategory(preferredEvidenceTypeCode) === kind)
+        return preferredEvidenceTypeCode;
+    return undefined;
+};
 export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onVerificationComplete, uploadCompleteAction }: UsageStatementDetailScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(usageDetailSeed || createDefaultArchiveData()));
@@ -176,12 +192,10 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         if (!usageItemId)
             return;
         const usageItem = resolvedUsageItems.find((item) => item.id === usageItemId);
-        const isWearingPhotoContext = kind === 'site_photo'
-            && (catId === 3 || /보호구|착용|안전모|안전화|안전벨트|장갑|마스크|조끼|개인보호/.test(usageItem?.name || ''));
         const matchingRequiredEvidenceTypeCodes = (todos.requiredEvidenceByLine[usageItemId]?.[kind] || [])
             .filter((code) => isBackendEvidenceTypeCode(code) && backendEvidenceTypeToCategory(code) === kind);
         const requiredEvidenceTypeCode = matchingRequiredEvidenceTypeCodes.find((code) => code !== kind) || matchingRequiredEvidenceTypeCodes[0];
-        const evidenceTypeCode = requiredEvidenceTypeCode || (isWearingPhotoContext ? 'wearing_photo' : undefined);
+        const evidenceTypeCode = getDefaultEvidenceTypeCode(kind, catId, usageItem?.name, requiredEvidenceTypeCode);
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = true;
@@ -279,21 +293,23 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
         if (fromKind === 'misc' || toKind === 'misc')
             return;
         const targetUsageItemId = toUsageItemId || resolvedUsageItems.find((item) => item.categoryId === toCatId)?.id || `cat-${toCatId}`;
+        const targetUsageItem = resolvedUsageItems.find((item) => item.id === targetUsageItemId);
+        const evidenceTypeCode = getDefaultEvidenceTypeCode(toKind, toCatId, targetUsageItem?.name, fileEntry.evidenceTypeCode);
         setUsageDetailActionError('');
         let movedLinkId = fileEntry.linkId;
         try {
             if (fileEntry.linkId) {
-                const link = await moveEvidenceFileLink(projectId, fileEntry.linkId, targetUsageItemId, toKind);
+                const link = await moveEvidenceFileLink(projectId, fileEntry.linkId, targetUsageItemId, toKind, evidenceTypeCode);
                 movedLinkId = link.linkId || fileEntry.linkId;
             } else if (fileEntry.fileId) {
-                const link = await linkEvidenceFile(projectId, targetUsageItemId, fileEntry.fileId, toKind);
+                const link = await linkEvidenceFile(projectId, targetUsageItemId, fileEntry.fileId, toKind, evidenceTypeCode);
                 movedLinkId = link.linkId;
             }
         } catch (error) {
             setUsageDetailActionError(error instanceof Error ? error.message : '파일 이동에 실패했습니다.');
             return;
         }
-        commitFileData((prev) => moveUsageDetailFileInArchive(prev, { fromKind, fromCatId, fromUsageItemId, toKind, toCatId, targetUsageItemId, fileEntry, movedLinkId }));
+        commitFileData((prev) => moveUsageDetailFileInArchive(prev, { fromKind, fromCatId, fromUsageItemId, toKind, toCatId, targetUsageItemId, fileEntry, movedLinkId, evidenceTypeCode }));
         onUsageDetailContentMutated?.('move');
         const nextUsageItem = resolvedUsageItems.find((item) => item.id === toUsageItemId) || resolvedUsageItems.find((item) => item.categoryId === toCatId);
         if (nextUsageItem)
