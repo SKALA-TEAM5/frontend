@@ -178,6 +178,16 @@ const formatMonthLabel = (month: string) => {
     const [year, monthNo] = month.split('-');
     return `${year}년 ${Number(monthNo)}월`;
 };
+const parseUsageStatementMonth = (month: string) => {
+    const match = month.match(/^(\d{4})-(\d{2})$/);
+    if (!match)
+        return null;
+    const year = Number(match[1]);
+    const monthNo = Number(match[2]);
+    if (!Number.isInteger(year) || !Number.isInteger(monthNo) || monthNo < 1 || monthNo > 12)
+        return null;
+    return { year, month: monthNo };
+};
 const normalizeMonthKey = (month?: string | null) => {
     if (!month)
         return '';
@@ -230,6 +240,19 @@ const parseProjectPeriodMonthRange = (period: string) => {
         endMonth: toMonthKeyFromDate(endDate),
     };
 };
+const isMonthInProjectPeriod = (month: string, period: string) => {
+    const monthKey = normalizeMonthKey(month);
+    const { startMonth, endMonth } = parseProjectPeriodMonthRange(period);
+    if (!monthKey || !startMonth || !endMonth)
+        return true;
+    return monthKey >= startMonth && monthKey <= endMonth;
+};
+const formatProjectPeriodMonthRange = (period: string) => {
+    const { startMonth, endMonth } = parseProjectPeriodMonthRange(period);
+    return startMonth && endMonth ? `${formatMonthLabel(startMonth)} ~ ${formatMonthLabel(endMonth)}` : period;
+};
+const outOfProjectPeriodMessage = (month: string, period: string) =>
+    `${formatMonthLabel(month)} 사용내역서는 프로젝트 공사기간(${formatProjectPeriodMonthRange(period)})에 포함되지 않아 업로드할 수 없습니다.`;
 const asRecord = (value: unknown): Record<string, unknown> | null =>
     value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const asArray = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
@@ -1115,6 +1138,18 @@ function ProjectDetailPageContent() {
                     setOcrFailureReason(ocrFailureReason);
                     return;
                 }
+                const usageStatementMonth = parseUsageStatementMonth(selectedStatement.month);
+                if (!usageStatementMonth) {
+                    setUsageUploadStage('idle');
+                    setOcrFailureReason('사용내역서를 업로드할 월을 먼저 선택해 주세요.');
+                    return;
+                }
+                const selectedMonthKey = normalizeMonthKey(selectedStatement.month);
+                if (!isMonthInProjectPeriod(selectedMonthKey, project.period)) {
+                    setUsageUploadStage('idle');
+                    setUsageUploadFailureMessage(outOfProjectPeriodMessage(selectedMonthKey, project.period));
+                    return;
+                }
                 const existingUploadedMonths = new Set(
                     Object.entries(dbUsageStatementsByMonth)
                         .filter(([, data]) => {
@@ -1134,7 +1169,12 @@ function ProjectDetailPageContent() {
                         let ocrWorkflow: Awaited<ReturnType<typeof parseUsageStatementWithOcr>>;
                         try {
                             setUsageUploadStage('classifying');
-                            ocrWorkflow = await parseUsageStatementWithOcr(project.id, uploadedFileId);
+                            ocrWorkflow = await parseUsageStatementWithOcr(
+                                project.id,
+                                uploadedFileId,
+                                usageStatementMonth.year,
+                                usageStatementMonth.month,
+                            );
                             if (!ocrWorkflow.usageStatementId) {
                                 throw new Error('사용내역서 OCR 결과에 사용내역서 ID가 없습니다.');
                             }
@@ -1144,16 +1184,25 @@ function ProjectDetailPageContent() {
                         }
                         savedArchive = await getUsageStatementArchiveById(project.id, ocrWorkflow.usageStatementId).catch(() => null);
                         const moveNotices = extractClassificationMoveNotices(ocrWorkflow);
-                        if (moveNotices.length) {
-                            setClassificationMoveNotices(moveNotices);
-                        }
                         const uploadedAt = uploadedEntry.uploadedAt || new Date().toISOString().slice(0, 10);
-                        const month = savedArchive?.statementSummary.month || selectedMonth || uploadedAt.slice(0, 7);
-                        writePendingUsageMonths(project.id, readPendingUsageMonths(project.id).filter((pendingMonth) => pendingMonth !== month));
+                        const month = normalizeMonthKey(savedArchive?.statementSummary.month) || selectedMonth || uploadedAt.slice(0, 7);
+                        if (!isMonthInProjectPeriod(month, project.period)) {
+                            await Promise.all([
+                                deleteUsageStatement(project.id, ocrWorkflow.usageStatementId).catch(() => null),
+                                deleteProjectFile(project.id, uploadedFileId).catch(() => null),
+                            ]);
+                            setUsageUploadFailureMessage(outOfProjectPeriodMessage(month, project.period));
+                            setUsageUploadStage('idle');
+                            return;
+                        }
                         if (savedArchive && existingUploadedMonths.has(month)) {
                             setDuplicateUsageMonthWarning(`${formatMonthLabel(month)} 사용내역서가 이미 존재합니다.\n파일의 세부항목 사용일자를 확인한 뒤 다시 업로드해주세요.`);
                             setUsageUploadStage('idle');
                             return;
+                        }
+                        writePendingUsageMonths(project.id, readPendingUsageMonths(project.id).filter((pendingMonth) => pendingMonth !== month));
+                        if (moveNotices.length) {
+                            setClassificationMoveNotices(moveNotices);
                         }
                         const statementSummary: MonthlyUsageStatementSummary = savedArchive?.statementSummary || {
                             month,

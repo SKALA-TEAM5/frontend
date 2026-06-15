@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getAgentFailureMessage } from '../../../lib/agent-failure';
 import { confirmAgentTodo, getOrchestratorStatus, getVisionValidationResults, type VisionValidationResult } from '../../../lib/agent-api';
 import { CATS, type UsageLineItem } from '../../../lib/evidence-utils';
@@ -34,7 +34,6 @@ interface UseUsageDetailTodosInput {
 export default function useUsageDetailTodos({
   projectId,
   usageStatementId,
-  todoStorageKey,
   actionRequest,
   fileCategories,
   usageItems,
@@ -46,45 +45,6 @@ export default function useUsageDetailTodos({
   const [orchestratorTodoItems, setOrchestratorTodoItems] = useState<UsageDetailTodoItem[]>([]);
   const [todoConfirmingIds, setTodoConfirmingIds] = useState<Record<string, boolean>>({});
   const [visionValidationByFileId, setVisionValidationByFileId] = useState<Record<string, VisionValidationResult>>({});
-  const skipTodoPersistenceRef = useRef(false);
-
-  const todoPersistenceKey = useMemo(() => {
-    if (usageStatementId) return `i-veri:usage-detail-todos:${projectId}:${usageStatementId}`;
-    if (todoStorageKey) return `i-veri:usage-detail-todos:${projectId}:${todoStorageKey}`;
-    return '';
-  }, [projectId, todoStorageKey, usageStatementId]);
-
-  useEffect(() => {
-    if (!todoPersistenceKey || typeof window === 'undefined') {
-      setCompletedTodoIds({});
-      setDismissedTodoIds({});
-      return;
-    }
-    skipTodoPersistenceRef.current = true;
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(todoPersistenceKey) || '{}') as {
-        completedTodoIds?: Record<string, boolean>;
-        dismissedTodoIds?: Record<string, boolean>;
-      };
-      setCompletedTodoIds(stored.completedTodoIds || {});
-      setDismissedTodoIds(stored.dismissedTodoIds || {});
-    } catch {
-      setCompletedTodoIds({});
-      setDismissedTodoIds({});
-    }
-  }, [todoPersistenceKey]);
-
-  useEffect(() => {
-    if (!todoPersistenceKey || typeof window === 'undefined') return;
-    if (skipTodoPersistenceRef.current) {
-      skipTodoPersistenceRef.current = false;
-      return;
-    }
-    window.localStorage.setItem(todoPersistenceKey, JSON.stringify({
-      completedTodoIds,
-      dismissedTodoIds,
-    }));
-  }, [completedTodoIds, dismissedTodoIds, todoPersistenceKey]);
 
   const refreshOrchestratorStatusTodos = async () => {
     if (!usageStatementId) return [] as UsageDetailTodoItem[];
@@ -204,30 +164,13 @@ export default function useUsageDetailTodos({
     return next;
   }, [todoItems]);
 
-  const backendTodoItemCounts = useMemo(() => {
-    const counts: Record<number, number> = {};
-    todoItems.forEach((todo) => {
-      if (!todo.backendTodoId) return;
-      counts[todo.backendTodoId] = (counts[todo.backendTodoId] || 0) + 1;
-    });
-    return counts;
-  }, [todoItems]);
-
-  const isSharedBackendTodo = (todo: UsageDetailTodoItem) => (
-    Boolean(todo.backendTodoId && backendTodoItemCounts[todo.backendTodoId] > 1)
-  );
-
   const isTodoDone = (todo: UsageDetailTodoItem) => {
     if (!todo.backendTodoId) return Boolean(completedTodoIds[todo.id]);
-    if (!isSharedBackendTodo(todo)) return Boolean(todo.backendConfirmed);
-    if (Object.prototype.hasOwnProperty.call(completedTodoIds, todo.id)) {
-      return Boolean(completedTodoIds[todo.id]);
-    }
     return Boolean(todo.backendConfirmed);
   };
 
   const getTodoConfirmingKey = (todo: UsageDetailTodoItem) => (
-    todo.backendTodoId && !isSharedBackendTodo(todo) ? `backend:${todo.backendTodoId}` : todo.id
+    todo.backendTodoId ? `backend:${todo.backendTodoId}` : todo.id
   );
 
   const activeTodoCount = todoItems.filter((todo) => !isTodoDone(todo)).length;
@@ -245,41 +188,6 @@ export default function useUsageDetailTodos({
     }
     const todoId = todo.backendTodoId;
     const confirmingKey = getTodoConfirmingKey(todo);
-    if (isSharedBackendTodo(todo)) {
-      const sharedTodos = todoItems.filter((item) => item.backendTodoId === todoId);
-      const previousCompletedTodoIds = completedTodoIds;
-      const nextCompletedTodoIds = { ...completedTodoIds };
-      sharedTodos.forEach((item) => {
-        if (!Object.prototype.hasOwnProperty.call(nextCompletedTodoIds, item.id)) {
-          nextCompletedTodoIds[item.id] = Boolean(item.backendConfirmed);
-        }
-      });
-      nextCompletedTodoIds[todo.id] = nextDone;
-      const allSharedTodosDone = sharedTodos.every((item) => Boolean(nextCompletedTodoIds[item.id]));
-      const shouldSyncBackend = allSharedTodosDone !== Boolean(todo.backendConfirmed);
-      setCompletedTodoIds(nextCompletedTodoIds);
-      if (!shouldSyncBackend) return;
-      setTodoConfirmingIds((current) => ({ ...current, [confirmingKey]: true }));
-      setOrchestratorTodoItems((current) => current.map((item) => (
-        item.backendTodoId === todoId ? { ...item, backendConfirmed: allSharedTodosDone } : item
-      )));
-      try {
-        await confirmAgentTodo(projectId, todoId, allSharedTodosDone);
-      } catch (error) {
-        setCompletedTodoIds(previousCompletedTodoIds);
-        setOrchestratorTodoItems((current) => current.map((item) => (
-          item.backendTodoId === todoId ? { ...item, backendConfirmed: !allSharedTodosDone } : item
-        )));
-        onActionError(getAgentFailureMessage('evidence-matching', error));
-      } finally {
-        setTodoConfirmingIds((current) => {
-          const next = { ...current };
-          delete next[confirmingKey];
-          return next;
-        });
-      }
-      return;
-    }
     setTodoConfirmingIds((current) => ({ ...current, [confirmingKey]: true }));
     setOrchestratorTodoItems((current) => current.map((item) => (
       item.backendTodoId === todoId ? { ...item, backendConfirmed: nextDone } : item

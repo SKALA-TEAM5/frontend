@@ -438,10 +438,15 @@ export const getLegalDetail = async (projectId: string, usageStatementId: number
   return response.data;
 };
 
-export const parseUsageStatementWithOcr = async (projectId: string, fileId: number | string) => {
+export const parseUsageStatementWithOcr = async (
+  projectId: string,
+  fileId: number | string,
+  year: number,
+  month: number,
+) => {
   const response = await apiFetch<OcrWorkflowResponse>(`/projects/${projectId}/agents/parse`, {
     method: 'POST',
-    body: { fileId: Number(fileId) },
+    body: { fileId: Number(fileId), year, month },
   });
   return response.data;
 };
