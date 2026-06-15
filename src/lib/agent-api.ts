@@ -567,12 +567,12 @@ export const waitForAgentButtonEnabled = async (
   projectId: string,
   usageStatementId: number,
   stage: AgentButtonStage,
-  options: { intervalMs?: number; maxAttempts?: number; onPoll?: (states: AgentButtonStatesResponse) => void; tolerateDisabledReason?: boolean } = {},
+  options: { intervalMs?: number; maxAttempts?: number | null; onPoll?: (states: AgentButtonStatesResponse) => void; tolerateDisabledReason?: boolean } = {},
 ) => {
   const intervalMs = options.intervalMs ?? 3000;
   const maxAttempts = options.maxAttempts ?? 310;
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  for (let attempt = 0; maxAttempts == null || attempt < maxAttempts; attempt += 1) {
     const states = await getAgentButtonStates(projectId, usageStatementId);
     options.onPoll?.(states);
     const state = states[stage];

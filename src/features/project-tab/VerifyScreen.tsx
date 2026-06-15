@@ -293,6 +293,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       if (!projectId || !usageStatementId) throw new Error('검증 로그 확인에 필요한 ID가 없습니다.');
       await waitForAgentButtonEnabled(projectId, usageStatementId, 'legal', {
         intervalMs: LEGAL_VALIDATION_POLL_INTERVAL_MS,
+        maxAttempts: null,
         tolerateDisabledReason: true,
         onPoll: () => {
           setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
