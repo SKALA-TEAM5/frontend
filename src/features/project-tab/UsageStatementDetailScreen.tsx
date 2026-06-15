@@ -14,7 +14,7 @@ import { applyVisionValidationToArchive, findUsageDetailFile, getUsageDetailFile
 import { buildClassiRejectedNotice, buildClassificationMoveNotices, findRejectedClassiResult, validateAddUsageItemDraft } from './usage-detail/usage-detail-item-utils';
 import useUsageDetailVerification from './usage-detail/useUsageDetailVerification';
 import useUsageDetailTodos from './usage-detail/useUsageDetailTodos';
-import { backendEvidenceTypeToCategory, changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, isBackendEvidenceTypeCode, linkEvidenceFile, moveEvidenceFileLink, updateUsageStatementItem, uploadEvidenceFileToItem } from '../../lib/archive-api';
+import { backendEvidenceTypeToCategory, changeUsageStatementItemCategory, createUsageStatementItem, deleteEvidenceFileLink, deleteProjectFile, deleteUsageStatementItem, getProjectFileDownloadUrl, getProjectFilePreviewUrl, getUsageStatementArchiveById, isBackendEvidenceTypeCode, linkEvidenceFile, moveEvidenceFileLink, updateProjectFileName, updateUsageStatementItem, uploadEvidenceFileToItem } from '../../lib/archive-api';
 import type { VisionValidationResult } from '../../lib/agent-api';
 import type { ArchiveSeed, EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
 interface UsageStatementDetailScreenProps {
@@ -263,10 +263,20 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     const removeUsageDetailFile = (kind: FolderEvidenceCategory, catId: number, fileId: string, usageItemId?: string) => {
         setDeleteTarget({ kind, catId, fileId, usageItemId });
     };
-    const renameUsageDetailFile = (kind: FolderEvidenceCategory, catId: number, fileId: string, nextName: string, usageItemId?: string) => {
+    const renameUsageDetailFile = async (kind: FolderEvidenceCategory, catId: number, fileId: string, nextName: string, usageItemId?: string) => {
         const trimmedName = nextName.trim();
         if (!trimmedName)
             return;
+        const targetFile = findUsageDetailFile(fileData, kind, catId, fileId, usageItemId);
+        setUsageDetailActionError('');
+        try {
+            if (targetFile?.fileId) {
+                await updateProjectFileName(projectId, targetFile.fileId, trimmedName);
+            }
+        } catch (error) {
+            setUsageDetailActionError(error instanceof Error ? error.message : '파일명 수정에 실패했습니다.');
+            return;
+        }
         commitFileData((prev) => renameUsageDetailFileInArchive(prev, { kind, catId, fileId, nextName: trimmedName, usageItemId }));
         onUsageDetailContentMutated?.('rename');
     };
@@ -299,7 +309,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
     };
     const renameHierarchyFile = (kind: HierarchyEvidenceKind, catId: number, usageItemId: string, file: EvidenceFile, nextName: string) => {
         if (kind !== 'misc')
-            renameUsageDetailFile(kind, catId, file.id, nextName, usageItemId);
+            void renameUsageDetailFile(kind, catId, file.id, nextName, usageItemId);
     };
     const moveHierarchyFile = async (fromKind: HierarchyEvidenceKind, fromCatId: number, fromUsageItemId: string, toKind: HierarchyEvidenceKind, toCatId: number, fileEntry: EvidenceFile, toUsageItemId?: string) => {
         if (fromKind === toKind && fromCatId === toCatId && fromUsageItemId === toUsageItemId)
