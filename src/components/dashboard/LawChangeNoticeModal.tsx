@@ -56,7 +56,7 @@ export default function LawChangeNoticeModal({ notice, onClose }: LawChangeNotic
         background: 'rgba(14, 28, 22, .34)',
       }}
     >
-      <div style={{ width: 'min(400px, 100%)', maxHeight: 'min(680px, calc(100vh - 48px))', borderRadius: 16, border: `1px solid ${C.g200}`, background: C.white, boxShadow: '0 24px 72px rgba(14,28,22,.28)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ width: 'min(420px, 100%)', maxHeight: 'min(680px, calc(100vh - 48px))', borderRadius: 16, border: `1px solid ${C.g200}`, background: C.white, boxShadow: '0 24px 72px rgba(14,28,22,.28)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '20px 22px 16px', borderBottom: `1px solid ${C.g100}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
           <div style={{ minWidth: 0 }}>
             <div id="law-change-notice-title" style={{ fontSize: 20, fontWeight: 800, color: C.g800 }}>법령 개정 알림</div>
