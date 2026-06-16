@@ -148,6 +148,12 @@ const parseActionGuideReasons = (reason: string) => {
         .filter(Boolean);
     return normalized.length > 0 ? normalized.map(formatActionGuideReason) : [];
 };
+const splitActionGuideItem = (item: string) => {
+    const match = item.match(/^(.+?)\s*[:：]\s*(.+)$/u);
+    if (!match)
+        return { subject: '', reason: item };
+    return { subject: match[1].trim(), reason: match[2].trim() };
+};
 const TABS: Array<{
     id: DetailTab;
     label: string;
@@ -385,7 +391,13 @@ const withActionRequestMonth = (details: ProjectSummary['actionRequestDetails'] 
 const buildActionRequestDetailsFromTodos = (project: ProjectSummary, todos: OrchestratorTodo[] = [], month?: string): ProjectSummary['actionRequestDetails'] => {
     const todoLines = todos
         .filter((todo) => !todo.confirmed)
-        .map((todo) => [todo.reason, todo.title].find((value) => value?.trim())?.trim())
+        .map((todo) => {
+            const subject = [todo.categoryName, todo.usageStatementItemName].map((value) => value?.trim()).filter(Boolean).join(' · ');
+            const detail = [todo.reason, todo.title].find((value) => value?.trim())?.trim() || '보완 사항 확인 필요';
+            if (!subject || detail.includes(subject))
+                return detail;
+            return `${subject}: ${detail}`;
+        })
         .filter((value): value is string => Boolean(value));
     return {
         title: '보완 요청 확인 필요',
@@ -1474,7 +1486,7 @@ function ProjectDetailPageContent() {
     const actionGuideRequestedFiles: string[] = [];
     const actionGuideMonthLabel = selectedStatement.month ? formatMonthLabel(selectedStatement.month) : '';
     const actionGuideMeta = selectedMonthActionRequestDetails
-        ? `${actionGuideMonthLabel ? `${actionGuideMonthLabel} · ` : ''}요청 ${selectedMonthActionRequestDetails.requestedAt} · 담당 ${selectedMonthActionRequestDetails.assignee}`
+        ? `${actionGuideMonthLabel ? `${actionGuideMonthLabel} · ` : ''} 담당 ${selectedMonthActionRequestDetails.assignee}`
         : '';
     const closeActionGuide = () => {
         if (actionGuideClosingMotion)
@@ -1516,22 +1528,28 @@ function ProjectDetailPageContent() {
             <div style={{ padding: '20px 22px 16px', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: C.danger }}>부족한 서류 안내</span>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: C.danger }}>보완 사항 안내</span>
                   {selectedMonthActionRequestDetails?.dueDate && <span style={{ fontSize: 12, fontWeight: 800, color: C.g600, background: C.g100, borderRadius: 999, padding: '4px 8px' }}>기한 {selectedMonthActionRequestDetails.dueDate}</span>}
                 </div>
-                <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, lineHeight: 1.35 }}>부족한 서류를 확인해 주세요</div>
+                <div style={{ fontSize: 21, fontWeight: 800, color: C.g800, lineHeight: 1.35 }}>보완 사항을 확인해 주세요</div>
                 {actionGuideMeta && <div style={{ fontSize: 13, color: C.g400, fontWeight: 800, marginTop: 6 }}>{actionGuideMeta}</div>}
               </div>
-              <button type="button" aria-label="부족한 서류 안내 닫기" onClick={closeActionGuide} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 25, lineHeight: 1 }}>×</button>
+              <button type="button" aria-label="보완 사항 안내 닫기" onClick={closeActionGuide} style={{ border: 'none', background: 'transparent', color: C.g400, cursor: 'pointer', fontSize: 25, lineHeight: 1 }}>×</button>
             </div>
             <div style={{ padding: '18px 22px 20px' }}>
               <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
-                {(actionGuideItems.length > 0 ? actionGuideItems : ['제출 자료를 다시 확인해 주세요.']).map((item, index) => (
-                  <div key={`${item}-${index}`} style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr)', gap: 8, alignItems: 'start', border: `1px solid ${C.g100}`, borderRadius: 6, background: '#FCFEFD', padding: '10px 12px' }}>
-                    <span style={{ width: 24, height: 24, borderRadius: 999, background: C.g100, color: C.g600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800 }}>{index + 1}</span>
-                    <span style={{ minWidth: 0, fontSize: 14, color: C.g600, fontWeight: 700, lineHeight: 1.65 }}>{item}</span>
-                  </div>
-                ))}
+                {(actionGuideItems.length > 0 ? actionGuideItems : ['제출 자료를 다시 확인해 주세요.']).map((item, index) => {
+                  const guideItem = splitActionGuideItem(item);
+                  return (
+                    <div key={`${item}-${index}`} style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr)', gap: 8, alignItems: 'start', border: `1px solid ${C.g100}`, borderRadius: 6, background: '#FCFEFD', padding: '10px 12px' }}>
+                      <span style={{ width: 24, height: 24, borderRadius: 999, background: C.g100, color: C.g600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800 }}>{index + 1}</span>
+                      <span style={{ minWidth: 0, display: 'grid', gap: guideItem.subject ? 4 : 0, lineHeight: 1.6 }}>
+                        {guideItem.subject && <span style={{ fontSize: 14, color: C.g800, fontWeight: 800 }}>{guideItem.subject}</span>}
+                        <span style={{ fontSize: 14, color: C.g600, fontWeight: 650 }}>{guideItem.reason}</span>
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
               {actionGuideRequestedFiles.length > 0 && <div style={{ border: `1px solid ${C.g100}`, borderRadius: 6, background: '#FCFEFD', padding: '12px 14px', display: 'grid', gap: 6 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: C.g800 }}>요청 자료</div>
