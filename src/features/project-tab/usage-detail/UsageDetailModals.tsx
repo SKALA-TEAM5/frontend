@@ -107,8 +107,29 @@ export function UsageStatementClassiModals({
         </div>
       </Modal>
       <CenterModal open={Boolean(rejectedNotice)} title="세부항목 미반영" body={rejectedNotice && <RejectedNoticeCard notice={rejectedNotice} />} actionLabel="확인" onAction={onDismissRejected} />
-      <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 결과" maxWidth={getClassificationNoticeModalWidth(classificationMoveNotices)} body={<ClassificationNoticeList notices={classificationMoveNotices} />} actionLabel="확인" onAction={onDismissClassification} />
+      <ClassificationNoticeModal open={classificationMoveNotices.length > 0} notices={classificationMoveNotices} onDismiss={onDismissClassification} />
     </>
+  );
+}
+
+export function ClassificationNoticeModal({
+  open,
+  notices,
+  onDismiss,
+}: {
+  open: boolean;
+  notices: ClassificationMoveNotice[];
+  onDismiss: () => void;
+}) {
+  return (
+    <CenterModal
+      open={open}
+      title="세부항목 분류 결과"
+      maxWidth={getClassificationNoticeModalWidth(notices)}
+      body={<ClassificationNoticeList notices={notices} />}
+      actionLabel="확인"
+      onAction={onDismiss}
+    />
   );
 }
 

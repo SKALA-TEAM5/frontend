@@ -23,6 +23,8 @@ import { getAgentButtonStates, getOrchestratorStatus, isAgentStageRunning, parse
 import { can } from '../../../lib/permissions';
 import { useCurrentUser } from '../../../lib/dev-user';
 import UsageStatementDetailScreen from '../../../features/project-tab/UsageStatementDetailScreen';
+import { ClassificationNoticeModal } from '../../../features/project-tab/usage-detail/UsageDetailModals';
+import type { ClassificationMoveNotice } from '../../../features/project-tab/usage-detail/usage-statement-detail-types';
 import VerifyScreen, { type ValidationGateItem } from '../../../features/project-tab/VerifyScreen';
 import ReportScreen from '../../../features/project-tab/ReportScreen';
 import { CATS, type UsageLineItem } from '../../../lib/evidence-utils';
@@ -74,13 +76,6 @@ type UsageStatementInfoDraft = UpdateProjectInput & {
     sheAssigneeUserIds: number[];
 };
 type UsageUploadStage = 'idle' | 'ocr' | 'classifying';
-type ClassificationMoveNotice = {
-    id: string;
-    itemName: string;
-    fromCategoryName: string;
-    toCategoryName: string;
-    reason?: string;
-};
 type SharedWorkflowStatus = UsageWorkflowStatus;
 type MonthUsageStatementArchiveData = UsageStatementArchiveData & {
     workflowStatus?: SharedWorkflowStatus;
@@ -1932,20 +1927,7 @@ function ProjectDetailPageContent() {
           </div>
         </div>
       </Modal>
-      <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 변경" body={<div>
-        <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto', marginLeft: -36, width: 'calc(100% + 36px)' }}>
-          {classificationMoveNotices.map((notice) => (
-            <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
-              <div title={notice.itemName} style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-                <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
-                <span style={{ color: C.primary, fontWeight: 800 }}>→</span>
-                <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 8, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>} actionLabel="확인" onAction={() => setClassificationMoveNotices([])} />
+      <ClassificationNoticeModal open={classificationMoveNotices.length > 0} notices={classificationMoveNotices} onDismiss={() => setClassificationMoveNotices([])} />
       <Modal open={uploadCompleteConfirmOpen} onClose={() => setUploadCompleteConfirmOpen(false)} zIndex={930} maxWidth={420}>
         <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.g200}`, boxShadow: '0 22px 52px rgba(31,47,39,.18)', overflow: 'hidden' }}>
           <div style={{ padding: '20px 22px 17px', borderBottom: `1px solid ${C.g100}` }}>
