@@ -702,10 +702,13 @@ export const listProjectFiles = async (projectId: string) => {
   }, createEmptyEvidenceBuckets());
 };
 
-export const uploadProjectFile = async (projectId: string, file: File, kind: EvidenceCategory) => {
+export const uploadProjectFile = async (projectId: string, file: File, kind: EvidenceCategory, options: { usageStatementId?: number } = {}) => {
   const formData = new FormData();
   formData.set('evidenceTypeCode', kindToEvidenceCode(kind));
   formData.set('file', file);
+  if (options.usageStatementId != null) {
+    formData.set('usageStatementId', String(options.usageStatementId));
+  }
   const response = await apiFetch<ProjectFileUploadResponse>(`/projects/${projectId}/files`, {
     method: 'POST',
     body: formData,
