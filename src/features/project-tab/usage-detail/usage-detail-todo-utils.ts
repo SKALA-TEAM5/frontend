@@ -74,6 +74,7 @@ const formatTodoReasonForDisplay = (value?: string) => (value || '')
   .replace(/^.*?증빙\s*매칭\s*:\s*/u, '')
   .replace(/,\s*허용:\s*[^);]+/gu, '')
   .replace(/\s*\(\s*유사도\s*:?\s*\d+(?:\.\d+)?\s*\)/gu, '')
+  .replace(/(매칭\s*실패)\s*\(/gu, '$1\n(')
   .replace(/;\s*/gu, ';\n')
   .replace(/[^\S\n]+/gu, ' ')
   .replace(/\n\s+/gu, '\n')
@@ -207,6 +208,15 @@ export const buildUsageDetailTodoGroups = (todos: UsageDetailTodoItem[], usageIt
     const location = getTodoGroupLocationMeta(todo, usageItems);
     const agentType = getTodoAgentTypeLabel(todo);
     const locationLabel = `${location.itemName} ∙ ${location.categoryName}`;
+    const usageItem = resolveTodoUsageItem(todo, usageItems);
+    if (usageItem) {
+      return {
+        id: `item:${usageItem.id}`,
+        label: `${usageItem.name} ∙ ${getCategoryDisplayName(usageItem.categoryId)}`,
+        agentType,
+        order: usageItems.findIndex((item) => String(item.id) === String(usageItem.id)),
+      };
+    }
     if (todo.backendTodoId) {
       const backendGroupKey = [
         todo.usageItemId || normalizeTodoIdText(location.itemName),
@@ -217,15 +227,6 @@ export const buildUsageDetailTodoGroups = (todos: UsageDetailTodoItem[], usageIt
         label: locationLabel,
         agentType,
         order: usageItems.length + (todo.categoryId || 0) / 100,
-      };
-    }
-    const usageItem = resolveTodoUsageItem(todo, usageItems);
-    if (usageItem) {
-      return {
-        id: `item:${usageItem.id}`,
-        label: `${usageItem.name} ∙ ${getCategoryDisplayName(usageItem.categoryId)}`,
-        agentType,
-        order: usageItems.findIndex((item) => String(item.id) === String(usageItem.id)),
       };
     }
     if (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT) {
