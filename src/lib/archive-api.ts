@@ -171,6 +171,12 @@ interface VisionDetectionsResponse {
   detections?: VisionDetectionResponse[] | null;
 }
 
+interface ProjectFileVisionDetectionsResponse {
+  fileId?: number | string | null;
+  visionDetections?: VisionDetectionsResponse | null;
+  vision_detections?: VisionDetectionsResponse | null;
+}
+
 const VISION_REVIEW_CONFIDENCE_THRESHOLD = 0.5;
 
 interface RequirementResponse {
@@ -418,8 +424,8 @@ export const getProjectFilePreviewUrl = (projectId: string, fileId: number | str
 export const getProjectFileDownloadUrl = (projectId: string, fileId: number | string) => apiUrl(filePath(projectId, fileId, 'download'));
 
 export const getProjectFileVisionDetections = async (projectId: string, fileId: number | string, kind: EvidenceCategory = 'site_photo') => {
-  const response = await apiFetch<VisionDetectionsResponse>(`/projects/${projectId}/files/${fileId}/vision-detections`);
-  return visionDetectionsToValidation({ visionDetections: response.data }, kind);
+  const response = await apiFetch<ProjectFileVisionDetectionsResponse>(`/projects/${projectId}/files/${fileId}/vision-detections`);
+  return visionDetectionsToValidation({ visionDetections: response.data.visionDetections || response.data.vision_detections || null }, kind);
 };
 
 export const createEmptyEvidenceBuckets = (): Record<EvidenceCategory, EvidenceFile[]> => ({
