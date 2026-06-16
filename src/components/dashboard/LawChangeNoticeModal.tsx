@@ -20,11 +20,18 @@ const formatLawChangeDate = (value: string | null) => {
 };
 
 const formatLawArticle = (law: { articleNo: string | null; paragraphNo: string | null; itemNo: string | null }) => {
+  const article = law.articleNo
+    ? /^제.*조/.test(law.articleNo)
+      ? law.articleNo
+      : `제${law.articleNo}조`
+    : '';
+
   const parts = [
-    law.articleNo ? `제${law.articleNo}조` : '',
+    article,
     law.paragraphNo ? `제${law.paragraphNo}항` : '',
     law.itemNo ? `제${law.itemNo}호` : '',
   ].filter(Boolean);
+
   return parts.length ? parts.join(' ') : '-';
 };
 
