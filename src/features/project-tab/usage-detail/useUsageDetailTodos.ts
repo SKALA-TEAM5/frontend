@@ -40,6 +40,7 @@ export default function useUsageDetailTodos({
 }: UseUsageDetailTodosInput) {
   const [completedTodoIds, setCompletedTodoIds] = useState<Record<string, boolean>>({});
   const [dismissedTodoIds, setDismissedTodoIds] = useState<Record<string, boolean>>({});
+  const [dismissedBackendTodoIds, setDismissedBackendTodoIds] = useState<Record<number, boolean>>({});
   const [orchestratorTodoItems, setOrchestratorTodoItems] = useState<UsageDetailTodoItem[]>([]);
   const [todoConfirmingIds, setTodoConfirmingIds] = useState<Record<string, boolean>>({});
   const [visionValidationByFileId, setVisionValidationByFileId] = useState<Record<string, VisionValidationResult>>({});
@@ -143,10 +144,11 @@ export default function useUsageDetailTodos({
     return todos.filter((todo) => {
       if (seen.has(todo.id)) return false;
       if (!todo.backendTodoId && dismissedTodoIds[todo.id]) return false;
+      if (todo.backendTodoId && dismissedBackendTodoIds[todo.backendTodoId]) return false;
       seen.add(todo.id);
       return true;
     });
-  }, [actionRequest?.message, actionRequest?.title, dismissedTodoIds, fileCategories, orchestratorTodoItems, usageItems]);
+  }, [actionRequest?.message, actionRequest?.title, dismissedBackendTodoIds, dismissedTodoIds, fileCategories, orchestratorTodoItems, usageItems]);
 
   const requiredEvidenceByLine = useMemo<SafetyDocAgentRequiredEvidenceMap>(() => {
     const next: SafetyDocAgentRequiredEvidenceMap = {};
@@ -211,6 +213,13 @@ export default function useUsageDetailTodos({
       const next = { ...current };
       todoItems.forEach((todo) => {
         if (!todo.backendTodoId && isTodoDone(todo)) next[todo.id] = true;
+      });
+      return next;
+    });
+    setDismissedBackendTodoIds((current) => {
+      const next = { ...current };
+      todoItems.forEach((todo) => {
+        if (todo.backendTodoId && isTodoDone(todo)) next[todo.backendTodoId] = true;
       });
       return next;
     });

@@ -102,19 +102,6 @@ export default function UsageDetailFileView({ projectId, cats, usageItems, selec
   const layoutColumns = '220px 600px 310px';
   const usageItemGridColumns = '72px minmax(140px, .78fr) 32px 32px 80px 86px';
   const usageItemRowColumns = `${usageItemGridColumns} 66px`;
-  const actionRequestText = `${actionRequest?.title || ''} ${actionRequest?.message || ''}`;
-  const normalizeRequestText = (value: string) => value.replace(/\s+/g, '').toLowerCase();
-  const normalizedActionRequestText = normalizeRequestText(actionRequestText);
-  const isActionRequestedCat = (catId: number) => {
-    if (!normalizedActionRequestText) return false;
-    const cat = cats.find((item) => item.id === catId);
-    return Boolean(cat && normalizeRequestText(cat.short) && normalizedActionRequestText.includes(normalizeRequestText(cat.short)));
-  };
-  const isActionRequestedUsageItem = (item: UsageLineItem) => {
-    if (!normalizedActionRequestText) return false;
-    const normalizedItemName = normalizeRequestText(item.name);
-    return Boolean(normalizedItemName && normalizedActionRequestText.includes(normalizedItemName)) || isActionRequestedCat(item.categoryId);
-  };
   const dropInto = (kind: HierarchyEvidenceKind, catId: number) => {
     if (!dragPayload) return;
     onMove(dragPayload.kind, dragPayload.catId, dragPayload.usageItemId, kind, catId, dragPayload.file, activeItem?.id);
@@ -371,7 +358,7 @@ export default function UsageDetailFileView({ projectId, cats, usageItems, selec
                 const items = usageItems.filter((item) => item.categoryId === cat.id);
                 const count = EVIDENCE_SECTIONS.reduce((sum, section) => sum + getFiles(section.id, cat.id).length, 0);
                 const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, cat.id).some((file) => isProblemFile?.(file)));
-                const hasActionRequest = isActionRequestedCat(cat.id) || Boolean(isSupplementTarget?.(cat.id));
+                const hasActionRequest = Boolean(isSupplementTarget?.(cat.id));
                 const active = cat.id === selectedCatId;
                 return (
                   <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${hasProblem || hasActionRequest ? (active ? C.danger : '#FFCDD2') : active ? C.primary : C.g100}`, background: hasProblem || hasActionRequest ? C.dangerBg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', boxShadow: active ? `0 0 0 1px ${hasProblem || hasActionRequest ? 'rgba(229,57,53,.18)' : 'rgba(27,94,59,.18)'}` : 'none' }}>
@@ -403,7 +390,7 @@ export default function UsageDetailFileView({ projectId, cats, usageItems, selec
                   {filteredItems.map((item) => {
                     const active = item.id === activeItem.id;
                     const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, item.categoryId, item.id).some((file) => isProblemFile?.(file)));
-                    const hasActionRequest = isActionRequestedUsageItem(item) || Boolean(isSupplementTarget?.(item.categoryId, item.id));
+                    const hasActionRequest = Boolean(isSupplementTarget?.(item.categoryId, item.id));
                     const hasProblemOrActionRequest = hasProblem || hasActionRequest;
                     return (
                       <div
