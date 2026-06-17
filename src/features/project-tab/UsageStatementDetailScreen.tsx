@@ -33,6 +33,8 @@ interface UsageStatementDetailScreenProps {
     onTodoCountChange?: (count: number) => void;
     onVerificationComplete?: () => void | Promise<void>;
     uploadCompleteAction?: ReactNode;
+    readOnly?: boolean;
+    readOnlyReason?: string;
 }
 const isWearingPhotoContext = (kind: FolderEvidenceCategory, catId: number, itemName?: string) => (
     kind === 'site_photo'
@@ -50,7 +52,7 @@ const getDefaultEvidenceTypeCode = (
         return preferredEvidenceTypeCode;
     return undefined;
 };
-export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onVerificationComplete, uploadCompleteAction }: UsageStatementDetailScreenProps) {
+export default function UsageStatementDetailScreen({ projectId, usageStatementId, usageDetailSeed, usageItems = USAGE_LINE_ITEMS, onUsageItemsChange, onUsageDetailSeedChange, onFilesUploaded, onUsageDetailContentMutated, actionRequest, contentVisible = true, todoStorageKey, clearTodoSignal = 0, onTodoCountChange, onVerificationComplete, uploadCompleteAction, readOnly = false, readOnlyReason }: UsageStatementDetailScreenProps) {
     const resolvedUsageItems = usageItems.length ? usageItems : USAGE_LINE_ITEMS;
     const [fileData, setFileData] = useState<ArchiveSeed>(() => normalizeArchiveData(usageDetailSeed || createDefaultArchiveData()));
     const [usageDetailActionError, setUsageDetailActionError] = useState('');
@@ -518,10 +520,11 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           </div>
           <div />
           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={() => void verification.run()} disabled={verification.running} style={{ height: 40, border: `1px solid ${verification.done ? C.primary : C.g800}`, borderRadius: 999, background: verification.done ? C.bg : C.white, color: verification.done ? C.primary : C.g800, cursor: verification.running ? 'wait' : 'pointer', fontSize: 14, fontWeight: 800, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{verification.label}</button>
-            {uploadCompleteAction}
+            <button type="button" onClick={() => { if (!readOnly) void verification.run(); }} disabled={readOnly || verification.running} title={readOnly ? readOnlyReason : undefined} style={{ height: 40, border: `1px solid ${readOnly ? C.g200 : verification.done ? C.primary : C.g800}`, borderRadius: 999, background: readOnly ? C.g100 : verification.done ? C.bg : C.white, color: readOnly ? C.g400 : verification.done ? C.primary : C.g800, cursor: readOnly ? 'not-allowed' : verification.running ? 'wait' : 'pointer', fontSize: 14, fontWeight: 800, fontFamily: 'inherit', padding: '0 16px', whiteSpace: 'nowrap', boxShadow: 'none' }}>{verification.label}</button>
+            {!readOnly && uploadCompleteAction}
           </div>
         </div>
+        {readOnly && readOnlyReason && <div style={{ border: `1px solid ${C.g200}`, borderRadius: 8, background: C.g100, color: C.g600, padding: '10px 12px', fontSize: 13, fontWeight: 800 }}>{readOnlyReason}</div>}
         <CenterModal open={Boolean(agentFailureTarget)} title="처리 실패" body={agentFailureMessage} actionLabel="확인" onAction={() => { setAgentFailureTarget(null); setAgentFailureMessage(''); }} />
         <UsageDetailNotices
           matchingError={verification.matchingError}
@@ -533,7 +536,7 @@ export default function UsageStatementDetailScreen({ projectId, usageStatementId
           onDismissNotices={verification.dismissActionNotices}
         />
         <div data-ui="usage-detail-screen.6" className="screen-enter" style={{ paddingTop: 0, position: 'relative', minHeight: 560 }}>
-          <UsageDetailFileView projectId={projectId} cats={CATS} usageItems={resolvedUsageItems} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} actionRequest={actionRequest} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} isSupplementTarget={todos.isSupplementTarget} onSelectCat={(catId) => {
+          <UsageDetailFileView projectId={projectId} cats={CATS} usageItems={resolvedUsageItems} selectedCatId={selectedHierarchyCatId} selectedUsageItemId={selectedUsageItemId} actionRequest={actionRequest} getFiles={getHierarchyFilesForCategory} isProblemFile={isProblemFile} isSupplementTarget={todos.isSupplementTarget} readOnly={readOnly} onSelectCat={(catId) => {
                 setSelectedHierarchyCatId(catId);
                 setSelectedUsageItemId(resolvedUsageItems.find((item) => item.categoryId === catId)?.id || '');
             }} onSelectUsageItem={(item) => {

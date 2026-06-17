@@ -200,6 +200,19 @@ export const getProjectLifecycleStatus = (project: ProjectSummary): ProjectStatu
 
 export const getProjectLifecycleMeta = (project: ProjectSummary) => PROJECT_LIFECYCLE_STATUS_META[getProjectLifecycleStatus(project)];
 
+export const isProjectWorkflowLocked = (project: Pick<ProjectSummary, 'projectStatusCode' | 'status'>) =>
+  project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED
+  || project.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED
+  || project.status === PROJECT_STATUS.CLOSED
+  || project.status === PROJECT_STATUS.OPEN;
+
+export const getProjectWorkflowLockedReason = (project: Pick<ProjectSummary, 'projectStatusCode' | 'status'>) =>
+  project.projectStatusCode === PROJECT_STATUS_CODE.COMPLETED || project.status === PROJECT_STATUS.CLOSED
+    ? '완료된 프로젝트는 상세 화면에 진입할 수 없습니다.'
+    : project.projectStatusCode === PROJECT_STATUS_CODE.SUSPENDED || project.status === PROJECT_STATUS.OPEN
+      ? '중단된 프로젝트는 상세 화면에 진입할 수 없습니다.'
+      : '';
+
 const splitManagerNames = (value: string) =>
   value.split(',').map((manager) => manager.trim()).filter(Boolean);
 

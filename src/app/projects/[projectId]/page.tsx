@@ -15,7 +15,7 @@ import { AppFrame } from '../../../components/common';
 import { ApiClientError } from '../../../lib/api-client';
 import { listUsers, type BackendUserProfile } from '../../../lib/auth-api';
 import { C } from '../../../lib/theme';
-import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectManagers, getProjectSheManagers, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
+import { EMPTY_PROJECT, PROJECT_STATUS_CODE, USAGE_WORKFLOW_STATUS, getProjectWorkflowLockedReason, getProjectManagers, getProjectSheManagers, isProjectWorkflowLocked, normalizeUsageWorkflowStatus, STATUS_META, type MonthlyUsageStatementSummary, type ProjectSummary, type UsageWorkflowStatus } from '../../../lib/project-data';
 import { getProject, isProjectManagerRole, isSheManagerRole, replaceProjectAssignees, updateProject, type ProjectAssigneeCandidate, type UpdateProjectInput } from '../../../lib/project-api';
 import { completeUsageStatementReview, deleteProjectFile, deleteUsageStatement, getLatestUsageStatementArchive, getProjectArchiveFromCategories, getUsageStatementArchiveById, listProjectFiles, listUsageStatementArchives, requestUsageStatementSupplement, submitUsageStatement, uploadProjectFile, type UsageStatementArchiveData } from '../../../lib/archive-api';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../../lib/agent-failure';
@@ -466,9 +466,11 @@ function ProjectDetailPageContent() {
     const [projectError, setProjectError] = useState('');
     const [dbUsageStatementsByMonth, setDbUsageStatementsByMonth] = useState<Record<string, MonthUsageStatementArchiveData>>({});
     const latestFallbackStatement = EMPTY_USAGE_STATEMENT;
-    const canUploadEvidence = can(user, 'uploadEvidence');
-    const canRunValidation = can(user, 'runValidation');
-    const canReviewReport = can(user, 'reviewReport');
+    const projectWorkflowLocked = isProjectWorkflowLocked(project);
+    const projectWorkflowLockedReason = getProjectWorkflowLockedReason(project);
+    const canUploadEvidence = can(user, 'uploadEvidence') && !projectWorkflowLocked;
+    const canRunValidation = can(user, 'runValidation') && !projectWorkflowLocked;
+    const canReviewReport = can(user, 'reviewReport') && !projectWorkflowLocked;
     const availableTabs = TABS.filter((tab) => {
         if (tab.id === 'validation')
             return canRunValidation;
@@ -705,9 +707,10 @@ function ProjectDetailPageContent() {
         legalDisabledReason: selectedStatementArchive?.legalDisabledReason,
     });
     const selectedValidationGateBlockedItem = selectedValidationGateItems.find((item) => item.state !== 'passed');
-    const canStartValidationForCurrentView = Boolean(selectedStatementArchive?.usageStatementId)
+    const canStartValidationForCurrentView = !projectWorkflowLocked
+        && Boolean(selectedStatementArchive?.usageStatementId)
         && selectedValidationGateItems.every((item) => item.state === 'passed');
-    const canApproveValidationForCurrentView = Boolean(
+    const canApproveValidationForCurrentView = !projectWorkflowLocked && Boolean(
         selectedStatementArchive?.usageStatementId
         && selectedValidationStatus === 'done'
         && (
@@ -716,7 +719,9 @@ function ProjectDetailPageContent() {
             || selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED
         )
     );
-    const selectedValidationDisabledReason = selectedValidationGateBlockedItem
+    const selectedValidationDisabledReason = projectWorkflowLocked
+        ? projectWorkflowLockedReason || '종료 또는 중단된 프로젝트에서는 법령 검증을 실행할 수 없습니다.'
+        : selectedValidationGateBlockedItem
         ? `업로드 완료 및 유효성 검증 조건이 충족되어야 법령 검증을 시작할 수 있습니다.`
         : '사용내역서와 에이전트 검증 로그를 확인한 뒤 법령 검증을 시작할 수 있습니다.';
     const selectedApproveDisabledReason = selectedValidationStatus !== 'done'
@@ -845,7 +850,7 @@ function ProjectDetailPageContent() {
             (Number.isFinite(currentUserId) && Boolean(project.sheManagerUserIds?.includes(currentUserId)))
             || getProjectSheManagerNames(project).includes(user.name)
         );
-    const canEditManagers = user.role === 'system_admin' || isAssignedSheManager;
+    const canEditManagers = !projectWorkflowLocked && (user.role === 'system_admin' || isAssignedSheManager);
     const shouldPulseActionBadge = canViewActionGuide;
     useEffect(() => {
         if (!projectId)
@@ -870,6 +875,11 @@ function ProjectDetailPageContent() {
             alive = false;
         };
     }, [projectId]);
+    useEffect(() => {
+        if (projectLoading || !project.id || !projectWorkflowLocked)
+            return;
+        router.replace('/projects');
+    }, [project.id, projectLoading, projectWorkflowLocked, router]);
     useEffect(() => {
         if (!project.id)
             return;
@@ -1784,7 +1794,7 @@ function ProjectDetailPageContent() {
                         },
                     };
                 });
-            }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveSupplementTodoCount} onVerificationComplete={refreshSelectedAgentButtonState} uploadCompleteAction={uploadCompleteAction}/>}
+            }} onUsageDetailContentMutated={revertReviewedProjectToDraft} contentVisible todoStorageKey={selectedStatement.month} clearTodoSignal={todoClearSignal} onTodoCountChange={setActiveSupplementTodoCount} onVerificationComplete={refreshSelectedAgentButtonState} uploadCompleteAction={uploadCompleteAction} readOnly={projectWorkflowLocked} readOnlyReason={projectWorkflowLockedReason}/>}
         </>}
       </div>),
         validation: (<VerifyScreen key={`validation-${project.id}-${selectedStatement.month}`} projectId={project.id} usageStatementId={selectedStatementArchive?.usageStatementId} initialStatus={selectedValidationStatus === 'done' ? 'done' : selectedValidationStatus === 'running' ? 'loading' : 'idle'} initialSheReviewDecision={selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.REVIEW_COMPLETED ? 'review_completed' : selectedMonthWorkflowStatus === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED ? 'supplement_requested' : 'pending'} hideValidationIntro canStartValidation={canStartValidationForCurrentView} validationGateItems={selectedValidationGateItems} validationDisabledReason={selectedValidationDisabledReason} canApproveValidation={canApproveValidationForCurrentView} approveDisabledReason={selectedApproveDisabledReason} onValidationComplete={() => {

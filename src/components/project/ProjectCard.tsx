@@ -8,6 +8,8 @@ interface ProjectCardProps {
   user: AppUser;
   closingProjectId: string;
   suspendingProjectId: string;
+  openDisabled?: boolean;
+  openDisabledReason?: string;
   onOpen: (project: ProjectSummary) => void;
   onSuspend: (project: ProjectSummary) => void;
   onCloseProject: (project: ProjectSummary) => void;
@@ -40,6 +42,8 @@ export default function ProjectCard({
   user,
   closingProjectId,
   suspendingProjectId,
+  openDisabled = false,
+  openDisabledReason,
   onOpen,
   onSuspend,
   onCloseProject,
@@ -64,7 +68,7 @@ export default function ProjectCard({
   const canManageProjectRecord = isAssignedSheManager;
 
   const handleOpenKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!isActivationKey(event)) return;
+    if (openDisabled || !isActivationKey(event)) return;
     event.preventDefault();
     onOpen(project);
   };
@@ -79,11 +83,15 @@ export default function ProjectCard({
   return (
     <div
       className={`interactive-card${hasSupplement ? ' interactive-card--supplement' : ''}`}
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpen(project)}
+      role={openDisabled ? undefined : 'button'}
+      tabIndex={openDisabled ? -1 : 0}
+      title={openDisabled ? openDisabledReason : undefined}
+      onClick={() => {
+        if (openDisabled) return;
+        onOpen(project);
+      }}
       onKeyDown={handleOpenKeyDown}
-      style={{ position: 'relative', minHeight: 198, padding: 14, border: `1px solid ${hasSupplement ? '#EFAEB7' : C.g200}`, borderRadius: 'var(--ui-radius-card)', background: hasSupplement ? '#FFFBFC' : C.white, boxShadow: 'var(--ui-shadow-card)', textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 12 }}
+      style={{ position: 'relative', minHeight: 198, padding: 14, border: `1px solid ${hasSupplement ? '#EFAEB7' : C.g200}`, borderRadius: 'var(--ui-radius-card)', background: hasSupplement ? '#FFFBFC' : C.white, boxShadow: 'var(--ui-shadow-card)', textAlign: 'left', fontFamily: 'inherit', cursor: openDisabled ? 'default' : 'pointer', display: 'flex', flexDirection: 'column', gap: 12, opacity: openDisabled ? 0.86 : 1 }}
     >
       <div style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
