@@ -20,6 +20,7 @@ import { getDashboardAiUsage, getDashboardSummary, type DashboardAiUsageResponse
 import { getRecentLawChanges, type RecentLawChanges } from '../../lib/law-changes-api';
 import { getProject, listProjects } from '../../lib/project-api';
 import { calculateProjectUsageRate } from '../../lib/project-usage-rate';
+import { normalizeMonthKey } from '../../lib/usage-format';
 
 const FALLBACK_ACTION_ASSIGNEE = '프로젝트 담당자';
 const ALL_REASON_PROJECTS = 'all';
@@ -95,11 +96,6 @@ const hasSupplementRequiredMonth = (project: ProjectSummary) => project.hasActio
 const isLegalReviewWorkflow = (status?: string | null) => {
   const normalized = normalizeUsageWorkflowStatus(status);
   return normalized === USAGE_WORKFLOW_STATUS.UPLOAD_COMPLETED || normalized === USAGE_WORKFLOW_STATUS.SUPPLEMENT_REQUIRED;
-};
-
-const normalizeMonthKey = (month?: string | null) => {
-  const match = month?.match(/^(\d{4})-(\d{2})/);
-  return match ? `${match[1]}-${match[2]}` : month || '';
 };
 
 const getProjectAssigneeNames = (project: ProjectSummary) => {

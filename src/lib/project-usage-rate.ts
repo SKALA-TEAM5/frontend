@@ -1,10 +1,6 @@
 import type { UsageStatementArchiveData } from './archive-api';
 import type { ProjectSummary } from './project-data';
-
-const parseCurrencyValue = (value?: string | number | null) => {
-  const numeric = Number(String(value || '').replace(/[^\d.]/g, ''));
-  return Number.isFinite(numeric) ? numeric : 0;
-};
+import { parseCurrencyValue } from './usage-format';
 
 const archiveMonthValue = (archive: UsageStatementArchiveData) => archive.statementSummary.month || '';
 
