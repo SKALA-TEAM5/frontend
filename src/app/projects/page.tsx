@@ -533,7 +533,7 @@ function ProjectsPageContent() {
       actions={user.role !== 'project_manager' ? <Button size="sm" onClick={() => setCreateModalOpen(true)} style={{ boxShadow: 'none' }}>새 프로젝트 등록</Button> : undefined}
       headerContentStyle={{ width: 'calc(100% - 40px)', margin: '0 auto 16px' }}
     >
-      <Card style={{ width: 'calc(100% - 40px)', margin: '0 auto', padding: '18px 20px', borderRadius: 14, overflow: 'visible' }}>
+      <Card className="projects-list-card" style={{ width: 'calc(100% - 40px)', margin: '0 auto', padding: '18px 20px', borderRadius: 14, overflow: 'visible' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
           <div style={{ fontSize: 17, fontWeight: 800, color: C.g800 }}>
             {user.role === 'project_manager' ? '담당 프로젝트 현황' : '전체 프로젝트 현황'}
@@ -541,7 +541,7 @@ function ProjectsPageContent() {
           <div style={{ fontSize: 13, fontWeight: 800, color: C.g600 }}>전체 {visibleProjects.length}건</div>
         </div>
 
-        <div data-ui="projects.1" style={{ display: 'grid', gridTemplateColumns: 'minmax(145px, 1.1fr) minmax(110px, .85fr) minmax(105px, .78fr) minmax(190px, 1.25fr) max-content', gap: 8, marginBottom: 24 }}>
+        <div className="project-filter-grid" data-ui="projects.1" style={{ display: 'grid', gridTemplateColumns: 'minmax(145px, 1.1fr) minmax(110px, .85fr) minmax(105px, .78fr) minmax(190px, 1.25fr) max-content', gap: 8, marginBottom: 24 }}>
           <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={inputStyle} />
           <input aria-label="프로젝트 번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="프로젝트 번호" style={inputStyle} />
           <div style={{ position: 'relative', minWidth: 0 }}>

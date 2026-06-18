@@ -170,23 +170,24 @@ export default function AppFrame({ description, actions, mainClassName, headerCo
   return (
     <div data-ui="app-frame.1" style={{ minHeight: '100vh', background: 'transparent', '--app-left-offset': '0px' } as React.CSSProperties}>
       <header className="app-global-header">
-        <Link href={homeHref} style={{ display: 'flex', alignItems: 'center', gap: 11, fontWeight: 900, color: C.g800, fontSize: 17, textDecoration: 'none' }}>
+        <Link className="app-header-brand" href={homeHref} style={{ display: 'flex', alignItems: 'center', gap: 11, fontWeight: 900, color: C.g800, fontSize: 17, textDecoration: 'none', minWidth: 0 }}>
           <img src="/uploads/character.png" alt="i-veri" style={{ width: 34, height: 34, objectFit: 'contain' }} />
-          <span>i-veri</span>
-          <span style={{ color: C.primary, fontSize: 22 }}>WorkPlace</span>
+          <span className="app-header-brand-name">i-veri</span>
+          <span className="app-header-brand-product" style={{ color: C.primary, fontSize: 22 }}>WorkPlace</span>
         </Link>
 
-        <nav aria-label="상단 메뉴" style={{ display: 'flex', alignItems: 'center', gap: 24, minWidth: 0 }}>
+        <nav className="app-header-nav" aria-label="상단 메뉴" style={{ display: 'flex', alignItems: 'center', gap: 24, minWidth: 0 }}>
           {headerNavItems.map((item) => {
             const active = isNavActive(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                aria-label={item.label}
                 style={headerLinkStyle(active)}
               >
                 <HeaderIcon name={item.icon} color={active ? C.primary : C.g600} />
-                {item.label}
+                <span className="app-header-nav-label">{item.label}</span>
               </Link>
             );
           })}
@@ -196,11 +197,12 @@ export default function AppFrame({ description, actions, mainClassName, headerCo
               type="button"
               aria-haspopup="menu"
               aria-expanded={userMenuOpen}
+              aria-label="사용자 메뉴"
               onClick={() => setUserMenuOpen((current) => !current)}
               style={{ ...headerLinkStyle(false), border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit' }}
             >
               <HeaderIcon name="user" color={C.g600} />
-              <span style={{ maxWidth: 96, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name || '사용자'}</span>
+              <span className="app-user-menu-button-label" style={{ maxWidth: 96, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name || '사용자'}</span>
             </button>
 
             {userMenuOpen && (
@@ -281,7 +283,7 @@ export default function AppFrame({ description, actions, mainClassName, headerCo
 
       <main data-ui="app-frame.18" className={mainClassName ? `app-main ${mainClassName}` : 'app-main'}>
         {hasHeaderContent && (
-          <div data-ui="app-frame.19" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 16, ...headerContentStyle }}>
+          <div className="app-header-content" data-ui="app-frame.19" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 16, ...headerContentStyle }}>
             <div data-ui="app-frame.20" style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               {description && <div data-ui="app-frame.21" style={{ fontSize: 15, color: C.g400, fontWeight: 600 }}>{description}</div>}
             </div>

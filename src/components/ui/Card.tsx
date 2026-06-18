@@ -1,5 +1,6 @@
 interface CardProps {
     children: React.ReactNode;
+    className?: string;
     style?: React.CSSProperties;
     onClick?: () => void;
     draggable?: boolean;
@@ -8,8 +9,8 @@ interface CardProps {
     onDrop?: (event: React.DragEvent<HTMLDivElement>) => void;
     onDragEnd?: (event: React.DragEvent<HTMLDivElement>) => void;
 }
-export default function Card({ children, style, onClick, draggable, onDragStart, onDragOver, onDrop, onDragEnd }: CardProps) {
-    return (<div data-ui="card.1" style={{
+export default function Card({ children, className, style, onClick, draggable, onDragStart, onDragOver, onDrop, onDragEnd }: CardProps) {
+    return (<div className={className} data-ui="card.1" style={{
             background: 'var(--c-white)',
             borderRadius: 'var(--ui-radius-card)',
             border: '1px solid var(--c-g200)',

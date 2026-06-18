@@ -1,6 +1,7 @@
 import { apiFetch, apiUrl } from './api-client';
 import { CATS, calculateUsageLineAmount, createDefaultArchiveData, makeEntry, parseUsageNumber, type UsageLineItem } from './evidence-utils';
 import { normalizeUsageWorkflowStatus, type FileStatusCode, type MonthlyUsageStatementSummary, type UsageWorkflowStatus } from './project-data';
+import { formatMoney, formatMonthLabel, normalizeMonthKey, toUsageAmount } from './usage-format';
 import type { ArchiveSeed, BackendEvidenceTypeCode, EvidenceCategory, EvidenceFile, FolderEvidenceCategory } from '../types/domain';
 
 interface LatestUsageStatementResponse {
@@ -263,31 +264,10 @@ export interface UsageStatementArchiveData {
 export type SafetyDocAgentRequiredEvidence = Partial<Record<FolderEvidenceCategory, string[]>>;
 export type SafetyDocAgentRequiredEvidenceMap = Record<string, SafetyDocAgentRequiredEvidence>;
 
-const formatMonthLabel = (monthKey: string) => {
-  const [year, month] = monthKey.split('-');
-  return `${year}년 ${Number(month)}월`;
-};
-
-const normalizeMonthKey = (month?: string | null) => {
-  const match = month?.match(/^(\d{4})-(\d{2})/);
-  return match ? `${match[1]}-${match[2]}` : month || new Date().toISOString().slice(0, 7);
-};
-
 const formatDate = (value?: string | null) => value?.slice(0, 10) || '-';
 const formatOptionalDate = (value?: string | null) => value?.slice(0, 10) || '';
 const formatFileDate = (file: { capturedAt?: string | null; uploadedAt?: string | null }) =>
   formatOptionalDate(file.capturedAt) || formatOptionalDate(file.uploadedAt);
-
-const formatMoney = (value?: number | string | null) => {
-  if (value == null || value === '') return '-';
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric.toLocaleString('ko-KR') : String(value);
-};
-
-const toAmount = (value?: number | string | null) => {
-  const numeric = parseUsageNumber(value);
-  return Number.isFinite(numeric) ? numeric : 0;
-};
 
 const categoryCodeToId = (categoryCode?: string | null) => {
   const match = categoryCode?.match(/\d+/);
@@ -499,10 +479,10 @@ const buildOverviewRows = (summaries: UsageStatementSummaryResponse[], usageItem
     const calculatedCurrentAmount = usageItems
       .filter((item) => item.categoryId === cat.id)
       .reduce((sum, item) => sum + item.amount, 0);
-    const previousAmount = toAmount(summary?.previousAmount);
+    const previousAmount = toUsageAmount(summary?.previousAmount);
     const hasCalculatedItems = usageItems.some((item) => item.categoryId === cat.id);
-    const currentAmount = hasCalculatedItems ? calculatedCurrentAmount : toAmount(summary?.currentAmount);
-    const cumulativeAmount = hasCalculatedItems ? previousAmount + currentAmount : toAmount(summary?.cumulativeAmount);
+    const currentAmount = hasCalculatedItems ? calculatedCurrentAmount : toUsageAmount(summary?.currentAmount);
+    const cumulativeAmount = hasCalculatedItems ? previousAmount + currentAmount : toUsageAmount(summary?.cumulativeAmount);
     return [
       `${cat.id}. ${summary?.categoryName || cat.label}`,
       formatMoney(previousAmount),
@@ -511,18 +491,18 @@ const buildOverviewRows = (summaries: UsageStatementSummaryResponse[], usageItem
     ] as [string, string, string, string];
   });
   const totals = rows.reduce((acc, [, previous, current, cumulative]) => ({
-    previous: acc.previous + toAmount(previous),
-    current: acc.current + toAmount(current),
-    cumulative: acc.cumulative + toAmount(cumulative),
+    previous: acc.previous + toUsageAmount(previous),
+    current: acc.current + toUsageAmount(current),
+    cumulative: acc.cumulative + toUsageAmount(cumulative),
   }), { previous: 0, current: 0, cumulative: 0 });
   return [...rows, ['계', formatMoney(totals.previous), formatMoney(totals.current), formatMoney(totals.cumulative)] as [string, string, string, string]];
 };
 
 const buildStatementSummary = (statement: UsageStatementDetailResponse, usageItems: UsageLineItem[]): MonthlyUsageStatementSummary => {
-  const month = normalizeMonthKey(statement.reportMonth);
+  const month = normalizeMonthKey(statement.reportMonth, new Date().toISOString().slice(0, 7));
   const evidenceCount = statement.items.reduce((sum, item) => sum + (item.evidenceFiles?.length || 0), 0);
   const issueCount = statement.items.reduce((sum, item) => sum + (item.requirements || []).filter((requirement) => !requirement.satisfied).length, 0);
-  const previousAmount = statement.summaries.reduce((sum, item) => sum + toAmount(item.previousAmount), 0);
+  const previousAmount = statement.summaries.reduce((sum, item) => sum + toUsageAmount(item.previousAmount), 0);
   const currentAmount = usageItems.reduce((sum, item) => sum + item.amount, 0);
   const cumulativeAmount = previousAmount + currentAmount;
   return {
@@ -550,7 +530,7 @@ const usageStatementItemToLineItem = (item: UsageStatementItemResponse): UsageLi
   date: item.usedOn || undefined,
   unit: item.unit || undefined,
   quantity: item.quantity == null ? undefined : parseUsageNumber(item.quantity),
-  unitPrice: item.unitPrice == null ? undefined : toAmount(item.unitPrice),
+  unitPrice: item.unitPrice == null ? undefined : toUsageAmount(item.unitPrice),
 });
 
 const toArchiveData = (projectId: string, statement: UsageStatementDetailResponse): UsageStatementArchiveData => {
@@ -574,7 +554,7 @@ const toArchiveData = (projectId: string, statement: UsageStatementDetailRespons
       date: item.usedOn || undefined,
       unit: item.unit || undefined,
       quantity: item.quantity == null ? undefined : parseUsageNumber(item.quantity),
-      unitPrice: item.unitPrice == null ? undefined : toAmount(item.unitPrice),
+      unitPrice: item.unitPrice == null ? undefined : toUsageAmount(item.unitPrice),
     };
   }).filter((item) => item.categoryId > 0);
 
@@ -828,7 +808,7 @@ export const getProjectArchiveFromCategories = async (projectId: string): Promis
     date: item.usedOn || undefined,
     unit: item.unit || undefined,
     quantity: item.quantity == null ? undefined : parseUsageNumber(item.quantity),
-    unitPrice: item.unitPrice == null ? undefined : toAmount(item.unitPrice),
+    unitPrice: item.unitPrice == null ? undefined : toUsageAmount(item.unitPrice),
   }))).filter((item) => item.categoryId > 0);
   const archiveSeed = createDefaultArchiveData();
   const usageFiles = await listProjectFiles(projectId);

@@ -529,6 +529,45 @@
       padding: 0 16px;
       gap: 12px;
     }
+    .app-header-brand {
+      flex: 0 1 auto;
+      gap: 8px !important;
+      min-width: 0;
+    }
+    .app-header-brand img {
+      width: 30px !important;
+      height: 30px !important;
+      flex: 0 0 auto;
+    }
+    .app-header-brand-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .app-header-brand-product {
+      display: none;
+    }
+    .app-header-nav {
+      flex: 0 0 auto;
+      gap: 12px !important;
+    }
+    .app-header-nav a,
+    .app-header-nav button {
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+    }
+    .app-header-nav-label,
+    .app-user-menu-button-label {
+      display: none;
+    }
+    .app-header-content {
+      width: 100% !important;
+      flex-wrap: wrap;
+      align-items: flex-start !important;
+    }
+    .app-header-content > div {
+      min-width: min(100%, 260px);
+    }
     .app-main {
       width: 100% !important;
       max-width: 100% !important;
@@ -551,6 +590,73 @@
       padding-right: 16px !important;
       flex-direction: column;
       align-items: flex-start;
+    }
+    .projects-list-card {
+      width: 100% !important;
+      padding: 16px !important;
+    }
+    .dashboard-content-layer {
+      width: calc(100% - 32px) !important;
+    }
+    .dashboard-page-shell {
+      padding: 18px 16px 36px !important;
+      overflow: hidden !important;
+    }
+    .dashboard-top-section {
+      width: 100% !important;
+    }
+    .dashboard-top-inner {
+      grid-template-columns: minmax(0, 1fr) !important;
+      gap: 12px !important;
+    }
+    .dashboard-photo-backdrop {
+      min-height: 210px !important;
+    }
+    .dashboard-photo-backdrop > div:last-child {
+      grid-template-columns: minmax(0, 1fr) !important;
+      gap: 12px !important;
+      padding: 18px !important;
+    }
+    .dashboard-photo-backdrop img {
+      width: 76px !important;
+      height: 76px !important;
+    }
+    .dashboard-summary-aside {
+      width: 100% !important;
+      overflow: hidden !important;
+    }
+    .project-filter-grid,
+    .project-filter-grid--compact {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    .project-filter-grid > *,
+    .project-filter-grid--compact > * {
+      min-width: 0;
+    }
+    .project-filter-grid label,
+    .project-filter-grid--compact label {
+      justify-content: center;
+    }
+  }
+  @media (max-width: 520px) {
+    .app-global-header {
+      padding: 0 12px;
+    }
+    .app-header-nav {
+      gap: 10px !important;
+    }
+    .dashboard-photo-backdrop > div:last-child > div:first-child {
+      align-items: flex-start !important;
+      gap: 12px !important;
+    }
+    .dashboard-photo-backdrop > div:last-child > div:last-child {
+      min-width: 0 !important;
+      justify-content: flex-start !important;
+      text-align: left !important;
+    }
+    .project-filter-grid,
+    .project-filter-grid--compact {
+      grid-template-columns: minmax(0, 1fr) !important;
     }
   }
   .history-date-tabs {
