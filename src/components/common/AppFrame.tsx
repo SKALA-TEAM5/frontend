@@ -202,7 +202,7 @@ export default function AppFrame({ description, actions, mainClassName, headerCo
               style={{ ...headerLinkStyle(false), border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit' }}
             >
               <HeaderIcon name="user" color={C.g600} />
-              <span className="app-user-menu-button-label">사용자</span>
+              <span className="app-user-menu-button-label" style={{ maxWidth: 96, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name || '사용자'}</span>
             </button>
 
             {userMenuOpen && (

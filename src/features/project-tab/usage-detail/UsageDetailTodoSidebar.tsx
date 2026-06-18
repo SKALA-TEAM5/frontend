@@ -5,7 +5,7 @@ import type { UsageDetailTodoItem } from './usage-statement-detail-types';
 export interface UsageDetailTodoGroup {
   id: string;
   label: string;
-  agentType: string;
+  agentTypes: string[];
   items: UsageDetailTodoItem[];
 }
 
@@ -131,7 +131,6 @@ function TodoGroup({
       >
         <span style={{ minWidth: 0 }}>
           <span title={group.label} style={{ display: 'block', fontSize: 13, fontWeight: 800, color: activeCount ? C.g800 : C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.label}</span>
-          <span title={group.agentType} style={{ display: 'block', marginTop: 2, fontSize: 11, fontWeight: 700, color: C.g400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.agentType}</span>
         </span>
         <span style={{ minWidth: 20, height: 18, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', background: C.white, color: activeCount ? C.primary : C.g400, border: `1px solid ${C.g200}`, fontSize: 11, fontWeight: 800 }}>{activeCount}</span>
         <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: 999, border: `1px solid ${C.g200}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -210,7 +209,7 @@ function TodoList({
                 {done ? '✓' : ''}
               </span>
               <span style={{ minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 13, fontWeight: 800, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none' }}>{titleText}</span>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 800, lineHeight: 1.35, color: done ? C.g400 : tone, textDecoration: done ? 'line-through' : 'none', whiteSpace: 'pre-line' }}>{titleText}</span>
               </span>
             </div>
           </button>

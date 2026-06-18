@@ -153,17 +153,29 @@ interface EvidenceFileResponse {
 interface VisionDetectionResponse {
   label?: string | null;
   boxColor?: string | null;
+  box_color?: string | null;
   confidence?: number | string | null;
   isWearing?: boolean | null;
+  is_wearing?: boolean | null;
   needsReview?: boolean | null;
+  needs_review?: boolean | null;
   bboxXyxy?: number[] | null;
   bbox_xyxy?: number[] | null;
+  bbox?: number[] | null;
 }
 
 interface VisionDetectionsResponse {
   imageWidth?: number | string | null;
+  image_width?: number | string | null;
   imageHeight?: number | string | null;
+  image_height?: number | string | null;
   detections?: VisionDetectionResponse[] | null;
+}
+
+interface ProjectFileVisionDetectionsResponse {
+  fileId?: number | string | null;
+  visionDetections?: VisionDetectionsResponse | null;
+  vision_detections?: VisionDetectionsResponse | null;
 }
 
 const VISION_REVIEW_CONFIDENCE_THRESHOLD = 0.5;
@@ -351,18 +363,20 @@ const visionDetectionsToValidation = (
 ): EvidenceFile['visionValidation'] | undefined => {
   if (kind !== 'site_photo' || !file.visionDetections)
     return undefined;
-  const imageWidth = Number(file.visionDetections.imageWidth);
-  const imageHeight = Number(file.visionDetections.imageHeight);
+  const imageWidth = Number(file.visionDetections.imageWidth ?? file.visionDetections.image_width);
+  const imageHeight = Number(file.visionDetections.imageHeight ?? file.visionDetections.image_height);
   const detections = (file.visionDetections.detections || [])
     .map((detection) => {
-      const box = normalizeVisionBox(detection.bboxXyxy || detection.bbox_xyxy, imageWidth, imageHeight);
+      const box = normalizeVisionBox(detection.bboxXyxy || detection.bbox_xyxy || detection.bbox, imageWidth, imageHeight);
       if (!box)
         return null;
       const confidence = Number(detection.confidence);
       const normalizedConfidence = Number.isFinite(confidence) ? confidence : 0;
-      const colorText = String(detection.boxColor || '');
-      const isLowConfidenceWearing = detection.isWearing === true && normalizedConfidence < VISION_REVIEW_CONFIDENCE_THRESHOLD;
-      const status: 'ok' | 'bad' = detection.needsReview || isLowConfidenceWearing || detection.isWearing === false || /red|danger|fail|bad|부적|미착용/i.test(colorText) ? 'bad' : 'ok';
+      const colorText = String(detection.boxColor || detection.box_color || '');
+      const isWearing = detection.isWearing ?? detection.is_wearing;
+      const needsReview = detection.needsReview ?? detection.needs_review;
+      const isLowConfidenceWearing = isWearing === true && normalizedConfidence < VISION_REVIEW_CONFIDENCE_THRESHOLD;
+      const status: 'ok' | 'bad' = needsReview || isLowConfidenceWearing || isWearing === false || /red|danger|fail|bad|부적|미착용/i.test(colorText) ? 'bad' : 'ok';
       return {
         label: detection.label || '비전 검출',
         confidence: normalizedConfidence,
@@ -388,6 +402,11 @@ const filePath = (projectId: string, fileId: number | string, action: 'preview' 
 export const getProjectFilePreviewUrl = (projectId: string, fileId: number | string) => apiUrl(filePath(projectId, fileId, 'preview'));
 
 export const getProjectFileDownloadUrl = (projectId: string, fileId: number | string) => apiUrl(filePath(projectId, fileId, 'download'));
+
+export const getProjectFileVisionDetections = async (projectId: string, fileId: number | string, kind: EvidenceCategory = 'site_photo') => {
+  const response = await apiFetch<ProjectFileVisionDetectionsResponse>(`/projects/${projectId}/files/${fileId}/vision-detections`);
+  return visionDetectionsToValidation({ visionDetections: response.data.visionDetections || response.data.vision_detections || null }, kind);
+};
 
 export const createEmptyEvidenceBuckets = (): Record<EvidenceCategory, EvidenceFile[]> => ({
   receipt: [],
@@ -663,10 +682,13 @@ export const listProjectFiles = async (projectId: string) => {
   }, createEmptyEvidenceBuckets());
 };
 
-export const uploadProjectFile = async (projectId: string, file: File, kind: EvidenceCategory) => {
+export const uploadProjectFile = async (projectId: string, file: File, kind: EvidenceCategory, options: { usageStatementId?: number } = {}) => {
   const formData = new FormData();
   formData.set('evidenceTypeCode', kindToEvidenceCode(kind));
   formData.set('file', file);
+  if (options.usageStatementId != null) {
+    formData.set('usageStatementId', String(options.usageStatementId));
+  }
   const response = await apiFetch<ProjectFileUploadResponse>(`/projects/${projectId}/files`, {
     method: 'POST',
     body: formData,

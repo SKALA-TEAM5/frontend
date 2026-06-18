@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from '../../components/ui/Modal';
 import FileThumb, { AuthenticatedPreviewImage } from '../../components/ui/FileThumb';
+import { getProjectFileVisionDetections } from '../../lib/archive-api';
 import { calculateUsageLineAmount, fmt, isImageFile, makeThumbSvg, parseUsageNumber, type UsageLineItem } from '../../lib/evidence-utils';
 import { C } from '../../lib/theme';
 import type { EvidenceFile, FolderEvidenceCategory } from '../../types/domain';
@@ -34,6 +35,7 @@ const isVisionDetectionReviewTarget = (detection: NonNullable<EvidenceFile['visi
   detection.status === 'bad' || detection.confidence < VISION_REVIEW_CONFIDENCE_THRESHOLD;
 
 interface UsageDetailFileViewProps {
+  projectId: string;
   cats: CategoryMeta[];
   usageItems: UsageLineItem[];
   selectedCatId: number;
@@ -54,6 +56,7 @@ interface UsageDetailFileViewProps {
   isSupplementTarget?: (catId: number, usageItemId?: string) => boolean;
   fileHeaderAction?: ReactNode;
   renderEvidenceTodos?: (kind: FolderEvidenceCategory) => ReactNode;
+  readOnly?: boolean;
 }
 
 const PlusIcon = ({ size = 14, color = C.primary }: { size?: number; color?: string }) => (
@@ -71,12 +74,13 @@ const MoreIcon = ({ color = C.g600 }: { color?: string }) => (
   </span>
 );
 
-export default function UsageDetailFileView({ cats, usageItems, selectedCatId, selectedUsageItemId, actionRequest, getFiles, onSelectCat, onSelectUsageItem, onRemove, onRename, onMove, onEditUsageItem, onAddUsageItem, onDeleteUsageItem, onUpload, onDownloadFile, isProblemFile, isSupplementTarget, fileHeaderAction, renderEvidenceTodos }: UsageDetailFileViewProps) {
+export default function UsageDetailFileView({ projectId, cats, usageItems, selectedCatId, selectedUsageItemId, actionRequest, getFiles, onSelectCat, onSelectUsageItem, onRemove, onRename, onMove, onEditUsageItem, onAddUsageItem, onDeleteUsageItem, onUpload, onDownloadFile, isProblemFile, isSupplementTarget, fileHeaderAction, renderEvidenceTodos, readOnly = false }: UsageDetailFileViewProps) {
   const [dragPayload, setDragPayload] = useState<{ kind: HierarchyEvidenceKind; catId: number; usageItemId: string; file: EvidenceFile } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ kind: FolderEvidenceCategory; catId: number; file: EvidenceFile } | null>(null);
   const [openFileMenu, setOpenFileMenu] = useState<{ kind: FolderEvidenceCategory; file: EvidenceFile; top: number; left: number } | null>(null);
   const fileMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
   const [previewTargetMeta, setPreviewTargetMeta] = useState<PreviewTargetMeta | null>(null);
+  const [previewVisionValidationById, setPreviewVisionValidationById] = useState<Record<string, EvidenceFile['visionValidation'] | null>>({});
   const [showVisionBoxes, setShowVisionBoxes] = useState(true);
   const [fileEditDraft, setFileEditDraft] = useState('');
   const [editUsageItemTarget, setEditUsageItemTarget] = useState<UsageLineItem | null>(null);
@@ -91,29 +95,22 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     ? getFiles(previewTargetMeta.kind, previewTargetMeta.catId, previewTargetMeta.usageItemId)
       .find((file) => file.id === previewTargetMeta.id) ?? null
     : null;
+  const previewVisionValidation = previewTarget
+    ? previewVisionValidationById[previewTarget.id] === undefined
+      ? previewTarget.visionValidation
+      : previewVisionValidationById[previewTarget.id] || undefined
+    : undefined;
   const layoutColumns = '220px 600px 310px';
   const usageItemGridColumns = '72px minmax(140px, .78fr) 32px 32px 80px 86px';
   const usageItemRowColumns = `${usageItemGridColumns} 66px`;
-  const actionRequestText = `${actionRequest?.title || ''} ${actionRequest?.message || ''}`;
-  const normalizeRequestText = (value: string) => value.replace(/\s+/g, '').toLowerCase();
-  const normalizedActionRequestText = normalizeRequestText(actionRequestText);
-  const isActionRequestedCat = (catId: number) => {
-    if (!normalizedActionRequestText) return false;
-    const cat = cats.find((item) => item.id === catId);
-    return Boolean(cat && normalizeRequestText(cat.short) && normalizedActionRequestText.includes(normalizeRequestText(cat.short)));
-  };
-  const isActionRequestedUsageItem = (item: UsageLineItem) => {
-    if (!normalizedActionRequestText) return false;
-    const normalizedItemName = normalizeRequestText(item.name);
-    return Boolean(normalizedItemName && normalizedActionRequestText.includes(normalizedItemName)) || isActionRequestedCat(item.categoryId);
-  };
   const dropInto = (kind: HierarchyEvidenceKind, catId: number) => {
-    if (!dragPayload) return;
+    if (readOnly || !dragPayload) return;
     onMove(dragPayload.kind, dragPayload.catId, dragPayload.usageItemId, kind, catId, dragPayload.file, activeItem?.id);
     setDragPayload(null);
   };
 
   const openFileEditModal = (kind: FolderEvidenceCategory, file: EvidenceFile) => {
+    if (readOnly) return;
     setMoveTarget({ kind, catId: selectedCatId, file });
     setFileEditDraft(file.name);
     setMoveTargetCatId(selectedCatId);
@@ -123,7 +120,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
   };
 
   const confirmMove = () => {
-    if (!moveTarget) return;
+    if (readOnly || !moveTarget) return;
     onMove(moveTarget.kind, moveTarget.catId, selectedUsageItemId, moveTargetKind, moveTargetCatId, moveTarget.file, moveTargetUsageItemId);
     setMoveTarget(null);
     setFileEditDraft('');
@@ -133,11 +130,12 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     setFileEditDraft('');
   };
   const confirmRenameFile = () => {
-    if (!moveTarget || !fileEditDraft.trim()) return;
+    if (readOnly || !moveTarget || !fileEditDraft.trim()) return;
     onRename(moveTarget.kind, moveTarget.catId, selectedUsageItemId, moveTarget.file, fileEditDraft);
     setMoveTarget({ ...moveTarget, file: { ...moveTarget.file, name: fileEditDraft.trim() } });
   };
   const openEditUsageItemModal = (item: UsageLineItem) => {
+    if (readOnly) return;
     setEditUsageItemTarget(item);
     setEditUsageItemDraft({
       categoryId: item.categoryId,
@@ -150,7 +148,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     setEditUsageItemError('');
   };
   const confirmEditUsageItem = async () => {
-    if (!editUsageItemTarget) return;
+    if (readOnly || !editUsageItemTarget) return;
     const name = editUsageItemDraft.name.trim();
     const date = editUsageItemDraft.date.trim();
     const quantity = parseUsageNumber(editUsageItemDraft.quantity);
@@ -211,8 +209,31 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     };
   }, [openFileMenu]);
 
+  useEffect(() => {
+    if (!previewTargetMeta || !previewTarget?.fileId || previewTargetMeta.kind !== 'site_photo') return;
+    let alive = true;
+    getProjectFileVisionDetections(projectId, previewTarget.fileId, previewTargetMeta.kind)
+      .then((visionValidation) => {
+        if (!alive) return;
+        setPreviewVisionValidationById((current) => ({
+          ...current,
+          [previewTargetMeta.id]: visionValidation || null,
+        }));
+      })
+      .catch(() => {
+        if (!alive) return;
+        setPreviewVisionValidationById((current) => ({
+          ...current,
+          [previewTargetMeta.id]: current[previewTargetMeta.id] ?? previewTarget.visionValidation ?? null,
+        }));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [previewTargetMeta?.id, previewTargetMeta?.kind, previewTarget?.fileId, projectId]);
+
   const renderFileRow = (kind: FolderEvidenceCategory, file: EvidenceFile) => (
-    <div key={file.id} draggable onDragStart={() => setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file })} onDragEnd={() => setDragPayload(null)} style={{ position: 'relative', border: `1px solid ${C.g100}`, background: C.white, borderRadius: 9, padding: '7px 8px', cursor: 'grab' }}>
+    <div key={file.id} draggable={!readOnly} onDragStart={() => { if (!readOnly) setDragPayload({ kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId, file }); }} onDragEnd={() => setDragPayload(null)} style={{ position: 'relative', border: `1px solid ${C.g100}`, background: C.white, borderRadius: 9, padding: '7px 8px', cursor: readOnly ? 'default' : 'grab' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: 6 }}>
         <div style={{ minWidth: 0 }}>
           <div title={file.name} style={{ fontSize: 13, color: C.g800, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
@@ -234,10 +255,10 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     return createPortal(
       <div style={{ position: 'fixed', top: openFileMenu.top, left, zIndex: 1100, width: menuWidth, border: `1px solid ${C.g200}`, borderRadius: 8, background: C.white, boxShadow: '0 12px 26px rgba(31,47,39,.14)', padding: 3 }}>
         <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setPreviewTargetMeta({ id: openFileMenu.file.id, kind: openFileMenu.kind, catId: selectedCatId, usageItemId: activeItem?.id || selectedUsageItemId }); setShowVisionBoxes(true); setOpenFileMenu(null); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>미리보기</button>
-        <div style={{ height: 1, background: C.g100, margin: '2px 4px' }} />
-        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; openFileEditModal(openFileMenu.kind, openFileMenu.file); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>수정</button>
-        <div style={{ height: 1, background: C.g100, margin: '2px 4px' }} />
-        <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setOpenFileMenu(null); onRemove(openFileMenu.kind, selectedCatId, activeItem?.id || selectedUsageItemId, openFileMenu.file.id); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.danger, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>삭제</button>
+        {!readOnly && <div style={{ height: 1, background: C.g100, margin: '2px 4px' }} />}
+        {!readOnly && <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; openFileEditModal(openFileMenu.kind, openFileMenu.file); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.g800, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>수정</button>}
+        {!readOnly && <div style={{ height: 1, background: C.g100, margin: '2px 4px' }} />}
+        {!readOnly && <button type="button" onClick={(event) => { event.stopPropagation(); fileMenuAnchorRef.current = null; setOpenFileMenu(null); onRemove(openFileMenu.kind, selectedCatId, activeItem?.id || selectedUsageItemId, openFileMenu.file.id); }} style={{ width: '100%', border: 'none', borderRadius: 6, background: 'transparent', color: C.danger, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '6px 4px', textAlign: 'center' }}>삭제</button>}
       </div>,
       document.body,
     );
@@ -247,9 +268,9 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
     if (!previewTarget) return null;
     const previewSrc = previewTarget.previewUrl || `data:image/svg+xml;charset=UTF-8,${makeThumbSvg(previewTarget.kind)}`;
     const canShowImagePreview = Boolean(previewTarget.previewUrl || isImageFile(previewTarget.name));
-    const detections = previewTarget.visionValidation?.detections || [];
+    const detections = previewVisionValidation?.detections || [];
     const hasReviewTargetDetection = detections.some(isVisionDetectionReviewTarget);
-    const previewVisionStatus = previewTarget.visionValidation?.status === 'unsuitable' || hasReviewTargetDetection ? 'unsuitable' : 'suitable';
+    const previewVisionStatus = previewVisionValidation?.status === 'unsuitable' || hasReviewTargetDetection ? 'unsuitable' : 'suitable';
     const showDetections = showVisionBoxes && detections.length > 0 && canShowImagePreview;
     return (
       <div
@@ -298,16 +319,16 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
               })}
             </div>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: previewTarget.visionValidation ? 'minmax(0,1fr) auto' : 'minmax(0,1fr)', gap: 10, alignItems: 'center', marginTop: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: previewVisionValidation ? 'minmax(0,1fr) auto' : 'minmax(0,1fr)', gap: 10, alignItems: 'center', marginTop: 12 }}>
             <div title={previewTarget.name} style={{ minWidth: 0, fontSize: 14, fontWeight: 800, color: C.g800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{previewTarget.name}</div>
-            {previewTarget.visionValidation && (
+            {previewVisionValidation && (
               <span style={{ border: `1px solid ${previewVisionStatus === 'unsuitable' ? '#FFCDD2' : C.g200}`, borderRadius: 999, background: previewVisionStatus === 'unsuitable' ? C.dangerBg : C.bg, color: previewVisionStatus === 'unsuitable' ? C.danger : C.primary, padding: '5px 10px', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>
                 비전 결과 {previewVisionStatus === 'unsuitable' ? '부적합' : '적합'}
               </span>
             )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-            {previewTarget.visionValidation && (
+            {previewVisionValidation && (
               <button type="button" onClick={() => setShowVisionBoxes((value) => !value)} style={{ border: `1px solid ${showVisionBoxes ? C.primary : C.g200}`, borderRadius: 999, background: showVisionBoxes ? C.bg : C.white, color: showVisionBoxes ? C.primary : C.g600, padding: '7px 10px', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 바운더리 박스 {showVisionBoxes ? 'ON' : 'OFF'}
               </button>
@@ -340,7 +361,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                 const items = usageItems.filter((item) => item.categoryId === cat.id);
                 const count = EVIDENCE_SECTIONS.reduce((sum, section) => sum + getFiles(section.id, cat.id).length, 0);
                 const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, cat.id).some((file) => isProblemFile?.(file)));
-                const hasActionRequest = isActionRequestedCat(cat.id) || Boolean(isSupplementTarget?.(cat.id));
+                const hasActionRequest = Boolean(isSupplementTarget?.(cat.id));
                 const active = cat.id === selectedCatId;
                 return (
                   <button key={cat.id} type="button" onClick={() => onSelectCat(cat.id)} style={{ width: '100%', border: `1px solid ${hasProblem || hasActionRequest ? (active ? C.danger : '#FFCDD2') : active ? C.primary : C.g100}`, background: hasProblem || hasActionRequest ? C.dangerBg : C.white, borderRadius: 6, padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', boxShadow: active ? `0 0 0 1px ${hasProblem || hasActionRequest ? 'rgba(229,57,53,.18)' : 'rgba(27,94,59,.18)'}` : 'none' }}>
@@ -372,7 +393,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                   {filteredItems.map((item) => {
                     const active = item.id === activeItem.id;
                     const hasProblem = EVIDENCE_SECTIONS.some((section) => getFiles(section.id, item.categoryId, item.id).some((file) => isProblemFile?.(file)));
-                    const hasActionRequest = isActionRequestedUsageItem(item) || Boolean(isSupplementTarget?.(item.categoryId, item.id));
+                    const hasActionRequest = Boolean(isSupplementTarget?.(item.categoryId, item.id));
                     const hasProblemOrActionRequest = hasProblem || hasActionRequest;
                     return (
                       <div
@@ -398,7 +419,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                           <span style={{ fontSize: 12, color: C.g600, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'right' }}>{item.quantity ?? '-'}</span>
                           <span style={{ fontSize: 12, color: C.g600, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'right' }}>{item.unitPrice ? fmt(item.unitPrice) : '-'}</span>
                           <span style={{ fontSize: 13, color: hasProblemOrActionRequest ? C.danger : active ? C.primary : C.g800, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'right' }}>{fmt(item.amount)}</span>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, alignSelf: 'center' }}>
+                          {!readOnly && <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, alignSelf: 'center' }}>
                             <button
                               type="button"
                               onClick={(event) => {
@@ -420,7 +441,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                             >
                               ×
                             </button>
-                          </div>
+                          </div>}
                         </div>
                         {hasActionRequest && actionRequest?.dueDate && <div style={{ marginTop: 5, fontSize: 11, fontWeight: 800, color: C.g600, background: C.white, border: `1px solid ${C.g200}`, borderRadius: 999, padding: '2px 6px', display: 'inline-flex' }}>기한 {actionRequest.dueDate}</div>}
                       </div>
@@ -428,9 +449,9 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                   })}
                 </div>
               </div>
-              <button type="button" aria-label="사용내역서 세부 항목 추가" onClick={onAddUsageItem} style={{ minHeight: 44, width: '100%', border: `1px dashed ${C.light}`, borderRadius: 6, background: '#FCFEFD', color: C.primary, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+              {!readOnly && <button type="button" aria-label="사용내역서 세부 항목 추가" onClick={onAddUsageItem} style={{ minHeight: 44, width: '100%', border: `1px dashed ${C.light}`, borderRadius: 6, background: '#FCFEFD', color: C.primary, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
                 <PlusIcon size={15} />
-              </button>
+              </button>}
             </div>
           </div>
 
@@ -438,7 +459,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
             <div className="usage-detail-y-scroll" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, maxHeight: 532, overflowY: 'auto', paddingRight: 0 }}>
               {EVIDENCE_SECTIONS.map((section) => {
                 const files = getFiles(section.id, selectedCatId, activeItem?.id);
-                const uploadButton = (compact = false) => (
+                const uploadButton = (compact = false) => readOnly ? null : (
                   <button type="button" aria-label={`${section.label} 업로드`} onClick={() => onUpload(section.id, selectedCatId, activeItem?.id || selectedUsageItemId)} style={{ width: compact ? 24 : 32, height: compact ? 24 : 32, border: `1px solid ${C.light}`, borderRadius: 999, background: C.white, color: C.primary, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                     <span aria-hidden="true" style={{ position: 'relative', width: compact ? 12 : 14, height: compact ? 12 : 14, display: 'inline-block' }}>
                       <span style={{ position: 'absolute', left: 0, top: compact ? 5 : 6, width: compact ? 12 : 14, height: 2, borderRadius: 999, background: C.primary }} />
@@ -447,7 +468,7 @@ export default function UsageDetailFileView({ cats, usageItems, selectedCatId, s
                   </button>
                 );
                 return (
-                  <div key={section.id} onDragOver={(event) => event.preventDefault()} onDrop={() => dropInto(section.id, selectedCatId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 8, background: C.white, padding: 11 }}>
+                  <div key={section.id} onDragOver={(event) => { if (!readOnly) event.preventDefault(); }} onDrop={() => dropInto(section.id, selectedCatId)} style={{ border: `1px solid ${C.g200}`, borderRadius: 8, background: C.white, padding: 11 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                         <span style={{ fontSize: 13, fontWeight: 800, color: C.g800 }}>{section.label}</span>

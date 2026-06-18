@@ -114,7 +114,9 @@ export function UsageDetailVerificationOverlay({ step, message }: UsageDetailVer
                 aria-label="유효성 검증 진행률"
                 style={{ height: 10, borderRadius: 999, background: C.g100, border: `1px solid ${C.g200}`, overflow: 'hidden' }}
               >
-                <div style={{ width: `${progress}%`, height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${C.primary}, #56B881)`, transition: 'width 180ms linear' }} />
+                <div style={{ position: 'relative', width: `${progress}%`, minWidth: 28, height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${C.primary}, #56B881)`, overflow: 'hidden', transition: 'width 180ms linear' }}>
+                  <div aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '45%', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent)', animation: 'loadingSlide 1.15s linear infinite' }} />
+                </div>
               </div>
             </div>
           </div>

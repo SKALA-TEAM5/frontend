@@ -4,7 +4,7 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CenterModal from '../../components/ui/CenterModal';
 import { getAgentFailureMessage, type AgentFailureTarget } from '../../lib/agent-failure';
-import { getLatestValidation, getLegalDetail, getValidationStatus, isAgentRunningError, runLegalAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
+import { getAgentButtonStates, getLatestValidation, getLegalDetail, getValidationStatus, isAgentRunningError, isAgentStageRunning, runLegalAgent, waitForAgentButtonEnabled } from '../../lib/agent-api';
 import { ApiClientError } from '../../lib/api-client';
 import { useCurrentUser } from '../../lib/dev-user';
 import { can } from '../../lib/permissions';
@@ -66,7 +66,7 @@ const LEGAL_VALIDATION_POLL_INTERVAL_MS = 4000;
 const LEGAL_VALIDATION_STEPS = ['검증 요청', '법령 기준 대조', '검토 사유 계산', '결과 불러오기'];
 
 const decisionMeta: Record<ValidationDecision, { label: string; color: string; bg: string; border: string }> = {
-  appropriate: { label: '적정', color: C.ok, bg: '#F4FBF6', border: C.light },
+  appropriate: { label: '적정', color: '#247257', bg: '#F4FBF6', border: '#D6EEDB' },
   conditional: { label: '조건부', color: C.warn, bg: C.warnBg, border: '#FFE082' },
   inappropriate: { label: '부적정', color: C.danger, bg: C.dangerBg, border: '#FFCDD2' },
 };
@@ -182,9 +182,9 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
   );
   const selectedCategory = categories.find((item) => item.categoryId === selectedCategoryId) || sortedCategories[0] || null;
   const decisionGroups = [
-    { id: 'inappropriate' as ValidationDecision, label: '부적정', color: C.danger, bg: C.dangerBg, items: sortedCategories.filter((item) => item.decision === 'inappropriate') },
-    { id: 'conditional' as ValidationDecision, label: '조건부', color: C.warn, bg: C.warnBg, items: sortedCategories.filter((item) => item.decision === 'conditional') },
-    { id: 'appropriate' as ValidationDecision, label: '적정', color: C.ok, bg: '#F4FBF6', items: sortedCategories.filter((item) => item.decision === 'appropriate') },
+    { id: 'inappropriate' as ValidationDecision, ...decisionMeta.inappropriate, items: sortedCategories.filter((item) => item.decision === 'inappropriate') },
+    { id: 'conditional' as ValidationDecision, ...decisionMeta.conditional, items: sortedCategories.filter((item) => item.decision === 'conditional') },
+    { id: 'appropriate' as ValidationDecision, ...decisionMeta.appropriate, items: sortedCategories.filter((item) => item.decision === 'appropriate') },
   ];
   const issues = useMemo(() => flattenIssues(categories), [categories]);
   const reviewItems = useMemo(() => flattenReviewItems(categories), [categories]);
@@ -293,6 +293,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       if (!projectId || !usageStatementId) throw new Error('검증 로그 확인에 필요한 ID가 없습니다.');
       await waitForAgentButtonEnabled(projectId, usageStatementId, 'legal', {
         intervalMs: LEGAL_VALIDATION_POLL_INTERVAL_MS,
+        maxAttempts: null,
         tolerateDisabledReason: true,
         onPoll: () => {
           setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
@@ -337,6 +338,17 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       setValidationStatusText('법령 검토가 완료되었습니다.');
       onValidationComplete?.();
     } catch (error) {
+      const buttonStates = projectId && usageStatementId
+        ? await getAgentButtonStates(projectId, usageStatementId).catch(() => null)
+        : null;
+      if (buttonStates && isAgentStageRunning(buttonStates, 'legal')) {
+        setValidationId(usageStatementId ? `legal-${usageStatementId}` : '');
+        setResult(EMPTY_VALIDATION_RESULT);
+        setStatus('loading');
+        setValidationProgress((current) => Math.max(current, 55));
+        setValidationStatusText('legal agent가 법령 기준을 검토 중입니다.');
+        return;
+      }
       setValidationId('');
       setResult(EMPTY_VALIDATION_RESULT);
       setStatus('idle');
@@ -365,16 +377,25 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
     if (sheReviewDecision === 'review_completed') return;
     if (!supplementEntries.length && !reviewRequiredCategories.length) return;
     const firstReviewCategory = reviewRequiredCategories[0];
+    const firstReviewItem = firstReviewCategory?.items.find((item) => item.decision !== 'appropriate') || firstReviewCategory?.items[0];
+    const normalizeSupplementItemName = (itemName?: string) => {
+      const text = (itemName || '').trim();
+      if (!text || text.length > 40 || /법|조|항|호|따라|따른|허용|불가|가능/u.test(text))
+        return '세부항목 확인 필요';
+      return text;
+    };
+    const getSupplementSubject = (categoryName: string, itemName?: string) =>
+      [categoryName, normalizeSupplementItemName(itemName)].filter(Boolean).join(' · ');
     const reason = supplementEntries.length > 0
-      ? supplementEntries.map((issue, index) => `${index + 1}. ${issue.categoryName} 항목의 ${issue.title}: ${issue.requiredAction}`).join('\n')
+      ? supplementEntries.map((issue, index) => `${index + 1}. ${getSupplementSubject(issue.categoryName, issue.title)}: ${issue.requiredAction}`).join('\n')
       : firstReviewCategory
-        ? `1. ${firstReviewCategory.categoryName} 항목의 법령 검증 결과가 ${decisionMeta[firstReviewCategory.decision].label}입니다. 제출 자료를 다시 확인해 주세요.`
+        ? `1. ${getSupplementSubject(firstReviewCategory.categoryName, firstReviewItem?.itemName)}: 법령 검증 결과가 ${decisionMeta[firstReviewCategory.decision].label}입니다. 제출 자료를 다시 확인해 주세요.`
         : '제출 자료를 다시 확인해 주세요.';
     if (!validationId || validationConfirming) return;
     setValidationConfirming(true);
     try {
       onActionRequested?.({
-      title: '부족한 서류 안내',
+      title: '보완 사항 안내',
       reason,
       assignee: '프로젝트 담당자',
       dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR'),
@@ -408,7 +429,9 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       </div>
       <div style={{ margin: '18px auto 0', width: 'min(100%, 680px)' }}>
         <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}>
-          <div style={{ height: '100%', width: `${validationProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} />
+          <div style={{ position: 'relative', height: '100%', width: `${validationProgress}%`, minWidth: 28, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, overflow: 'hidden', transition: 'width .3s' }}>
+            <div aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '45%', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent)', animation: 'loadingSlide 1.15s linear infinite' }} />
+          </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
           {LEGAL_VALIDATION_STEPS.map((step, index) => (
@@ -474,6 +497,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
     const meta = decisionMeta[item.decision];
     const risk = riskMeta[item.riskLevel];
     const selectedDecisionGroup = decisionGroups.find((group) => group.id === item.decision) || decisionGroups[0];
+    const selectedDecisionMeta = decisionMeta[selectedDecisionGroup.id];
 
     return <div style={{ position: 'relative', borderRadius: 'var(--ui-radius-card)' }}>
       <Card style={{ ...validationShellStyle, padding: 0, overflow: 'hidden', border: `1px solid ${meta.border}` }}>
@@ -484,7 +508,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
           </div>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <span style={chipStyle(meta.color, C.white, meta.border)}>{meta.label}</span>
-            <span style={chipStyle(risk.color, C.white)}>리스크 {risk.label}</span>
+            <span style={chipStyle(meta.color, meta.bg, meta.border)}>리스크 {risk.label}</span>
           </div>
         </div>
         <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
@@ -497,7 +521,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
           <div className="thin-x-scroll" style={decisionScrollStyle(selectedDecisionGroup.color)}>
             {selectedDecisionGroup.items.map((category) => {
               const active = category.categoryId === item.categoryId;
-              return <button key={category.categoryId} type="button" onClick={() => setSelectedCategoryId(category.categoryId)} style={{ border: `1px solid ${active ? meta.color : C.g200}`, borderRadius: 999, background: active ? C.white : 'rgba(255,255,255,.7)', color: active ? meta.color : C.g600, padding: '7px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{category.categoryName}</button>;
+              return <button key={category.categoryId} type="button" onClick={() => setSelectedCategoryId(category.categoryId)} style={{ border: `1px solid ${active ? selectedDecisionMeta.color : selectedDecisionMeta.border}`, borderRadius: 999, background: active ? C.white : selectedDecisionMeta.bg, color: selectedDecisionMeta.color, padding: '7px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{category.categoryName}</button>;
             })}
           </div>
         </div>
@@ -546,7 +570,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
                       type="button"
                       aria-label="법령 원문 보기"
                       onClick={(event) => handleLegalSourceOpen(event, tooltipKey, legalText)}
-                      style={{ border: `1px solid ${legalSourcePopup?.key === tooltipKey ? C.primary : C.light}`, borderRadius: 999, background: legalSourcePopup?.key === tooltipKey ? C.primary : C.bg, color: legalSourcePopup?.key === tooltipKey ? C.white : C.primary, padding: '5px 9px', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      style={{ border: `1px solid ${detailMeta.border}`, borderRadius: 999, background: legalSourcePopup?.key === tooltipKey ? detailMeta.color : detailMeta.bg, color: legalSourcePopup?.key === tooltipKey ? C.white : detailMeta.color, padding: '5px 9px', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
                     >
                       법령 원문
                     </button>

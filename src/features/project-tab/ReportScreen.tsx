@@ -598,7 +598,9 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
   const renderReportProgress = () => (
     <div style={{ margin: '16px auto 0', width: 'min(100%, 680px)' }}>
       <div style={{ height: 9, background: C.g100, borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}>
-        <div style={{ height: '100%', width: `${reportProgress}%`, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, transition: 'width .3s' }} />
+        <div style={{ position: 'relative', height: '100%', width: `${reportProgress}%`, minWidth: 28, background: `linear-gradient(90deg,${C.primary},${C.light})`, borderRadius: 99, overflow: 'hidden', transition: 'width .3s' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '45%', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent)', animation: 'loadingSlide 1.15s linear infinite' }} />
+        </div>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
         {REPORT_STEPS.map((step, index) => (
@@ -643,7 +645,7 @@ const ReportScreen = ({ projectId, usageStatementId, validationComplete = false,
           {canGenerateReport ? '보고서 생성 준비 완료' : '보고서 생성 대기'}
         </div>
         <div style={{ fontSize: 14, color: C.g400, marginBottom: 16 }}>
-          {canGenerateReport ? '법령 검증 결과를 기반으로 보고서 초안을 생성할 수 있습니다.' : reportGenerateDisabledReason}
+          {canGenerateReport ? '법령 검증 결과를 기반으로 보고서 초안을 생성할 수 있습니다.' : '법령 검증을 완료해야만 보고서를 생성할 수 있습니다.'}
         </div>
         <button
           type="button"

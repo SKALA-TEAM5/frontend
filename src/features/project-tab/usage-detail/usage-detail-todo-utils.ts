@@ -70,6 +70,16 @@ const getTodoEvidenceDisplayName = (todo: UsageDetailTodoItem) => {
   return '';
 };
 
+const formatTodoReasonForDisplay = (value?: string) => (value || '')
+  .replace(/^.*?증빙\s*매칭\s*:\s*/u, '')
+  .replace(/,\s*허용:\s*[^);]+/gu, '')
+  .replace(/\s*\(\s*유사도\s*:?\s*\d+(?:\.\d+)?\s*\)/gu, '')
+  .replace(/(매칭\s*실패)\s*\(/gu, '$1\n(')
+  .replace(/;\s*/gu, ';\n')
+  .replace(/[^\S\n]+/gu, ' ')
+  .replace(/\n\s+/gu, '\n')
+  .trim();
+
 export const toNounPhraseDetail = (value?: string) => {
   const text = (value || '').trim();
   if (!text) return '';
@@ -178,7 +188,11 @@ export const getTodoGroupLocationMeta = (todo: UsageDetailTodoItem, usageItems: 
 
 export const getTodoDisplayTitle = (todo: UsageDetailTodoItem) => {
   const evidenceName = getTodoEvidenceDisplayName(todo);
-  if (!evidenceName) return todo.title || todo.detail || '보완 사항 확인 필요';
+  if (!evidenceName) {
+    const fallbackTitle = formatTodoReasonForDisplay(todo.title || todo.detail);
+    if (!fallbackTitle) return '보완 사항 확인 필요';
+    return todo.mode === 'remove' ? `${fallbackTitle} 삭제 필요` : fallbackTitle;
+  }
   return `${evidenceName} ${todo.mode === 'add' ? '업로드 필요' : '삭제 필요'}`;
 };
 
@@ -194,9 +208,17 @@ export const buildUsageDetailTodoGroups = (todos: UsageDetailTodoItem[], usageIt
     const location = getTodoGroupLocationMeta(todo, usageItems);
     const agentType = getTodoAgentTypeLabel(todo);
     const locationLabel = `${location.itemName} ∙ ${location.categoryName}`;
+    const usageItem = resolveTodoUsageItem(todo, usageItems);
+    if (usageItem) {
+      return {
+        id: `item:${usageItem.id}`,
+        label: `${usageItem.name} ∙ ${getCategoryDisplayName(usageItem.categoryId)}`,
+        agentType,
+        order: usageItems.findIndex((item) => String(item.id) === String(usageItem.id)),
+      };
+    }
     if (todo.backendTodoId) {
       const backendGroupKey = [
-        agentType,
         todo.usageItemId || normalizeTodoIdText(location.itemName),
         todo.categoryId || normalizeTodoIdText(location.categoryName),
       ].join(':');
@@ -207,18 +229,9 @@ export const buildUsageDetailTodoGroups = (todos: UsageDetailTodoItem[], usageIt
         order: usageItems.length + (todo.categoryId || 0) / 100,
       };
     }
-    const usageItem = resolveTodoUsageItem(todo, usageItems);
-    if (usageItem) {
-      return {
-        id: `item:${agentType}:${usageItem.id}`,
-        label: `${usageItem.name} ∙ ${getCategoryDisplayName(usageItem.categoryId)}`,
-        agentType,
-        order: usageItems.findIndex((item) => String(item.id) === String(usageItem.id)),
-      };
-    }
     if (todo.context && todo.context !== GENERIC_USAGE_ITEM_CONTEXT) {
       return {
-        id: `context:${agentType}:${normalizeTodoIdText(todo.context)}`,
+        id: `context:${normalizeTodoIdText(todo.context)}:${normalizeTodoIdText(location.categoryName)}`,
         label: locationLabel,
         agentType,
         order: usageItems.length + 1,
@@ -226,14 +239,14 @@ export const buildUsageDetailTodoGroups = (todos: UsageDetailTodoItem[], usageIt
     }
     if (todo.categoryId) {
       return {
-        id: `category:${agentType}:${todo.categoryId}`,
+        id: `category:${todo.categoryId}:${normalizeTodoIdText(location.itemName)}`,
         label: locationLabel,
         agentType,
         order: usageItems.length + todo.categoryId / 100,
       };
     }
     return {
-      id: `unassigned:${agentType}`,
+      id: `unassigned:${normalizeTodoIdText(location.itemName)}:${normalizeTodoIdText(location.categoryName)}`,
       label: locationLabel,
       agentType,
       order: usageItems.length + 2,
@@ -245,11 +258,12 @@ export const buildUsageDetailTodoGroups = (todos: UsageDetailTodoItem[], usageIt
     const current = groupMap.get(meta.id);
     if (current) {
       current.items.push(todo);
+      if (!current.agentTypes.includes(meta.agentType)) current.agentTypes.push(meta.agentType);
       return groupMap;
     }
-    groupMap.set(meta.id, { ...meta, items: [todo] });
+    groupMap.set(meta.id, { ...meta, agentTypes: [meta.agentType], items: [todo] });
     return groupMap;
-  }, new Map<string, TodoGroupMeta & { items: UsageDetailTodoItem[] }>()).values())
+  }, new Map<string, TodoGroupMeta & { agentTypes: string[]; items: UsageDetailTodoItem[] }>()).values())
     .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'ko'));
 };
 

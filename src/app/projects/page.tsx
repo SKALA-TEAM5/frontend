@@ -10,7 +10,7 @@ import ProjectInfoEditorModal from '../../components/project/ProjectInfoEditorMo
 import ProjectCard from '../../components/project/ProjectCard';
 import { AppFrame, DateRangePicker } from '../../components/common';
 import { C } from '../../lib/theme';
-import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, USAGE_WORKFLOW_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getSheFilterOptionsFromProjects, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
+import { PROJECT_LIFECYCLE_STATUS_META, PROJECT_STATUS, USAGE_WORKFLOW_STATUS, PROJECT_STATUS_CODE, getProjectLifecycleStatus, getProjectWorkflowLockedReason, getSheFilterOptionsFromProjects, isProjectWorkflowLocked, normalizeUsageWorkflowStatus, type NewProjectInput, type ProjectStatus, type ProjectSummary } from '../../lib/project-data';
 import { listUsers, type BackendUserProfile } from '../../lib/auth-api';
 import { createProject, deleteProject, getProject, listProjects, replaceProjectAssignees, updateProject, type ProjectAssigneeCandidate } from '../../lib/project-api';
 import { ROLE_LABELS, canAccessProject } from '../../lib/permissions';
@@ -405,7 +405,10 @@ function ProjectsPageContent() {
     }
   };
 
-  const openProject = (project: ProjectSummary) => router.push(`/projects/${project.id}`);
+  const openProject = (project: ProjectSummary) => {
+    if (isProjectWorkflowLocked(project)) return;
+    router.push(`/projects/${project.id}`);
+  };
   const openSuspendModal = (project: ProjectSummary) => {
     setSuspendError('');
     setSuspendTarget(project);
@@ -604,6 +607,8 @@ function ProjectsPageContent() {
                             user={user}
                             closingProjectId={closingProjectId}
                             suspendingProjectId={suspendingProjectId}
+                            openDisabled={isProjectWorkflowLocked(project)}
+                            openDisabledReason={getProjectWorkflowLockedReason(project)}
                             onOpen={openProject}
                             onSuspend={openSuspendModal}
                             onCloseProject={openCloseModal}

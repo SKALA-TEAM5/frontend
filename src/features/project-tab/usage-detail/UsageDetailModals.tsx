@@ -24,6 +24,15 @@ const formatCurrencyInput = (value: string) => {
   return Number(numeric).toLocaleString('ko-KR');
 };
 
+const getClassificationNoticeModalWidth = (notices: ClassificationMoveNotice[]) => {
+  const longestCategoryNameLength = notices.reduce((longest, notice) => Math.max(
+    longest,
+    notice.fromCategoryName.length,
+    notice.toCategoryName.length,
+  ), 0);
+  return Math.min(720, Math.max(460, longestCategoryNameLength * 18 + 220));
+};
+
 export function UsageStatementAddItemModal({
   open,
   draft,
@@ -98,8 +107,29 @@ export function UsageStatementClassiModals({
         </div>
       </Modal>
       <CenterModal open={Boolean(rejectedNotice)} title="세부항목 미반영" body={rejectedNotice && <RejectedNoticeCard notice={rejectedNotice} />} actionLabel="확인" onAction={onDismissRejected} />
-      <CenterModal open={classificationMoveNotices.length > 0} title="세부항목 분류 결과" maxWidth={380} body={<ClassificationNoticeList notices={classificationMoveNotices} />} actionLabel="확인" onAction={onDismissClassification} />
+      <ClassificationNoticeModal open={classificationMoveNotices.length > 0} notices={classificationMoveNotices} onDismiss={onDismissClassification} />
     </>
+  );
+}
+
+export function ClassificationNoticeModal({
+  open,
+  notices,
+  onDismiss,
+}: {
+  open: boolean;
+  notices: ClassificationMoveNotice[];
+  onDismiss: () => void;
+}) {
+  return (
+    <CenterModal
+      open={open}
+      title="세부항목 분류 결과"
+      maxWidth={getClassificationNoticeModalWidth(notices)}
+      body={<ClassificationNoticeList notices={notices} />}
+      actionLabel="확인"
+      onAction={onDismiss}
+    />
   );
 }
 
@@ -182,10 +212,10 @@ function ClassificationNoticeList({ notices }: { notices: ClassificationMoveNoti
         {notices.map((notice) => (
           <div key={notice.id} style={{ border: `1px solid ${C.g200}`, borderRadius: 6, background: C.white, padding: '10px 12px' }}>
             <div title={notice.itemName} style={{ fontSize: 14, fontWeight: 800, color: C.g800, marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notice.itemName}</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
-              <span title={notice.fromCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '6px 9px', background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.fromCategoryName}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'max-content auto max-content', alignItems: 'center', justifyContent: 'center', gap: 8, overflowX: 'auto' }}>
+              <span title={notice.fromCategoryName} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', maxWidth: 260, border: `1px solid ${C.g200}`, borderRadius: 8, padding: '6px 10px', background: C.g100, color: C.g600, fontSize: 12, fontWeight: 800, whiteSpace: 'normal', wordBreak: 'keep-all', overflowWrap: 'anywhere', textAlign: 'center', lineHeight: 1.3 }}>{notice.fromCategoryName}</span>
               <span style={{ color: C.primary, fontWeight: 800 }}>→</span>
-              <span title={notice.toCategoryName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, border: `1px solid ${C.light}`, borderRadius: 8, padding: '6px 9px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>{notice.toCategoryName}</span>
+              <span title={notice.toCategoryName} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', maxWidth: 260, border: `1px solid ${C.light}`, borderRadius: 8, padding: '6px 10px', background: C.bg, color: C.primary, fontSize: 12, fontWeight: 800, whiteSpace: 'normal', wordBreak: 'keep-all', overflowWrap: 'anywhere', textAlign: 'center', lineHeight: 1.3 }}>{notice.toCategoryName}</span>
             </div>
           </div>
         ))}
