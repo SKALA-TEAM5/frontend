@@ -321,6 +321,9 @@ const dashboardPanelStyle: CSSProperties = {
   border: `1px solid ${C.g200}`,
   boxShadow: 'var(--ui-shadow-card)',
   background: C.white,
+  minWidth: 0,
+  maxWidth: '100%',
+  boxSizing: 'border-box',
 };
 
 const dashboardAnalysisCardHeight = 258;
@@ -626,11 +629,11 @@ export default function DashboardPage() {
 
   return (
     <AppFrame title="프로젝트 대시보드" mainClassName="dashboard-main">
-      <div style={dashboardPageStyle}>
-      <section style={dashboardTopStyle}>
-        <div style={dashboardTopInnerStyle}>
+      <div className="dashboard-page-shell" style={dashboardPageStyle}>
+      <section className="dashboard-top-section" style={dashboardTopStyle}>
+        <div className="dashboard-top-inner" style={dashboardTopInnerStyle}>
           <div style={{ display: 'grid', minWidth: 0 }}>
-            <section style={dashboardPhotoBackdropStyle}>
+            <section className="dashboard-photo-backdrop" style={dashboardPhotoBackdropStyle}>
               <div style={{ position: 'absolute', inset: -1, borderRadius: 'inherit', background: 'linear-gradient(90deg, rgba(10,28,22,.48) 0%, rgba(10,28,22,.28) 48%, rgba(10,28,22,.08) 100%)' }} />
               <div style={{ position: 'relative', zIndex: 1, height: '100%', minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'stretch', gap: 24, padding: '24px 28px', overflow: 'hidden' }}>
                 <div style={{ minWidth: 0, alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 18 }}>
@@ -658,7 +661,7 @@ export default function DashboardPage() {
               </div>
             </section>
           </div>
-        <aside style={{ alignSelf: 'stretch', height: '100%', position: 'relative', zIndex: 40, overflow: 'visible', border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: 14, boxShadow: 'var(--ui-shadow-card)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
+        <aside className="dashboard-summary-aside" style={{ alignSelf: 'stretch', height: '100%', position: 'relative', zIndex: 40, overflow: 'visible', border: `1px solid ${C.g200}`, borderRadius: 'var(--ui-radius-card)', background: C.white, padding: 14, boxShadow: 'var(--ui-shadow-card)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: 10, minWidth: 0 }}>
           <button type="button" onClick={handleDashboardLogout} disabled={logoutPending} style={{ position: 'absolute', top: 13, right: 13, height: 24, border: `1px solid ${C.g200}`, borderRadius: 999, background: C.white, color: C.g600, padding: '0 9px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: logoutPending ? 'not-allowed' : 'pointer', opacity: logoutPending ? .55 : 1 }}>
             {logoutPending ? '로그아웃 중' : '로그아웃'}
           </button>
@@ -738,14 +741,14 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <div style={{ ...dashboardContentLayerStyle, width: 'min(1240px, calc(100% - 56px))', margin: '0 auto', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
+      <div className="dashboard-content-layer" style={{ ...dashboardContentLayerStyle, width: 'min(1240px, calc(100% - 56px))', margin: '0 auto', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <Card style={{ ...dashboardPanelStyle, padding: '14px 16px', overflow: 'visible' }}>
             <div style={{ ...dashboardPanelHeaderStyle, marginBottom: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 600, color: C.g800 }}>진행 중인 프로젝트 현황</div>
               <Link href="/projects" style={{ fontSize: 13, fontWeight: 600, color: C.primary, textDecoration: 'none' }}>전체 프로젝트 보기 〉</Link>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(170px, 1fr) max-content', gap: 8, marginBottom: 12, minWidth: 0 }}>
+            <div className="project-filter-grid project-filter-grid--compact" style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(170px, 1fr) max-content', gap: 8, marginBottom: 12, minWidth: 0 }}>
               <input aria-label="프로젝트명" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트 검색" style={compactFieldStyle} />
               <input aria-label="프로젝트 번호" value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} placeholder="프로젝트 번호" style={compactFieldStyle} />
               <div style={{ position: 'relative', minWidth: 0 }}>
