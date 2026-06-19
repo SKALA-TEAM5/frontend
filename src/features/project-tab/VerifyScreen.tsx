@@ -140,6 +140,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
   const { user } = useCurrentUser();
   const [status, setStatus] = useState<VerifyStatus>(initialStatus);
   const [selectedCategoryId, setSelectedCategoryId] = useState(4);
+  const [selectedDecisionFilter, setSelectedDecisionFilter] = useState<ValidationDecision | null>(null);
   const [sheReviewDecision, setSheReviewDecision] = useState<SheReviewDecision>(initialSheReviewDecision);
   const [agentFailureTarget, setAgentFailureTarget] = useState<AgentFailureTarget | null>(null);
   const [agentFailureMessage, setAgentFailureMessage] = useState('');
@@ -180,7 +181,10 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
     () => [...categories].sort((a, b) => getDecisionWeight(b.decision) - getDecisionWeight(a.decision) || a.categoryId - b.categoryId),
     [categories],
   );
-  const selectedCategory = categories.find((item) => item.categoryId === selectedCategoryId) || sortedCategories[0] || null;
+  const selectedCategory = categories.find((item) => item.categoryId === selectedCategoryId && (!selectedDecisionFilter || item.decision === selectedDecisionFilter))
+    || categories.find((item) => item.categoryId === selectedCategoryId)
+    || sortedCategories[0]
+    || null;
   const decisionGroups = [
     { id: 'inappropriate' as ValidationDecision, ...decisionMeta.inappropriate, items: sortedCategories.filter((item) => item.decision === 'inappropriate') },
     { id: 'conditional' as ValidationDecision, ...decisionMeta.conditional, items: sortedCategories.filter((item) => item.decision === 'conditional') },
@@ -313,6 +317,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
       setStatus('loading');
       setValidationProgress(25);
       setSelectedCategoryId(4);
+      setSelectedDecisionFilter(null);
       setSheReviewDecision('pending');
       setValidationStatusText('법령 검토를 시작했습니다.');
       if (!projectId || !usageStatementId) throw new Error('검증 API 호출에 필요한 ID가 없습니다.');
@@ -516,13 +521,13 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
           <div style={{ display: 'inline-flex', gap: 4, padding: 4, border: `1px solid ${C.g100}`, borderRadius: 999, background: C.white, width: 'fit-content', maxWidth: '100%' }}>
             {decisionGroups.map((group) => {
               const active = group.id === selectedDecisionGroup.id;
-              return <button key={group.id} type="button" disabled={group.items.length === 0} onClick={() => group.items[0] && setSelectedCategoryId(group.items[0].categoryId)} style={{ border: 'none', background: active ? group.color : 'transparent', color: group.items.length === 0 ? C.g400 : active ? C.white : C.g600, borderRadius: 999, padding: '7px 11px', fontSize: 13, fontWeight: 800, fontFamily: 'inherit', cursor: group.items.length === 0 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>{group.label} {group.items.length}</button>;
+              return <button key={group.id} type="button" disabled={group.items.length === 0} onClick={() => { if (!group.items[0]) return; setSelectedDecisionFilter(group.id); setSelectedCategoryId(group.items[0].categoryId); }} style={{ border: 'none', background: active ? group.color : 'transparent', color: group.items.length === 0 ? C.g400 : active ? C.white : C.g600, borderRadius: 999, padding: '7px 11px', fontSize: 13, fontWeight: 800, fontFamily: 'inherit', cursor: group.items.length === 0 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>{group.label} {group.items.length}</button>;
             })}
           </div>
           <div className="thin-x-scroll" style={decisionScrollStyle(selectedDecisionGroup.color)}>
             {selectedDecisionGroup.items.map((category) => {
-              const active = category.categoryId === item.categoryId;
-              return <button key={category.categoryId} type="button" onClick={() => setSelectedCategoryId(category.categoryId)} style={{ border: `1px solid ${active ? selectedDecisionMeta.color : selectedDecisionMeta.border}`, borderRadius: 999, background: active ? C.white : selectedDecisionMeta.bg, color: selectedDecisionMeta.color, padding: '7px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{category.categoryName}</button>;
+              const active = category.categoryId === item.categoryId && category.decision === selectedDecisionGroup.id;
+              return <button key={`${category.decision}-${category.categoryId}`} type="button" onClick={() => { setSelectedDecisionFilter(selectedDecisionGroup.id); setSelectedCategoryId(category.categoryId); }} style={{ border: `1px solid ${active ? selectedDecisionMeta.color : selectedDecisionMeta.border}`, borderRadius: 999, background: active ? C.white : selectedDecisionMeta.bg, color: selectedDecisionMeta.color, padding: '7px 12px', fontFamily: 'inherit', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{category.categoryName}</button>;
             })}
           </div>
         </div>
@@ -614,8 +619,8 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
         {list.map((issue) => {
           const meta = decisionMeta[issue.decision];
           const targetCategory = categories.find((item) => item.categoryName === issue.categoryName);
-          const selected = targetCategory?.categoryId === selectedCategory?.categoryId;
-          return <button key={`${issue.categoryName}-${issue.title}`} type="button" onClick={() => targetCategory && setSelectedCategoryId(targetCategory.categoryId)} style={{ width: '100%', border: `1px solid ${selected ? meta.color : meta.border}`, borderRadius: 'var(--ui-radius-panel)', background: selected ? meta.bg : C.white, padding: 13, textAlign: 'left', fontFamily: 'inherit', cursor: targetCategory ? 'pointer' : 'default', boxShadow: selected ? '0 10px 20px rgba(31,55,43,.10)' : 'none' }}>
+          const selected = targetCategory?.categoryId === selectedCategory?.categoryId && targetCategory?.decision === selectedCategory?.decision;
+          return <button key={`${issue.categoryName}-${issue.title}`} type="button" onClick={() => { if (!targetCategory) return; setSelectedDecisionFilter(targetCategory.decision); setSelectedCategoryId(targetCategory.categoryId); }} style={{ width: '100%', border: `1px solid ${selected ? meta.color : meta.border}`, borderRadius: 'var(--ui-radius-panel)', background: selected ? meta.bg : C.white, padding: 13, textAlign: 'left', fontFamily: 'inherit', cursor: targetCategory ? 'pointer' : 'default', boxShadow: selected ? '0 10px 20px rgba(31,55,43,.10)' : 'none' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start', marginBottom: 9 }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: meta.color, marginBottom: 4 }}>{issue.categoryName}</div>
