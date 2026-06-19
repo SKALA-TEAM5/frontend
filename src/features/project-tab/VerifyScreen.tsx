@@ -498,6 +498,7 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
     const risk = riskMeta[item.riskLevel];
     const selectedDecisionGroup = decisionGroups.find((group) => group.id === item.decision) || decisionGroups[0];
     const selectedDecisionMeta = decisionMeta[selectedDecisionGroup.id];
+    const visibleDetails = item.items.filter((detail) => detail.decision === selectedDecisionGroup.id);
 
     return <div style={{ position: 'relative', borderRadius: 'var(--ui-radius-card)' }}>
       <Card style={{ ...validationShellStyle, padding: 0, overflow: 'hidden', border: `1px solid ${meta.border}` }}>
@@ -541,11 +542,11 @@ const VerifyScreen = ({ projectId, usageStatementId, initialStatus = 'idle', ini
         <div style={{ position: 'relative', border: `1px solid ${C.g100}`, borderRadius: 'var(--ui-radius-panel)', overflow: 'hidden' }}>
           <div style={{ padding: '11px 12px', background: '#F7F9F8', borderBottom: `1px solid ${C.g100}`, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
             <div style={{ fontSize: 14, fontWeight: 800, color: C.g800 }}>세부 항목</div>
-            <div style={{ fontSize: 12, fontWeight: 750, color: C.g500 }}>{item.items.length}건</div>
+            <div style={{ fontSize: 12, fontWeight: 750, color: C.g500 }}>{visibleDetails.length}건</div>
           </div>
           <div style={{ padding: 12, display: 'grid', gap: 10 }}>
-            {item.items.length === 0 && <div style={{ fontSize: 13, fontWeight: 700, color: C.g500, lineHeight: 1.5 }}>legal agent가 확인한 세부항목 결과가 없습니다.</div>}
-            {item.items.map((detail, index) => {
+            {visibleDetails.length === 0 && <div style={{ fontSize: 13, fontWeight: 700, color: C.g500, lineHeight: 1.5 }}>{selectedDecisionMeta.label} 세부항목 결과가 없습니다.</div>}
+            {visibleDetails.map((detail, index) => {
               const detailMeta = decisionMeta[detail.decision];
               const legalText = detail.legalBasis
                 .map((basis) => {
